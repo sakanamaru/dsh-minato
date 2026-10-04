@@ -1190,6 +1190,7 @@ namespace Dsht.Gui.Avalonia
         {
             ContentControl body = this.FindControl<ContentControl>("Body");
             if (body == null) return;
+            _liveFields.Clear();   // ★ 马上要建新树 ✓ 旧字段的引用作废 ✓（页面重建时会重新注册 ✓✓）
             ApplyChrome();
             DetailHost = null;
             // 页面外面包一层 Grid ✓ 把 toast 作为**浮层**加在最后 ✓✓
@@ -1319,7 +1320,9 @@ namespace Dsht.Gui.Avalonia
                 {
                     // 只在概览/看板页刷 ✓ 且**不打断**正在跑的刷新 ✓
                     // （跳过本拍 ✗ 不排队 ✓ —— 0.5 秒间隔时若排队会连环补拍 ✗ 变成永不停 ✓✓）
-                    if (IsOverviewLike && !_busy) Refresh();
+                    // ★ 用**字段级刷新** ✗ 不整页重建 ✓✓（用户要求："可以只字段刷新吗" ✓
+                    //   整页重建会丢滚动/焦点/下拉展开 + 触发整页淡入 ✗ 观感就是"整页闪一下" ✗）
+                    if (IsOverviewLike && !_busy) RefreshFieldsOnly();
                 };
                 _autoTimer.Start();
             }
@@ -1330,6 +1333,36 @@ namespace Dsht.Gui.Avalonia
             ApplyAutoRefresh(val);
             SetConfig("gui_auto_refresh", val == null || val.Trim().Length == 0 ? "off" : val.Trim());
         }
+
+        // —— 字段级刷新（2026-10-04 用户要求："自动刷新回整页刷新，可以只字段刷新吗" ✓✓）——
+        //   ✗ 原来每一拍都 `BuildShell()` **重建整棵视觉树** ✗ →
+        //     滚动位置回到顶部、焦点丢失、展开的下拉收起、**整页还淡入 160ms** ✗✗ = 观感"整页闪一下" ✓
+        //   ✓ 现在：页面把"会变的字段"注册进来 ✓ 自动刷新那一拍**只重算并改 Text** ✗ 不重建 ✓✓
+        private sealed class LiveField { public Action Apply; }
+        private readonly List<LiveField> _liveFields = new List<LiveField>();
+        private bool _silentRefresh;
+        /// <summary>注册一个"会变的字段"：apply 里重算并写回界面 ✓（BuildShell 会清空注册表 ✓ 因为那是新树 ✓）。</summary>
+        public void Live(Action apply) { if (apply != null) _liveFields.Add(new LiveField { Apply = apply }); }
+        /// <summary>最常见的字段：一段文字 ✓ —— value 是**取值函数** ✗ 不是建树那一刻的快照 ✗
+        /// （传快照的话字段永远显示旧值 ✗✗ 这正是"看起来没刷新"的经典坑 ✓）。</summary>
+        public global::Avalonia.Controls.TextBlock LiveText(string initial, Func<string> value)
+        {
+            global::Avalonia.Controls.TextBlock tb = new global::Avalonia.Controls.TextBlock { Text = initial };
+            Live(delegate { string v = value(); if (v != null && tb.Text != v) tb.Text = v; });
+            return tb;
+        }
+        /// <summary>只更新已注册字段 ✓（不碰视觉树 → 不丢滚动/焦点/下拉 ✓ 也不触发整页淡入 ✓✓）。</summary>
+        private void RefreshLiveFields()
+        {
+            for (int i = 0; i < _liveFields.Count; i++)
+            {
+                // 单个字段失败**不该拖垮整拍** ✓（那一个不动 ✓ 也不整页报错 ✗ 与全项目"部分失败如实说"一致 ✓）
+                try { _liveFields[i].Apply(); } catch { }
+            }
+        }
+        /// <summary>静默刷新 ✓：照常后台取数据 ✗ 但不重建视觉树 ✓ → 只更新已注册字段 ✓。
+        /// 若当前页**一个字段都没注册** → **退化为整页重建** ✓（免得"刷新了却什么都没动" ✗✗ 更难查 ✓）。</summary>
+        public void RefreshFieldsOnly() { _silentRefresh = true; RefreshCore(); }
 
         // —— DeepSeek 余额检测（2026-10-02 用户要求 ✓✓）——
         private Dsht.Gui.Avalonia.Markers.BalanceSummary _balance;
@@ -1442,9 +1475,16 @@ namespace Dsht.Gui.Avalonia
         ///       已并行化 ✓ 见 RefreshGuardedAsync ✓</summary>
         public void Refresh()
         {
+            _silentRefresh = false;   // ★ 普通刷新 = 要重建整页 ✓（静默刷新走 RefreshFieldsOnly ✓）
+            RefreshCore();
+        }
+
+        private void RefreshCore()
+        {
             if (_busy) { _refreshQueued = true; return; }   // ✓ 不丢 ✓ 排队再刷 ✓
             _busy = true;
-            _loading = true;   // ★ 每次刷新都亮加载浮层 ✓（在 RefreshGuardedAsync 的 finally 里熄灭 ✓）
+            // ★ 静默刷新**不亮加载浮层** ✗（每一拍闪一下那个标记，本身就是"整页在刷"的观感 ✓✓）
+            _loading = !_silentRefresh;
             _ = RefreshGuardedAsync();
         }
 
@@ -1512,7 +1552,13 @@ namespace Dsht.Gui.Avalonia
                 // ★ 后面**还有排队的刷新** → 指示灯继续亮着 ✓（别让中间那笔画完就灭 ✗
                 //   否则"体检→更新"连点时，更新页会有一段时间**没有指示却还在等数据** ✗✗）
                 _loading = _refreshQueued;
-                BuildShell();
+                // ★★ 字段级刷新（2026-10-04 ✓）：静默那一拍**不重建** ✓ 只把注册过的字段重算一遍 ✓✓
+                //   · 有排队 → 还是得重建（排队的是一次完整刷新 ✓ 队列语义优先 ✓）
+                //   · 本页**没注册任何字段** → 退化为整页重建 ✓（否则"刷新了却没动" ✗✗）
+                bool silent = _silentRefresh;
+                _silentRefresh = false;
+                if (silent && !_refreshQueued && _liveFields.Count > 0) RefreshLiveFields();
+                else BuildShell();
                 if (_refreshQueued) { _refreshQueued = false; Refresh(); }   // ✓ 不丢 ✓ 排队再刷 ✓
             }
         }

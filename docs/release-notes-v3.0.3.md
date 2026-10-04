@@ -2,11 +2,11 @@
   <img src="https://raw.githubusercontent.com/sakanamaru/dsh-minato/main/logo.png" alt="dsh-minato" width="180">
 </p>
 
-# dsh-minato 3.0.2 — 2026-10-04（连点修复与余额入口 / click-guard & balance entry）
+# dsh-minato 3.0.3 — 2026-10-04（连点修复、余额入口与只刷字段 / click-guard, balance entry & field-level refresh）
 
 > ⚠️ 非官方工具，由社区独立开发，与 DeepSeek 官方无关。本工具**不是 dsh 插件**：它是独立进程，不注入 dsh，dsh 没装也能用。
 
-**一句话**：修掉两个实际使用中踩到的问题 —— 「更新能连点好几次」（会同时跑多个更新）和「余额配置入口找不到」。
+**一句话**：修掉两个实际使用中踩到的问题（「更新能连点好几次」「余额配置入口找不到」），并把概览/看板的自动刷新从**整页重建**改成**只刷会变的那几个字段**。
 
 **In one line**: two real usability bugs are fixed — repeated clicks launched concurrent updates, and the balance
 key had no discoverable entry point.
@@ -20,6 +20,12 @@ key had no discoverable entry point.
   **A discoverable entry for the balance key** (own Settings group + one-line pointer on the overview page).
   Balance figures stay hidden while unbound, as before.
 
+- **概览 / 看板改成「只刷字段」**（用户要求："自动刷新回整页刷新，可以只字段刷新吗"）：原来每一拍都**重建整棵视觉树** ✗
+  —— 滚动位置回到顶部、焦点与展开的下拉全丢、整页还淡入 160 毫秒 ✗✗（观感就是"整页闪一下"）。
+  现在页面把**会变的字段**注册进来 ✓ 自动刷新那一拍**只重算并改文字** ✗ 不重建 ✓✓；
+  取值走**每次重算的取值函数** ✓（不是建树那一刻的快照 ✗ —— 传快照就永远显示旧值 ✓）；未注册任何字段的页面**退化为整页重建** ✓
+  （免得"刷新了却什么都没动"更难查 ✓）。**体检卡保持普通卡** ✓（它只在点按钮后变，而那次本来就整页重建 ✓ 顺带保住红/黄配色信号 ✓）。
+  **Field-level refresh**: auto-refresh now updates only the registered fields instead of rebuilding the whole tree.
 ## 修复 / Fixed
 
 - **更新可以连续点好几次** ✗✗：每次点击都会**新起一个 CLI 进程**，点三次就是**三个 `update --yes` 同时跑**
@@ -49,7 +55,7 @@ key had no discoverable entry point.
 
 | 文件 | 说明 |
 |---|---|
-| `dsh-minato-3.0.2-win-x64-setup.exe` (+`.sha256`) | Windows 安装器（双击即装） |
+| `dsh-minato-3.0.3-win-x64-setup.exe` (+`.sha256`) | Windows 安装器（双击即装） |
 | `dsh-minato-win-x64.zip` (+`.sha256`) | Windows 免安装包 |
 | `dsh-minato-linux-x64.tar.gz` (+`.sha256`) | Linux x64 包（`./install.sh`） |
 | `hashes.txt` / `hashes.txt.asc` | 全部产物的 SHA-256，及其 GPG 签名 |

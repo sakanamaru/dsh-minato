@@ -12,8 +12,8 @@ using System.Reflection;
 [assembly: AssemblyDescription("DeepSeek Harness(dsh) 安装/启动/卸载/备份恢复工具箱。v1: SOGR-Momono Dango(QwenPaw/DeepseekAPI-V4-Flash-0731)；v2: DeepSeek DSH(DSH/DeepseekAPI-V4-Flash-0731)；GitHub @sakanamaru")]
 [assembly: AssemblyCompany("SOGR-Momono Dango / DeepSeek DSH / @sakanamaru")]
 [assembly: AssemblyProduct("dsh-minato")]
-[assembly: AssemblyVersion("3.0.2.0")]
-[assembly: AssemblyFileVersion("3.0.2.0")]
+[assembly: AssemblyVersion("3.0.3.0")]
+[assembly: AssemblyFileVersion("3.0.3.0")]
 namespace Dsht.Cli
 {
     /// <summary>V3 CLI 组合根 + 命令面。每个命令的标记行都要与 v2.x 逐字一致（见 v3/tests/compare_markers.ps1）。</summary>
@@ -439,7 +439,7 @@ Console.WriteLine("  config-get | config-set <key> <value>");
 
 
         /// <summary>工具箱版本（源码常量：保证 csc 与 dotnet 两种构建报告一致）。</summary>
-        internal const string ToolkitVersion = "3.0.2";
+        internal const string ToolkitVersion = "3.0.3";
 
         private const string NpmOfficial = "https://registry.npmjs.org";
 

@@ -842,53 +842,91 @@ namespace Dsht.Gui.Avalonia.Shells
             return s;
         }
 
-        private static Control KpiStrip(MainWindow host)
+/// <summary>KPI 口径的**一次计算** ✓（字段级刷新里每拍重算 ✓ 见 KpiAgg ✓）。
+        /// · **整体**视图 → 仍用 CLI 给的精确合计 ✓（口径与 CLI 完全一致 ✓ 不自己算 ✗）
+        /// · **父会话 / 子代理** → 按**当前显示的那些行**重算 ✓（求和是确定的 ✓ 不是猜 ✓）</summary>
+        private sealed class KpiAgg
         {
+            public bool Filtered; public int Count, NonBlank, Live, Subs;
+            public long In, Out, Cache;
+            public double HitPct = -1, Tps = -1;
+        }
+
+        private static KpiAgg Agg(MainWindow host)
+        {
+            KpiAgg a = new KpiAgg();
             SessionsSnapshot d = host.Data;
-            // 用户要求（绿色框那条 ✓✓）：**统计随选择的父子视图变化** ✓
-            //  · **整体**视图 → 仍用 CLI 给的精确合计 ✓（口径与 CLI 完全一致 ✓ 不自己算 ✗）
-            //  · **父会话 / 子代理** → 按**当前显示的那些行**重算 ✓（求和是确定的 ✓ 不是猜 ✓）
             List<SessionRowVm> src = host.ListSource;
             // ★★★ **真机 GUI 冒烟抓到的 bug（截图可见）** ✓✓
-            //   ✗ `filtered = src != null && src.Count != d.Rows.Count` ✗
-            //     → 列表源是**空列表**（Count 0 ✓ 比如页面刚切过来、或该视图下没有行 ✓）时
-            //       `0 != 2` → **filtered = true** ✗ → **对空列表求和 → 四张卡全 0** ✗✗
-            //     → 真机实测：CLI 说 `SESSIONS_OK 2`、图表也画了 2 个会话 ✓
-            //       而 KPI 卡片写着「会话总数 0 · 非空 0 · 运行中 0 · 子代理 0 · 根 0」✗✗ **明显矛盾** ✓
-            //   ✓ 现在：**空源一律按"没有过滤"处理** ✓✓ → 回落到 CLI 的精确合计 ✓（口径与 CLI 一致 ✓）
+            //   ✗ 原来判据是 `src != null && src.Count != d.Rows.Count` ✗
+            //     → 列表源是**空列表**（页面刚切过来 / 该视图下没有行）时 `0 != 2` → **filtered = true** ✗
+            //       → **对空列表求和 → 四张卡全 0** ✗✗（CLI 说 SESSIONS_OK 2、图表也画了 2 个 ✓）
+            //   ✓ 现在：**空源一律按"没有过滤"处理** ✓✓ → 回落到 CLI 的精确合计 ✓
             //     · 只有**非空、而且行数确实与全量不同**时，才认为用户在看子集 ✓
-            bool filtered = src != null && src.Count > 0 && d != null && src.Count != d.Rows.Count;
-            int fCount = 0, fNonBlank = 0, fLive = 0, fSubs = 0;
-            long fIn = 0, fOut = 0, fCache = 0;
-            double hitNum = 0, hitDen = 0, tpsNum = 0, tpsDen = 0;
-            if (filtered)
+            a.Filtered = src != null && src.Count > 0 && d != null && src.Count != d.Rows.Count;
+            if (d == null) return a;
+            if (!a.Filtered)
             {
-                for (int fi = 0; fi < src.Count; fi++)
-                {
-                    SessionRow r = src[fi].Row;
-                    if (r == null) continue;
-                    fCount++;
-                    if (!r.Blank) fNonBlank++;
-                    if (r.Live) fLive++;
-                    if (r.IsSubAgent) fSubs++;
-                    fIn += r.In; fOut += r.Out; fCache += r.CacheRead;
-                    // 加权：命中率按**输入量**加权 ✓ 解码速度按**输出量**加权 ✓（与 CLI 合计口径同源 ✓）
-                    if (r.HitPercent >= 0 && r.In > 0) { hitNum += r.HitPercent * r.In; hitDen += r.In; }
-                    if (r.DecodeTps >= 0 && r.Out > 0) { tpsNum += r.DecodeTps * r.Out; tpsDen += r.Out; }
-                }
+                a.Count = d.Count; a.NonBlank = d.NonBlank; a.Live = d.Live; a.Subs = d.SubAgentCount;
+                a.In = d.TotalIn; a.Out = d.TotalOut; a.Cache = d.TotalCacheRead;
+                a.HitPct = d.TotalHitPercent; a.Tps = d.TotalDecodeTps;
+                return a;
             }
-            string tag = filtered ? (host.SubTab == 2 ? "（子代理）" : "（父会话）") : "";
+            double hitNum = 0, hitDen = 0, tpsNum = 0, tpsDen = 0;
+            for (int fi = 0; fi < src.Count; fi++)
+            {
+                SessionRow r = src[fi].Row;
+                if (r == null) continue;
+                a.Count++;
+                if (!r.Blank) a.NonBlank++;
+                if (r.Live) a.Live++;
+                if (r.IsSubAgent) a.Subs++;
+                a.In += r.In; a.Out += r.Out; a.Cache += r.CacheRead;
+                // 加权：命中率按**输入量**加权 ✓ 解码速度按**输出量**加权 ✓（与 CLI 合计口径同源 ✓）
+                if (r.HitPercent >= 0 && r.In > 0) { hitNum += r.HitPercent * r.In; hitDen += r.In; }
+                if (r.DecodeTps >= 0 && r.Out > 0) { tpsNum += r.DecodeTps * r.Out; tpsDen += r.Out; }
+            }
+            a.HitPct = hitDen > 0 ? hitNum / hitDen : -1;
+            a.Tps = tpsDen > 0 ? tpsNum / tpsDen : -1;
+            return a;
+        }
+
+        /// <summary>KPI 卡的视图后缀 ✓（整体视图 = 空串 ✓）。</summary>
+        private static string KpiTag(MainWindow host)
+        {
+            return Agg(host).Filtered ? (host.SubTab == 2 ? "（子代理）" : "（父会话）") : "";
+        }
+
+        private static Control KpiStrip(MainWindow host)
+        {
+            // ★★ 字段级刷新（2026-10-04 用户要求："自动刷新…可以只字段刷新吗" ✓✓）：
+            //   四张卡改成 KpiCardLive ✓ 每拍用 `Agg(host)` **重算** ✓（行数百来条 ✓ 纯计算 ✓ 便宜 ✓）
+            //   ✗ 不重建视觉树 ✓ → 不丢滚动/焦点 ✓ 也不触发整页淡入 ✓✓
             Grid g = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*,*,*") };
-            g.Children.Add(KpiCard(Symbol.ChatMultiple, "会话总数" + tag, d == null ? "—" : (filtered ? fCount : d.Count).ToString(),
-                "非空 " + (d == null ? "—" : (filtered ? fNonBlank : d.NonBlank).ToString()) + " · dsh 活跃 " + (d == null ? "—" : (filtered ? fLive : d.Live).ToString()) + "（在动看每行状态 ✓「挂着」= 还在 dsh 里但没动 ✓） · 子代理 " + (d == null ? "—" : (filtered ? fSubs : d.SubAgentCount).ToString()) + " / 根 " + (d == null ? "—" : (filtered ? fCount - fSubs : d.RootCount).ToString()), Palette.Text, 0, -1));
-            double hitPct = filtered ? (hitDen > 0 ? hitNum / hitDen : -1) : (d == null ? -1 : d.TotalHitPercent);
-            g.Children.Add(KpiCard(Symbol.Database, "缓存命中率" + tag, PctText(hitPct),
-                "缓存读 " + (d == null ? "—" : SessionRow.Human(filtered ? fCache : d.TotalCacheRead)), Palette.Good, 1, hitPct));
-            double tps = filtered ? (tpsDen > 0 ? tpsNum / tpsDen : -1) : (d == null ? -1 : d.TotalDecodeTps);
-            g.Children.Add(KpiCard(Symbol.Gauge, "解码速度" + tag, TpsText(tps),
-                "tok/s", Palette.Accent, 2, -1));
-            g.Children.Add(KpiCard(Symbol.DataUsage, "累计 token" + tag, d == null ? "—" : SessionRow.Human(filtered ? fIn : d.TotalIn),
-                "输出 " + (d == null ? "—" : SessionRow.Human(filtered ? fOut : d.TotalOut)), Palette.Text, 3, -1));
+            g.Children.Add(KpiCardLive(host, Symbol.ChatMultiple,
+                delegate { return "会话总数" + KpiTag(host); },
+                delegate { SessionsSnapshot d = host.Data; return d == null ? "—" : Agg(host).Count.ToString(); },
+                delegate
+                {
+                    SessionsSnapshot d = host.Data; KpiAgg a = Agg(host);
+                    return "非空 " + (d == null ? "—" : a.NonBlank.ToString()) + " · dsh 活跃 " + (d == null ? "—" : a.Live.ToString())
+                        + "（在动看每行状态 ✓「挂着」= 还在 dsh 里但没动 ✓） · 子代理 " + (d == null ? "—" : a.Subs.ToString())
+                        + " / 根 " + (d == null ? "—" : (a.Count - a.Subs).ToString());
+                }, Palette.Text, 0, null));
+            g.Children.Add(KpiCardLive(host, Symbol.Database,
+                delegate { return "缓存命中率" + KpiTag(host); },
+                delegate { return PctText(Agg(host).HitPct); },
+                delegate { SessionsSnapshot d = host.Data; return "缓存读 " + (d == null ? "—" : SessionRow.Human(Agg(host).Cache)); },
+                Palette.Good, 1, delegate { return Agg(host).HitPct; }));
+            g.Children.Add(KpiCardLive(host, Symbol.Gauge,
+                delegate { return "解码速度" + KpiTag(host); },
+                delegate { return TpsText(Agg(host).Tps); },
+                delegate { return "tok/s"; }, Palette.Accent, 2, null));
+            g.Children.Add(KpiCardLive(host, Symbol.DataUsage,
+                delegate { return "累计 token" + KpiTag(host); },
+                delegate { SessionsSnapshot d = host.Data; return d == null ? "—" : SessionRow.Human(Agg(host).In); },
+                delegate { SessionsSnapshot d = host.Data; return "输出 " + (d == null ? "—" : SessionRow.Human(Agg(host).Out)); },
+                Palette.Text, 3, null));
             return g;
         }
 
@@ -909,6 +947,42 @@ namespace Dsht.Gui.Avalonia.Shells
                 int level = barPercent >= 90 ? 3 : (barPercent >= 70 ? 2 : 1);
                 Border slot = new Border { Margin = new Thickness(0, 8, 0, 0), Child = Meter(barPercent, Palette.HitBrush(level), 4) };
                 s.Children.Add(slot);
+            }
+            Border card = Card(s, new Thickness(0, 0, col == 3 ? 0 : 12, 0), new Thickness(16, 14));
+            Grid.SetColumn(card, col);
+            return card;
+        }
+
+        /// <summary>**字段级更新**版的 KpiCard ✓（同 StatCardLive 的理由 ✓ 2026-10-04 ✓）。</summary>
+        private static Control KpiCardLive(MainWindow host, Symbol icon, Func<string> title, Func<string> value, Func<string> sub, IBrush valueBrush, int col, Func<double> barPercent)
+        {
+            StackPanel s = new StackPanel();
+            Grid head = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*") };
+            Border tile = SoftTile(icon, Palette.Accent, Palette.AccentSoft, 30, 15);
+            Grid.SetColumn(tile, 0);
+            TextBlock label = host.LiveText(title(), title);
+            label.Foreground = Palette.TextDim; label.FontSize = 11.5; label.TextWrapping = TextWrapping.Wrap;
+            label.VerticalAlignment = VerticalAlignment.Center; label.Margin = new Thickness(10, 0, 0, 0);
+            Grid.SetColumn(label, 1);
+            head.Children.Add(tile); head.Children.Add(label);
+            s.Children.Add(head);
+            TextBlock v = host.LiveText(value(), value);
+            v.FontSize = 24; v.FontWeight = FontWeight.SemiBold; v.Foreground = valueBrush; v.Margin = new Thickness(0, 8, 0, 0);
+            s.Children.Add(v);
+            TextBlock sb = host.LiveText(sub(), sub);
+            sb.Foreground = Palette.TextFaint; sb.FontSize = 11; sb.TextWrapping = TextWrapping.Wrap; sb.Margin = new Thickness(0, 2, 0, 0);
+            s.Children.Add(sb);
+            if (barPercent != null && barPercent() >= 0)
+            {
+                Border slot = new Border { Margin = new Thickness(0, 8, 0, 0) };
+                s.Children.Add(slot);
+                host.Live(delegate
+                {
+                    double p = barPercent();
+                    if (p < 0) { slot.Child = null; return; }
+                    int level = p >= 90 ? 3 : (p >= 70 ? 2 : 1);
+                    slot.Child = Meter(p, Palette.HitBrush(level), 4);
+                });
             }
             Border card = Card(s, new Thickness(0, 0, col == 3 ? 0 : 12, 0), new Thickness(16, 14));
             Grid.SetColumn(card, col);
@@ -2156,15 +2230,19 @@ namespace Dsht.Gui.Avalonia.Shells
 
             // —— 运行时事实 ——
             Grid facts = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*,*") };
-            // 桌面端在跑时（端口没监听 ✓ 但 dsh 确实在运行 ✓）→ 显示**桌面端的** PID/启动时间/已运行 ✓✓
-            // （用户要求："概览再更新下 desktop 的 pid 启动时间和已运行" ✓）
-            bool deskUp = st.State == 2 && !string.IsNullOrEmpty(st.DesktopClient);
-            string fPid = deskUp ? st.DesktopPid : st.Pid;
-            string fStart = deskUp ? st.DesktopStart : st.Start;
-            string fUp = deskUp ? st.DesktopUptime : st.Uptime;
-            facts.Children.Add(StatCard(Symbol.NumberSymbol, deskUp ? "桌面端 PID" : "进程 PID", (string.IsNullOrEmpty(fPid) || fPid == "0") ? "—" : fPid, "运'行 dsh 的进程号", Palette.Text, -1, 0, 3));
-            facts.Children.Add(StatCard(Symbol.Calendar, "启动时间", string.IsNullOrEmpty(fStart) ? "—" : fStart, "dsh 启动的时刻", Palette.Text, -1, 1, 3));
-            facts.Children.Add(StatCard(Symbol.Clock, "已运行", string.IsNullOrEmpty(fUp) ? "—" : fUp, "从启动到现在", Palette.Accent, -1, 2, 3));
+            // ★★ 字段级刷新（2026-10-04 用户要求 ✓）：这一页的数字都可能变 → 全部走 StatCardLive ✓
+            //   取值函数**每拍重算** ✓（读 host.X 的最新快照 ✗ 不是建树那一刻的 st ✗✗ —— 传快照就永远显示旧值 ✓）
+            //   桌面端在跑时（端口没监听 ✓ 但 dsh 确实在运行 ✓）→ 显示**桌面端的** PID/启动时间/已运行 ✓✓
+            facts.Children.Add(StatCardLive(host, Symbol.NumberSymbol,
+                delegate { return DeskUp(host.Status) ? "桌面端 PID" : "进程 PID"; },
+                delegate { StatusSnapshot s2 = host.Status; string p2 = DeskUp(s2) ? s2.DesktopPid : s2.Pid; return (string.IsNullOrEmpty(p2) || p2 == "0") ? "—" : p2; },
+                delegate { return "运行 dsh 的进程号"; }, Palette.Text, null, 0, 3));
+            facts.Children.Add(StatCardLive(host, Symbol.Calendar, delegate { return "启动时间"; },
+                delegate { StatusSnapshot s2 = host.Status; string v2 = DeskUp(s2) ? s2.DesktopStart : s2.Start; return string.IsNullOrEmpty(v2) ? "—" : v2; },
+                delegate { return "dsh 启动的时刻"; }, Palette.Text, null, 1, 3));
+            facts.Children.Add(StatCardLive(host, Symbol.Clock, delegate { return "已运行"; },
+                delegate { StatusSnapshot s2 = host.Status; string v2 = DeskUp(s2) ? s2.DesktopUptime : s2.Uptime; return string.IsNullOrEmpty(v2) ? "—" : v2; },
+                delegate { return "从启动到现在"; }, Palette.Accent, null, 2, 3));
             s.Children.Add(facts);
 
             // —— 总览指标（把其它页的要点也摆到这里，省得来回点）——
@@ -2172,25 +2250,39 @@ namespace Dsht.Gui.Avalonia.Shells
             SessionsSnapshot se = host.Data;
             BackupSummary bk = host.Backups;
             DoctorSummary dc = host.Doctor;
-            int bundleCount = 0; int thirdCount = 0; string formText = "—";
-            if (pf != null && pf.Ok && pf.Profiles.Count > 0)
-            {
-                for (int i = 0; i < pf.Profiles.Count; i++) { bundleCount += pf.Profiles[i].Bundles; thirdCount += pf.Profiles[i].ThirdParty; }
-                formText = pf.Profiles[0].FormText;
-            }
             Grid row1 = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*,*,*") };
-            // 当前形态：桌面端在跑 → 直接说 desktop ✓（比 profile 的 web 形态更贴近"现在启动的是哪个" ✓）
-            if (deskUp) formText = "desktop（官方桌面端）";
-            row1.Children.Add(StatCard(Symbol.Box, "当前形态", formText, "来自 profile 的 dsh.profile.bundles", Palette.Text, -1, 0, 4));
-            row1.Children.Add(StatCard(Symbol.PuzzlePiece, "profile / 插件", (pf == null ? "—" : pf.Count.ToString()) + " / " + thirdCount, bundleCount + " 个组合包（含官方）", Palette.Text, -1, 1, 4));
-            row1.Children.Add(StatCard(Symbol.ChatMultiple, "会话", se == null ? "—" : se.Count.ToString(), "非空 " + (se == null ? "—" : se.NonBlank.ToString()) + " · dsh 活跃 " + (se == null ? "—" : se.Live.ToString()), Palette.Text, -1, 2, 4));
-            row1.Children.Add(StatCard(Symbol.DataUsage, "累计输入 token", se == null ? "—" : SessionRow.Human(se.TotalIn), "输出 " + (se == null ? "—" : SessionRow.Human(se.TotalOut)), Palette.Text, -1, 3, 4));
+            row1.Children.Add(StatCardLive(host, Symbol.Box, delegate { return "当前形态"; },
+                delegate { return FormText(host.Status, host.Profiles); },
+                delegate { return "来自 profile 的 dsh.profile.bundles"; }, Palette.Text, null, 0, 4));
+            row1.Children.Add(StatCardLive(host, Symbol.PuzzlePiece, delegate { return "profile / 插件"; },
+                delegate { ProfilesSnapshot p2 = host.Profiles; return (p2 == null ? "—" : p2.Count.ToString()) + " / " + ThirdCount(p2); },
+                delegate { return BundleCount(host.Profiles) + " 个组合包（含官方）"; }, Palette.Text, null, 1, 4));
+            row1.Children.Add(StatCardLive(host, Symbol.ChatMultiple, delegate { return "会话"; },
+                delegate { SessionsSnapshot s2 = host.Data; return s2 == null ? "—" : s2.Count.ToString(); },
+                delegate { SessionsSnapshot s2 = host.Data; return "非空 " + (s2 == null ? "—" : s2.NonBlank.ToString()) + " · dsh 活跃 " + (s2 == null ? "—" : s2.Live.ToString()); },
+                Palette.Text, null, 2, 4));
+            row1.Children.Add(StatCardLive(host, Symbol.DataUsage, delegate { return "累计输入 token"; },
+                delegate { SessionsSnapshot s2 = host.Data; return s2 == null ? "—" : SessionRow.Human(s2.TotalIn); },
+                delegate { SessionsSnapshot s2 = host.Data; return "输出 " + (s2 == null ? "—" : SessionRow.Human(s2.TotalOut)); },
+                Palette.Text, null, 3, 4));
             s.Children.Add(row1);
 
             Grid row2 = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*"), RowDefinitions = new RowDefinitions("Auto,12,Auto") };   // 中间那行是**固定 12px 间隔行** ✓ = 田字隔断 ✓（Avalonia 11.2 的 Grid 没有 RowSpacing ✗）
-            Control r2c0 = StatCard(Symbol.Database, "缓存命中率", se == null ? "—" : PctText(se.TotalHitPercent), "越高越省钱", Palette.Good, se == null ? -1 : se.TotalHitPercent, 0, 2); Grid.SetColumn(r2c0, 0); Grid.SetRow(r2c0, 0); row2.Children.Add(r2c0);
-            Control r2c1 = StatCard(Symbol.Gauge, "解码速度", se == null ? "—" : TpsText(se.TotalDecodeTps), "tok/s", Palette.Accent, -1, 1, 2); Grid.SetColumn(r2c1, 1); Grid.SetRow(r2c1, 0); row2.Children.Add(r2c1);
-            Control r2c2 = StatCard(Symbol.Archive, "备份", bk == null || !bk.Ok ? "—" : bk.Count.ToString(), "份（backup-list）", Palette.Text, -1, 0, 2); Grid.SetColumn(r2c2, 0); Grid.SetRow(r2c2, 2); row2.Children.Add(r2c2);
+            Control r2c0 = StatCardLive(host, Symbol.Database, delegate { return "缓存命中率"; },
+                delegate { SessionsSnapshot s2 = host.Data; return s2 == null ? "—" : PctText(s2.TotalHitPercent); },
+                delegate { return "越高越省钱"; }, Palette.Good,
+                delegate { SessionsSnapshot s2 = host.Data; return s2 == null ? -1 : s2.TotalHitPercent; }, 0, 2);
+            Grid.SetColumn(r2c0, 0); Grid.SetRow(r2c0, 0); row2.Children.Add(r2c0);
+            Control r2c1 = StatCardLive(host, Symbol.Gauge, delegate { return "解码速度"; },
+                delegate { SessionsSnapshot s2 = host.Data; return s2 == null ? "—" : TpsText(s2.TotalDecodeTps); },
+                delegate { return "tok/s"; }, Palette.Accent, null, 1, 2);
+            Grid.SetColumn(r2c1, 1); Grid.SetRow(r2c1, 0); row2.Children.Add(r2c1);
+            Control r2c2 = StatCardLive(host, Symbol.Archive, delegate { return "备份"; },
+                delegate { BackupSummary b2 = host.Backups; return b2 == null || !b2.Ok ? "—" : b2.Count.ToString(); },
+                delegate { return "份（backup-list）"; }, Palette.Text, null, 0, 2);
+            Grid.SetColumn(r2c2, 0); Grid.SetRow(r2c2, 2); row2.Children.Add(r2c2);
+            // 体检卡**保持普通卡** ✓（它只在用户点「运行体检」后才变 ✓ 而那次本来就会整页重建 ✓
+            //   所以没必要做成字段 ✗ —— 顺带保住它按错误/提醒变色的信号 ✓✓）
             Control r2c3 = StatCard(Symbol.Stethoscope, "体检", dc == null || !dc.Ok ? "未运行" : dc.Headline, "点下面按钮运行 doctor", dc != null && dc.Error > 0 ? Palette.Bad : (dc != null && dc.Warn > 0 ? Palette.Warn : Palette.Good), -1, 1, 2); Grid.SetColumn(r2c3, 1); Grid.SetRow(r2c3, 2); row2.Children.Add(r2c3);
             s.Children.Add(row2);
 
@@ -2208,12 +2300,18 @@ namespace Dsht.Gui.Avalonia.Shells
                 if (ba.HasNumbers)
                 {
                     Grid bgrid = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*") };
-                    Control bc1 = StatCard(Symbol.DataUsage, "充值余额", ba.Topup.Length > 0 ? ba.Topup : "unknown", "自己充值的余额", Palette.Accent, -1, 0, 2);
+                    Control bc1 = StatCardLive(host, Symbol.DataUsage, delegate { return "充值余额"; },
+                        delegate { BalanceSummary b2 = host.Balance; return b2 != null && b2.Topup.Length > 0 ? b2.Topup : "unknown"; },
+                        delegate { return "自己充值的余额"; }, Palette.Accent, null, 0, 2);
                     Grid.SetColumn(bc1, 0); bgrid.Children.Add(bc1);
-                    Control bc2 = StatCard(Symbol.Box, "活动赠送余额", ba.Granted.Length > 0 ? ba.Granted : "unknown", "平台活动赠送的余额", Palette.Good, -1, 1, 2);
+                    Control bc2 = StatCardLive(host, Symbol.Box, delegate { return "活动赠送余额"; },
+                        delegate { BalanceSummary b2 = host.Balance; return b2 != null && b2.Granted.Length > 0 ? b2.Granted : "unknown"; },
+                        delegate { return "平台活动赠送的余额"; }, Palette.Good, null, 1, 2);
                     Grid.SetColumn(bc2, 1); bgrid.Children.Add(bc2);
                     bcard.Children.Add(bgrid);
-                    if (ba.Total.Length > 0 && ba.Total != "unknown") bcard.Children.Add(T("总计 " + ba.Total, 11.5, Palette.TextDim));
+                    bcard.Children.Add(host.LiveText(
+                        (ba.Total.Length > 0 && ba.Total != "unknown") ? "总计 " + ba.Total : "",
+                        delegate { BalanceSummary b2 = host.Balance; return (b2 != null && b2.Total.Length > 0 && b2.Total != "unknown") ? "总计 " + b2.Total : ""; }));
                 }
                 else
                 {
@@ -2315,6 +2413,72 @@ namespace Dsht.Gui.Avalonia.Shells
             Border card = Card(s, new Thickness(0, 0, col == cols - 1 ? 0 : 12, 0), new Thickness(16, 14));
             Grid.SetColumn(card, col);
             return card;
+        }
+
+        /// <summary>**字段级更新**版的 StatCard ✓（2026-10-04 用户要求："自动刷新…可以只字段刷新吗" ✓✓）。
+        /// 与 StatCard 视觉一致 ✓；区别是 label/value/sub/百分比都传**取值函数** ✗ 不是快照 ✗
+        /// → 自动刷新那一拍**只重算这几个字段并改文字** ✓ **不重建整页** ✓（滚动/焦点/下拉都保住 ✓）。
+        /// 百分比条也会跟着重画 ✓（换一个新的 Meter ✓ 便宜 ✓）。</summary>
+        private static Control StatCardLive(MainWindow host, Symbol icon, Func<string> label, Func<string> value, Func<string> sub, IBrush valueBrush, Func<double> pct, int col, int cols)
+        {
+            StackPanel s = new StackPanel();
+            Grid head = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*") };
+            Border tile = SoftTile(icon, Palette.Accent, Palette.AccentSoft, 30, 15);
+            Grid.SetColumn(tile, 0);
+            TextBlock l = host.LiveText(label(), label);
+            l.FontSize = 11.5; l.Foreground = Palette.TextDim; l.VerticalAlignment = VerticalAlignment.Center;
+            l.Margin = new Thickness(10, 0, 0, 0); l.TextWrapping = TextWrapping.Wrap;
+            Grid.SetColumn(l, 1);
+            head.Children.Add(tile); head.Children.Add(l);
+            s.Children.Add(head);
+            TextBlock v = host.LiveText(value(), value);
+            v.FontSize = 22; v.FontWeight = FontWeight.SemiBold; v.Foreground = valueBrush;
+            v.Margin = new Thickness(0, 8, 0, 0); v.TextTrimming = TextTrimming.CharacterEllipsis;
+            s.Children.Add(v);
+            TextBlock sb = host.LiveText(sub(), sub);
+            sb.FontSize = 11; sb.Foreground = Palette.TextFaint; sb.Margin = new Thickness(0, 2, 0, 0); sb.TextWrapping = TextWrapping.Wrap;
+            s.Children.Add(sb);
+            if (pct != null && pct() >= 0)
+            {
+                Border holder = new Border { Margin = new Thickness(0, 8, 0, 0) };
+                s.Children.Add(holder);
+                host.Live(delegate
+                {
+                    double p = pct();
+                    if (p < 0) { holder.Child = null; return; }
+                    int level = p >= 90 ? 3 : (p >= 70 ? 2 : 1);
+                    holder.Child = Meter(p, Palette.HitBrush(level), 4);
+                });
+            }
+            Border card = Card(s, new Thickness(0, 0, col == cols - 1 ? 0 : 12, 0), new Thickness(16, 14));
+            Grid.SetColumn(card, col);
+            return card;
+        }
+
+        // —— 概览页字段的取值辅助 ✓（字段级刷新：每拍重算 ✓ 见 StatCardLive ✓）——
+        /// <summary>「端口没监听但官方桌面端在跑」✓（此时 PID/启动时间/已运行 要取桌面端的那一组 ✓）。</summary>
+        private static bool DeskUp(StatusSnapshot st) { return st != null && st.Ok && st.State == 2 && !string.IsNullOrEmpty(st.DesktopClient); }
+
+        private static string FormText(StatusSnapshot st, ProfilesSnapshot pf)
+        {
+            // 桌面端在跑 → 直接说 desktop ✓（比 profile 的 web 形态更贴近"现在启动的是哪个" ✓）
+            if (DeskUp(st)) return "desktop（官方桌面端）";
+            if (pf != null && pf.Ok && pf.Profiles.Count > 0) return pf.Profiles[0].FormText;
+            return "—";
+        }
+
+        private static int BundleCount(ProfilesSnapshot pf)
+        {
+            int n = 0;
+            if (pf != null && pf.Ok) for (int i = 0; i < pf.Profiles.Count; i++) n += pf.Profiles[i].Bundles;
+            return n;
+        }
+
+        private static int ThirdCount(ProfilesSnapshot pf)
+        {
+            int n = 0;
+            if (pf != null && pf.Ok) for (int i = 0; i < pf.Profiles.Count; i++) n += pf.Profiles[i].ThirdParty;
+            return n;
         }
 
         private static Control JumpCard(MainWindow host, int section, bool last)

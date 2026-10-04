@@ -6,7 +6,7 @@ All notable changes to **dsh-minato** (unofficial). Full release notes, assets a
 
 ---
 
-## v3.0.2 — 2026-10-04（连点修复与余额入口 / click-guard & balance entry）
+## v3.0.3 — 2026-10-04（连点修复、余额入口与只刷字段 / click-guard, balance entry & field-level refresh）
 
 ### Added / 新增
 
@@ -15,6 +15,7 @@ All notable changes to **dsh-minato** (unofficial). Full release notes, assets a
 
 ### Fixed / 修复
 
+- **概览/看板自动刷新改成「只刷字段」** ✗ 不重建整棵视觉树 ✓（原来每拍重建 → 滚动/焦点/下拉全丢 + 整页淡入 ✗✗）
 - **更新可以连续点好几次** ✗✗：每次点击都会新起一个 CLI 进程 → 点三次 = **三个 `update --yes` 同时跑**
   （npm 安装互相踩 + 连做三次备份 + 回滚点互相覆盖）→ 现在**同时只允许一个 CLI 动作**：
   正在跑时的点击**如实拒绝**并说明在跑什么、已多久 ✗ **不排队** ✗；按钮禁用并显示「进行中：X …」；
