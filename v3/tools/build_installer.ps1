@@ -14,7 +14,7 @@
 param(
     [string]$PayloadDir = "",
     [string]$PayloadZip = "",
-    [string]$Version = "3.0.2-dev",
+    [string]$Version = "3.0.2",
     [string]$Out = "",
     [string]$Roslyn = "",
     # 测试用：保留包内现有清单，不重算 ✓（用来验证"清单不全必须拒绝" ✓）
