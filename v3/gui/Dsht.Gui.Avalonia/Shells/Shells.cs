@@ -570,6 +570,7 @@ namespace Dsht.Gui.Avalonia.Shells
                 Margin = new Thickness(6, 0, 0, 0)
             };
             dep.Click += delegate { host.DeployForMode(); };
+            if (host.ActionBusy) { dep.IsEnabled = false; dep.Opacity = 0.55; }   // ★ 有动作在跑 → 别再引诱人点（2026-10-04 ✓）
             s.Children.Add(dep);
             // **两个都开着时给两个停止按钮** ✓✓（用户要求："如果两个都开着，工具可以选择停止一个" ✓）
             StatusSnapshot st2 = host.Status;
@@ -579,13 +580,13 @@ namespace Dsht.Gui.Avalonia.Shells
             {
                 StackPanel both = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Margin = new Thickness(12, 0, 12, 6) };
                 both.Children.Add(T("两个都在跑 →", 10.5, Palette.Warn));
-                Button sw = GhostButton(T("停 web", 11, Palette.Text), delegate { host.StopWebOnly(); }, true);
+                Button sw = ActionGhost(host, "停 web", delegate { host.StopWebOnly(); });
         // F9 FIX (GUI audit MAJOR): ModeBtnW was declared and never used, so these buttons sized
         // themselves to their labels and the row had visibly unequal widths - the defect the user
         // reported twice. A shared minimum width and centred content fixes it.
         sw.MinWidth = ModeBtnW; sw.HorizontalContentAlignment = global::Avalonia.Layout.HorizontalAlignment.Center;
                 both.Children.Add(sw);
-                Button sd = GhostButton(T("停桌面端", 11, Palette.Text), delegate { host.StopDesktopOnly(); }, true);
+                Button sd = ActionGhost(host, "停桌面端", delegate { host.StopDesktopOnly(); });
         sd.MinWidth = ModeBtnW; sd.HorizontalContentAlignment = global::Avalonia.Layout.HorizontalAlignment.Center;   // F9 FIX
                 both.Children.Add(sd);
                 s.Children.Add(both);
@@ -641,6 +642,7 @@ namespace Dsht.Gui.Avalonia.Shells
             };
             Hover(b, up ? Palette.AccentSoft : Palette.Accent, up ? Palette.CardHover : Palette.AccentHover);
             b.Click += delegate { if (up) host.StopDsh(); else host.StartDsh(); };   // 桌面端在跑时 StopDsh 会如实说"没在监听 3080"✓ 不谎报 ✓
+            if (host.ActionBusy) { b.IsEnabled = false; b.Opacity = 0.55; }   // ★ 同上（2026-10-04 ✓）
             return b;
         }
 
@@ -1339,7 +1341,7 @@ namespace Dsht.Gui.Avalonia.Shells
             List<BackupItem> items = BackupItems.Parse(host.RawOutput);
 
             StackPanel bar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-            Button mk = PrimaryButton("＋ 立即备份", delegate { host.CreateBackup(); });   // 统一到工厂 ✓
+            Button mk = ActionPrimary(host, "＋ 立即备份", delegate { host.CreateBackup(); });   // 走闸门 ✓ 有动作在跑时禁用 ✓
             bar.Children.Add(mk);
             // Honesty fix (GUI final review): the parser keeps invalid entries visible so the two pages agree on the
 // count, but this label says "valid packages" - so it must count only the valid ones, or it contradicts
@@ -1568,6 +1570,32 @@ namespace Dsht.Gui.Avalonia.Shells
             return s;
         }
 
+        /// <summary>动作按钮（幽灵款）✓：已有 CLI 动作在跑时**禁用并显示在跑的是谁** ✗ 不给点 ✗。
+        /// 闸门本身在 MainWindow.RunCliAction ✓（这里只管**别引诱人去点** ✓✓
+        /// —— 2026-10-04 用户在工作电脑上实测"更新可以连续点好几次" ✗）。</summary>
+        private static Button ActionGhost(MainWindow host, string label, Action act)
+        {
+            if (host.ActionBusy)
+            {
+                Button b = GhostButton(T("进行中：" + host.ActionBusyLabel + " …", 11.5, Palette.TextFaint), delegate { }, true);
+                b.IsEnabled = false;
+                return b;
+            }
+            return GhostButton(T(label, 11.5, Palette.Text), act, true);
+        }
+
+        /// <summary>动作按钮（主按钮款）✓ 同上。</summary>
+        private static Button ActionPrimary(MainWindow host, string label, Action act)
+        {
+            if (host.ActionBusy)
+            {
+                Button b = PrimaryButton("进行中：" + host.ActionBusyLabel + " …", delegate { });
+                b.IsEnabled = false;
+                return b;
+            }
+            return PrimaryButton(label, act);
+        }
+
         private static Control UpdateCenterContent(MainWindow host)
         {
             StackPanel s = new StackPanel { Margin = PageMargin, Spacing = 14 };
@@ -1617,7 +1645,7 @@ namespace Dsht.Gui.Avalonia.Shells
                 StackPanel acts = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
                 if (it.Id == "webui")
                 {
-                    acts.Children.Add(GhostButton(T("更新 dsh web（会先备份）", 11.5, Palette.Text), delegate { host.ConfirmUpdateWeb(); }, true));
+                    acts.Children.Add(ActionGhost(host, "更新 dsh web（会先备份）", delegate { host.ConfirmUpdateWeb(); }));
                 }
                 else if (it.Id == "desktop")
                 {
@@ -1762,10 +1790,14 @@ namespace Dsht.Gui.Avalonia.Shells
             upd.Children.Add(T("更新", 12.5, Palette.Text, FontWeight.SemiBold));
             upd.Children.Add(T("检查更新是**只读**的 ✓（只查已装版本、更新通道、最新版本，不动任何东西）；更新会**先备份再更新** ✓ 并保留回滚点 ✓", 11, Palette.TextDim));
             StackPanel updRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-            updRow.Children.Add(PrimaryButton("检查更新", delegate { host.CheckUpdate(); }));
-            updRow.Children.Add(GhostButton(T("执行更新（会先备份）", 11.5, Palette.Text), delegate { host.RunUpdate(); }, true));
+            updRow.Children.Add(ActionPrimary(host, "检查更新", delegate { host.CheckUpdate(); }));
+            updRow.Children.Add(ActionGhost(host, "执行更新（会先备份）", delegate { host.RunUpdate(); }));
             updRow.Children.Add(T("更新通道：" + (UpdateChannelText(host.RawOutput)), 11, Palette.TextFaint));
             upd.Children.Add(updRow);
+            // ★ 正在跑别的动作时**说清楚**为什么按钮点不了 ✓（2026-10-04 用户实测"更新能连点好几次" ✗ → 加了闸门 ✓
+            //   静默禁用会让人以为界面坏了 ✗ 所以这里写明"在跑什么、要等它" ✓✓）
+            if (host.ActionBusy)
+                upd.Children.Add(T("已有动作在进行：" + host.ActionBusyLabel + " —— 结束前上面的按钮不可点 ✓（同时只允许一个，避免多个更新互相踩 ✗）", 11, Palette.Warn));
             s.Children.Add(Card(upd, new Thickness(0), new Thickness(16, 14)));
             int roCount = 0; int swCount = 0;
             for (int ci = 0; ci < items.Count; ci++) { if (items[ci].ReadOnly) roCount++; else if (items[ci].IsSwitch) swCount++; }
@@ -1780,10 +1812,14 @@ namespace Dsht.Gui.Avalonia.Shells
             //   ① 分两组：界面与启动 / dsh·更新·数据·余额 ✓ 没归组的（只读项等）→ 「其它」原样显示 ✓
             //   ② 枚举型配置一律**下拉选择框** ✗ 不再手敲 ✗（lang/host/通道/关闭行为/自启目标/浏览器方式/启动页/刷新间隔 ✓）
             string[] guiKeys = new string[] { "gui_start_page", "gui_auto_refresh", "lang", "browser_mode", "ui_parallel", "scan_children" };
-            string[] dshKeys = new string[] { "auto_start", "auto_start_target", "check_update", "check_dsh_update", "update_channel", "close_action", "host", "keep_backups", "ws", "balance_key" };
+            string[] dshKeys = new string[] { "auto_start", "auto_start_target", "check_update", "check_dsh_update", "update_channel", "close_action", "host", "keep_backups", "ws" };
+            // ★ 余额检测**单独成组**（2026-10-04 用户实测"余额配置入口我没找到" ✗ ——
+            //   原来它混在 "dsh · 更新 · 数据 · 余额" 组的最后一行 ✗ 现在单独一张卡、标题直接写清楚 ✓✓）
+            string[] balKeys = new string[] { "balance_key" };
             List<ConfigItem> placed = new List<ConfigItem>();
             RenderSettingsGroup(s, host, PickItems(items, guiKeys, placed), "界面与启动（含排障开关）");
-            RenderSettingsGroup(s, host, PickItems(items, dshKeys, placed), "dsh · 更新 · 数据 · 余额");
+            RenderSettingsGroup(s, host, PickItems(items, dshKeys, placed), "dsh · 更新 · 数据");
+            RenderSettingsGroup(s, host, PickItems(items, balKeys, placed), "DeepSeek 余额检测（概览页显示充值 / 赠送余额）");
             RenderSettingsGroup(s, host, RestItems(items, placed), "其它");
             // 操作日志改为**右下角 toast** ✓✓（不再在页面流里占一张卡片 ✓）
             return s;
@@ -2185,6 +2221,17 @@ namespace Dsht.Gui.Avalonia.Shells
                 }
                 if (ba.Note.Length > 0) bcard.Children.Add(T(ba.Note, 11, Palette.Warn));
                 s.Children.Add(Card(bcard, new Thickness(0), new Thickness(16, 14)));
+            }
+            else if (host.Balance != null && host.Balance.Ok && !host.Balance.Bound)
+            {
+                // ★ 入口提示（2026-10-04 用户在工作电脑上实测："余额配置入口我没找到" ✗✗）
+                //   余额卡按用户要求**未绑定就隐藏** ✓ —— 但那样连"去哪儿填 key"都无处可寻 ✗
+                //   ✓ 现在：卡仍然隐藏 ✓（余额数字一个不显示 ✓）只给**一行入口** + 一键跳到设置页 ✓✓
+                StackPanel bh2 = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+                bh2.Children.Add(T("DeepSeek 余额", 12, Palette.Text, FontWeight.SemiBold));
+                bh2.Children.Add(T("未绑定 —— 在「设置」页填 balance_key（你自己的 DeepSeek API key）后，这里就会显示充值余额 / 活动赠送余额", 11.5, Palette.TextDim));
+                bh2.Children.Add(GhostButton(T("去设置填写", 11.5, Palette.Accent), delegate { host.SetMainSection(6); }, true));
+                s.Children.Add(Card(bh2, new Thickness(0), new Thickness(16, 12)));
             }
 
             // ★★ 概览自动刷新（2026-10-02 用户要求："快1秒 中3秒 慢5秒 实时0.5秒 暂停和自定义" ✓✓）

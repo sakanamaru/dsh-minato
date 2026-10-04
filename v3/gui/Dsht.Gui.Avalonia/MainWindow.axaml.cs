@@ -210,7 +210,26 @@ namespace Dsht.Gui.Avalonia
         ///   为什么这样：**判据放在 CLI 里** ✓ 界面不用自己猜"是不是第一次" ✓✓（单一事实来源 ✓）</summary>
         public async void CreateBackup()
         {
-            string outp = await System.Threading.Tasks.Task.Run(delegate { return Run(CliPath(), "backup"); });
+            // ★ 写动作也过闸门（2026-10-04 ✓）：这里原来是**独立的 async void** ✗ 绕开了 RunCliAction 的闸门 ✗
+            //   → 连点三次 = **三个 `backup` 同时跑** ✗（三份包 + 各自触发保留份数清理 ✓ 同名文件互相踩 ✓）
+            if (_actionBusy)
+            {
+                int bs = (int)(System.DateTime.UtcNow - _actionStartedAt).TotalSeconds;
+                _actionLog = "「" + _actionBusyLabel + "」还在进行中（已 " + bs + " 秒）—— 等它结束再备份 ✓";
+                ShowToast("「" + _actionBusyLabel + "」还在跑（已 " + bs + " 秒）· 请等它结束 ✗");
+                BuildShell();
+                return;
+            }
+            _actionBusy = true; _actionBusyLabel = "立即备份"; _actionStartedAt = System.DateTime.UtcNow;
+            BuildShell();
+            string outp;
+            try { outp = await System.Threading.Tasks.Task.Run(delegate { return Run(CliPath(), "backup"); }); }
+            finally
+            {
+                // ★ 第一步结束就**放开**闸门 ✓ —— 因为下面"第一次备份"的第二次调用走 `RunCliAction` ✓
+                //   会由它**重新占用**闸门 ✓（这里不放的话，第二步会被自己的闸门拒掉 ✗✗ 那个 bug 更难查 ✓）
+                _actionBusy = false; _actionBusyLabel = "";
+            }
             // ★★★ **F13 修复（GUI 审计 MAJOR —— 靠中文判断成功）** ✓✓
             //   ✗ 原来用 `outp.IndexOf("第一次备份必须指定目录") < 0` 判断"成功了" ✗✗
             //     → 而那句话在 CLI 里是 `T(zh, en)` ✓ → **切到英文后判断永远失败** ✗
@@ -335,8 +354,34 @@ namespace Dsht.Gui.Avalonia
 
         public void SetConfig(string key, string value) { InvalidateCfgCache(); RunCliAction("config-set " + key + " \"" + (value == null ? "" : value.Replace("\"", "")) + "\"", "保存设置 " + key); }
 
+        // —— 动作串行闸门（2026-10-04 用户在工作电脑上实测："更新可以连续点好几次" ✗✗）——
+        private bool _actionBusy;
+        private string _actionBusyLabel = "";
+        private System.DateTime _actionStartedAt = System.DateTime.MinValue;
+        /// <summary>有 CLI 动作在跑 ✓（更新 / 启动 / 备份 / 恢复…）。界面据此禁用按钮 ✗ 不排队 ✗。</summary>
+        public bool ActionBusy { get { return _actionBusy; } }
+        /// <summary>正在跑的动作名 ✓（界面显示"进行中：更新 dsh"）。</summary>
+        public string ActionBusyLabel { get { return _actionBusyLabel; } }
+
         private void RunCliAction(string args, string label)
         {
+            // ★★ 动作串行闸门（2026-10-04 用户在工作电脑上实测："更新可以连续点好几次" ✗✗）
+            //   ✗ 原来每次点击都 fire-and-forget 起一个 CLI 进程 ✗
+            //     → `update --yes` 连点三次 = **三个更新同时跑** ✗✗
+            //       （npm 安装互相踩 + 三次备份 + 回滚点互相覆盖 ✓ 真机上就是这样 ✓）
+            //   ✓ 现在：**同时只允许一个动作** ✓ 正在跑时新的点击**如实拒绝并说明原因** ✗ 不排队 ✗
+            //     （排队会让用户以为点的是别的东西、还会在长任务后面堆一串 ✗ 这里选择"说清楚" ✓✓）
+            if (_actionBusy)
+            {
+                int secs = (int)(System.DateTime.UtcNow - _actionStartedAt).TotalSeconds;
+                _actionLog = "「" + _actionBusyLabel + "」还在进行中（已 " + secs + " 秒）—— 等它结束再操作 ✓ 没有排队的第二个动作 ✓";
+                ShowToast("「" + _actionBusyLabel + "」还在跑（已 " + secs + " 秒）· 请等它结束 ✗");
+                BuildShell();
+                return;
+            }
+            _actionBusy = true;
+            _actionBusyLabel = label;
+            _actionStartedAt = System.DateTime.UtcNow;
             _actionLog = "已发起" + label + "…";
             BuildShell();
             _ = RunCliActionAsync(args, label);
@@ -344,6 +389,8 @@ namespace Dsht.Gui.Avalonia
 
         private async System.Threading.Tasks.Task RunCliActionAsync(string args, string label)
         {
+          try
+          {
             string cli = CliPath();
             // ✗ 原来等待期间**什么都不显示** → 备份 818MB 要几秒，用户感觉"卡住" ✓
             // 现在**先显示"进行中…"** ✓（与体检页同一办法 ✓）→ 用户知道它在干活 ✓✓
@@ -375,6 +422,15 @@ namespace Dsht.Gui.Avalonia
                     }
                     if (su.StartsWith("http", StringComparison.OrdinalIgnoreCase)) OpenUrl(su);
                 }
+          }
+          finally
+          {
+              // ★ 动作结束 → **必须**放开闸门 ✓（成功 / 异常 / 提前 return 都要放开 ✗
+              //   否则按钮会永久卡在"进行中" ✗✗ —— 这比重复点击更难查 ✓）
+              _actionBusy = false;
+              _actionBusyLabel = "";
+              BuildShell();
+          }
         }
         /// <summary>看板上的操作日志（一键启动/停止的结果，原样展示给用户）。</summary>
         private string _actionLog = "";
