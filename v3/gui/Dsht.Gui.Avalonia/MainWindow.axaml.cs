@@ -1377,7 +1377,17 @@ namespace Dsht.Gui.Avalonia
         }
         /// <summary>静默刷新 ✓：照常后台取数据 ✗ 但不重建视觉树 ✓ → 只更新已注册字段 ✓。
         /// 若当前页**一个字段都没注册** → **退化为整页重建** ✓（免得"刷新了却什么都没动" ✗✗ 更难查 ✓）。</summary>
-        public void RefreshFieldsOnly() { _silentRefresh = true; RefreshCore(); }
+        public void RefreshFieldsOnly()
+        {
+            // ★★ 修复（2026-10-05 用户实测："概览刷新设置后停下来了，字段刷新不生效"）：
+            //   概览/看板的四个数据源全走 RunCached（4 秒 TTL）→ 3 秒档**每一拍都命中缓存** →
+            //   取回的还是上一拍的旧数据 → 字段写回去还是同一个值 → 看起来"停了"。
+            //   ✓ 自动刷新这一拍**先清缓存再跑** → 每拍都是新数据。
+            //   （普通刷新/切页继续吃缓存；额外成本只在用户自己开了自动刷新时发生 ✓ 与旁注"每拍都起 CLI 进程"的说法终于一致）
+            InvalidateCliCache();
+            _silentRefresh = true;
+            RefreshCore();
+        }
 
         // —— DeepSeek 余额检测（2026-10-02 用户要求 ✓✓）——
         private Dsht.Gui.Avalonia.Markers.BalanceSummary _balance;
@@ -1659,7 +1669,11 @@ namespace Dsht.Gui.Avalonia
                         global::Avalonia.Threading.Dispatcher.UIThread.Post(delegate
                         {
                             _balance = Dsht.Gui.Avalonia.Markers.BalanceMarkers.Parse(b);
-                            BuildShell();
+                            // ★ 修复（审查点名）：余额到账**只更新字段** 不整页重建 ——
+                            //   原来开着自动刷新时每 60 秒闪一下 + 滚动回顶，恰好破坏字段级刷新要保护的体验。
+                            //   本页没注册字段（如刚切走）→ 退化为整页重建（数据不丢）。
+                            if (_liveFields.Count > 0) RefreshLiveFields();
+                            else BuildShell();
                         });
                     });
                 }
