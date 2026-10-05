@@ -6,6 +6,32 @@ All notable changes to **dsh-minato** (unofficial). Full release notes, assets a
 
 ---
 
+## v3.0.4 — 2026-10-05（四路审查修复 / fixes from a four-way review）
+
+### Fixed / 修复
+
+- **桥接插件丢弃 active=false** ✗✗（高）：buildSnapshot 只写 true，"挂着（dsh 内未动）"三态分支永远走不到 → 退回 15 分钟启发式。
+  0.2.0 的核心功能只做了一半；JS 测试只测过 true，false 只有 C# 在测——端到端断链。补了 JS 侧断言 ✓
+- **doctor --report 泄漏 balance_key** ✗✗（高）：消毒器词表没有 balance_key，32 位 hex 的 key 也不够 40+ 位规则 →
+  用户外发求助报告即泄漏，与报告自称"（脱敏）"矛盾。消毒词表已补 ✓
+- **体检期间排队的刷新被永久丢弃**（高）：RunDoctorNow 完成回调不处理 _refreshQueued → 页面停在旧数据还多闪一次 ✓ 已对齐
+  RefreshGuardedAsync 的队列处理 ✓
+- **看板 KPI 继承会话页旧快照**（高）：用过"非空"筛选再切看板，四张卡显示子集之和 + 错误的"（父会话）"标签 →
+  聚合只在会话页才信 ListSource ✓
+- **auto_start_target 缺 CONFIG 行**：GUI 设置页永远渲染不出"开机自启启动什么"（模型/白名单/序列化全有，就缺输出）✓
+- **balance_key 三处明文露出**（中）：config-get 回显明文、设置页无掩码、保存时 toast 弹完整命令 → CLI 只报 set/unset ✓
+  设置页改专用编辑器（不回显 / 留空=保持 / 清除=解绑 ✓）、toast 打码 ✓
+- **备份结果弹的是上一个动作的旧文案**（中）：BACKUP_FAIL 等真实错误用户看不到 ✓
+- **balance_key 允许换行**（低→堵上）：自由文本键拒绝 CR/LF，防 launcher.config 行注入 ✓
+
+### Known / 已知（本轮未修，如实列）
+
+- GUI 字符串拼命令行的系统性习惯（引号拼接而非 ArgumentList）未迁移——当前残余风险为低危旗标注入。
+- Run 的 30 秒硬超时会杀长任务（update/install/大备份可能中途被杀，留下半截备份包）。
+- 概览页状态大徽章不走字段级刷新；配置落盘无 DPAPI/0600 加固、非原子写入。
+
+---
+
 ## v3.0.3 — 2026-10-04（连点修复、余额入口与只刷字段 / click-guard, balance entry & field-level refresh）
 
 ### Added / 新增

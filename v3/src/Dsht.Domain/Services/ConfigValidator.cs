@@ -61,7 +61,11 @@ namespace Dsht.Domain.Services
                 return (double.TryParse(v, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out sec) && sec >= 0.5 && sec <= 3600) ? null : "bad-value";
             }
             // ★ DeepSeek 余额检测的 key（2026-10-02 ✓）：自由文本，空 = 未绑定 ✓；不猜格式 ✗（明文本地存储 ✓ 见 CONFIGNOTE ✓）
-            if (k == "balance_key") return null;
+            if (k == "balance_key")
+            {
+                // 审查修复（安全 Low）：自由文本键不能含换行 ✗ —— 否则可往 launcher.config 注入任意配置行 ✓
+                return (v.IndexOf('\r') >= 0 || v.IndexOf('\n') >= 0) ? "bad-value" : null;
+            }
             return "unknown-key";
         }
 

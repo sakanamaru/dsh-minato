@@ -863,7 +863,8 @@ namespace Dsht.Gui.Avalonia.Shells
             //       → **对空列表求和 → 四张卡全 0** ✗✗（CLI 说 SESSIONS_OK 2、图表也画了 2 个 ✓）
             //   ✓ 现在：**空源一律按"没有过滤"处理** ✓✓ → 回落到 CLI 的精确合计 ✓
             //     · 只有**非空、而且行数确实与全量不同**时，才认为用户在看子集 ✓
-            a.Filtered = src != null && src.Count > 0 && d != null && src.Count != d.Rows.Count;
+            // 审查 H4 修复：只在会话页才信 ListSource ✗ 其它页它是上次留下的旧快照 → 看板会显示子集之和+错误标签 ✗✗
+            a.Filtered = host.IsSessionsSection && src != null && src.Count > 0 && d != null && src.Count != d.Rows.Count;
             if (d == null) return a;
             if (!a.Filtered)
             {
@@ -1992,6 +1993,22 @@ namespace Dsht.Gui.Avalonia.Shells
                     edit.Children.Add(ob);
                 }
             }
+            else if (c.Key == "balance_key")
+            {
+                // ★★ 审查 M1 修复：key 不回显明文 ✗（config-get 只报 set/unset ✓）
+                //   输入新值→保存替换；留空→保持不变；「清除」→解除绑定 ✓（绝不把掩码写回配置 ✗✗）
+                bool hasKey = c.Value != null && c.Value.Trim() == "set";
+                TextBox kb = new TextBox { Text = "", Width = 300, FontSize = 12, Watermark = hasKey ? "已设置——输入新值替换；留空=保持不变" : "未绑定——粘贴你的 DeepSeek API key" };
+                edit.Children.Add(kb);
+                edit.Children.Add(ActionPrimary(host, "保存", delegate
+                {
+                    string nv = kb.Text == null ? "" : kb.Text.Trim();
+                    if (nv.Length > 0) host.SetConfig(c.Key, nv);
+                    else host.ShowToast("留空 = 保持当前 key 不变 ✓ 要解除绑定请点「清除」");
+                }));
+                if (hasKey) edit.Children.Add(ActionGhost(host, "清除（解除绑定）", delegate { host.SetConfig(c.Key, ""); }));
+                edit.Children.Add(T("⚠ key 以明文存在本机配置文件里，只在你自己的机器上 ✓ 不上传 ✓；未绑定则概览页不显示余额卡", 11, Palette.Warn));
+            }
             else
             {
                 TextBox box = new TextBox { Text = c.Value, Width = 300, FontSize = 12 };
@@ -1999,7 +2016,7 @@ namespace Dsht.Gui.Avalonia.Shells
                 Button save = PrimaryButton("保存", delegate { host.SetConfig(c.Key, box.Text == null ? "" : box.Text.Trim()); });
                 edit.Children.Add(save);
                 if (c.Key == "ws") edit.Children.Add(T("留空=自动探测；填了必须存在", 11, Palette.TextFaint));
-                if (c.Key == "balance_key") edit.Children.Add(T("⚠ 明文本地保存（只在你机器上 ✓ 不上传 ✓）；留空=未绑定，概览页不显示余额卡", 11, Palette.Warn));
+
             }
             row.Children.Add(edit);
             return Card(row, new Thickness(0), new Thickness(16, 12));

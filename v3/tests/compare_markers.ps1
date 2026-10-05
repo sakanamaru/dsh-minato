@@ -127,7 +127,7 @@ $cases = @(
     # restore（无参）：有受控备份时会走到"运行中拒绝"闸门（dsh 在跑 → 不写任何东西，安全可比对）。
     # needsService：**只有服务在运行时才允许跑**——否则 v2.x 会真的把受控备份恢复进真实 ~/.dsh。
     @{ name = 'restore (latest)'; args = @('restore'); full = $true; needsService = $true },
-    @{ name = 'config-get';          args = @('config-get'); full = $true; ignore = 'CONFIGNOTE |CONFIG (browser_mode|ui_parallel|scan_children|gui_start_page|gui_auto_refresh|balance_key)( |$)' },
+    @{ name = 'config-get';          args = @('config-get'); full = $true; ignore = 'CONFIGNOTE |CONFIG (browser_mode|ui_parallel|scan_children|gui_start_page|gui_auto_refresh|balance_key|auto_start_target)( |$)' },
     @{ name = 'doctor';               args = @('doctor'); full = $true; ignore = '^\[(OK|WARN|ERROR)\] Integrity |^\[(OK|WARN|ERROR)\] Network |^\[(OK|WARN|ERROR)\] Backup |^\[(OK|WARN|ERROR)\] Workspace 数据大小|另检测到官方桌面端|端口 3080 未监听'; ignoreSummary = $true },
     # doctor --report：比对**报告正文**（postFile 模式）。
     # 忽略：生成时间/Toolkit/系统三行（时间戳与版本必然不同）、自身完整性条目（v2.x 的 exe 在清单里但本地构建

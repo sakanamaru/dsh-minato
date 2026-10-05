@@ -248,6 +248,7 @@ namespace Dsht.Gui.Avalonia
                 //   真因：备份**成功了** ✓ 但这里**没刷新列表** ✗
                 //     → 备份页的「共 N 份」还是旧数字 ✓ → **看起来像没成功** ✓✓
                 //   ✓ 现在：**显示结果 + 立刻 Refresh()** ✓✓（列表马上更新 ✓）
+                _actionLog = "备份结果：" + Environment.NewLine + (outp == null ? "" : outp.Trim());   // 审查 M2 修复：原来弹的是上一个动作的旧文案 ✗ 真实错误用户看不到 ✗✗
                 InvalidateCliCache();   // MAJOR FIX: the backup just wrote; without this the list can serve a pre-backup cache entry
                 BuildShell(); ShowToast(_actionLog);
                 Refresh();   // ✓ 关键：刷新备份列表 ✓✓（原来漏了 ✓）
@@ -387,6 +388,20 @@ namespace Dsht.Gui.Avalonia
             _ = RunCliActionAsync(args, label);
         }
 
+        /// <summary>审查 M1 修复：日志/弹窗里的秘密值打码 ✓ —— config-set balance_key "sk-xxx" → config-set balance_key "***"。
+        /// 找不到引号对就原样返回 ✓（宁可不打码也不截断 ✗ —— 不猜 ✗）。</summary>
+        private static string MaskSecrets(string args)
+        {
+            if (string.IsNullOrEmpty(args)) return args;
+            int i = args.IndexOf("balance_key", StringComparison.Ordinal);
+            if (i < 0) return args;
+            int q1 = args.IndexOf('"', i);
+            if (q1 < 0) return args;
+            int q2 = args.IndexOf('"', q1 + 1);
+            if (q2 < 0) return args;
+            return args.Substring(0, q1 + 1) + "***" + args.Substring(q2);
+        }
+
         private async System.Threading.Tasks.Task RunCliActionAsync(string args, string label)
         {
           try
@@ -394,7 +409,7 @@ namespace Dsht.Gui.Avalonia
             string cli = CliPath();
             // ✗ 原来等待期间**什么都不显示** → 备份 818MB 要几秒，用户感觉"卡住" ✓
             // 现在**先显示"进行中…"** ✓（与体检页同一办法 ✓）→ 用户知道它在干活 ✓✓
-            _actionLog = label + "进行中…（" + args + "）";
+            _actionLog = label + "进行中…（" + MaskSecrets(args) + "）";   // 审查 M1 修复：secret 键的值绝不能进可见文案 ✗
             // ★★★ **F4 修复（GUI 审计 MAJOR —— 我上一轮清早了）** ✓✓
             //   ✗ 原来在**写之前**就 `InvalidateCliCache()` ✗ → 紧接着的 `Refresh()`（318 行 ✓）
             //     **把写前状态缓存进去了** ✗✗ → 写完成后最后一次 `Refresh()`（321 行 ✓）
@@ -1582,9 +1597,11 @@ namespace Dsht.Gui.Avalonia
                 _doctor = SummaryMarkers.ParseDoctor(full);   // 汇总行在末尾 ✓ 解析器按前缀认 ✓
                 global::Avalonia.Threading.Dispatcher.UIThread.Post(delegate
                 {
-                    _loading = false;
+                    // 审查 H3 修复：体检期间排队的刷新不能丢 ✗（与 RefreshGuardedAsync.finally 同一套 ✓）
                     _busy = false;
+                    _loading = _refreshQueued;
                     BuildShell();
+                    if (_refreshQueued) { _refreshQueued = false; Refresh(); }
                 });
             });
         }

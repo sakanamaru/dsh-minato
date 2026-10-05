@@ -498,6 +498,7 @@ namespace Dsht.Cli
             Console.WriteLine("CONFIG update_channel " + _cfg.UpdateChannel);
             Console.WriteLine("CONFIG close_action " + _cfg.CloseAction);
             Console.WriteLine("CONFIG auto_start " + (_cfg.AutoStart ? "on" : "off"));
+            Console.WriteLine("CONFIG auto_start_target " + _cfg.AutoStartTarget);   // 审查修复：漏了这行 → GUI 设置页永远渲染不出这一项 ✗
             Console.WriteLine("CONFIG dsh_versions " + _cfg.DshVersions);
             // —— 排障开关 ✓（用户要求：""给可能会发生可能不会发生的问题提供解决的选项"" + ""备注一下发生什么问题可以尝试启用和禁用"" ✓✓）——
             Console.WriteLine("CONFIG browser_mode " + _cfg.BrowserMode);
@@ -505,7 +506,7 @@ namespace Dsht.Cli
             Console.WriteLine("CONFIG scan_children " + (_cfg.ScanChildren ? "on" : "off"));
             Console.WriteLine("CONFIG gui_start_page " + _cfg.GuiStartPage);   // ★ 界面偏好（2026-10-02 用户要求"启动默认打开页面可自选" ✓）
             Console.WriteLine("CONFIG gui_auto_refresh " + _cfg.GuiAutoRefresh);   // ★ 概览自动刷新（2026-10-02 ✓：off/0.5/1/3/5/自定义秒 ✓）
-            Console.WriteLine("CONFIG balance_key " + (_cfg.BalanceKey == null ? "" : _cfg.BalanceKey));   // ★ DeepSeek 余额检测（2026-10-02 ✓ 空=未绑定 → 概览页不显示余额卡 ✓）
+            Console.WriteLine("CONFIG balance_key " + ((_cfg.BalanceKey == null ? "" : _cfg.BalanceKey).Trim().Length > 0 ? "set" : ""));   // ★ 审查 M1 修复：不回显明文（终端回滚缓冲留底 ✗）只报 set/unset ✓ GUI 按"留空=保持"工作 ✓
             // 备注行 ✓✓：GUI 原样显示在对应设置项下面 ✓（"出现什么问题时试哪个" ✓）
             Console.WriteLine("CONFIGNOTE browser_mode " + T("【浏览器打不开时改这个】auto=自动（先 snap run firefox → 再直开 → 最后 xdg-open）/ snap=只走 snap（Ubuntu 的 snap 版 firefox 必须这样 ✓）/ direct=只直开 firefox / xdg=只交给系统默认", "when the browser will not open"));
             Console.WriteLine("CONFIGNOTE ui_parallel " + T("【切页卡顿时改这个】on=并行取数据（快 ✓ 默认）/ off=串行（老行为，个别环境下更稳）", "when switching pages feels slow"));

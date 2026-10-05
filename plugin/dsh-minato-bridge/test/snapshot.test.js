@@ -349,6 +349,10 @@ await check("**buildSnapshot 透传活动三件（C# ParseSnapshot 按键取值 
 	const txt = JSON.stringify(snap);
 	assert.ok(txt.indexOf('"active":true') >= 0, "active=true 必须写出 ✓");
 	assert.ok(txt.indexOf('"lastActiveAt":"2026-10-02T00:00:03Z"') >= 0, "lastActiveAt 必须写出 ✓");
+// 审查修复回归（3.0.4）：active=false 必须穿过 buildSnapshot 落盘 ✗
+// 0.2.0 曾只有 ===true 才写 → false 被丢 → C# 永远等不到"明确没动" → 退回 15 分钟启发式 ✗✗
+const snapF = buildSnapshot([{ id: "x", live: true, active: false, seq: 5 }], "2026-10-02T00:00:03Z", 3000);
+assert.ok(JSON.stringify(snapF).indexOf('"active":false') >= 0, "active=false 必须写出 ✓（端到端：C# 侧三态的『明确没动』分支等着它）");
 	assert.ok(txt.indexOf('"seq":7') >= 0, "seq 必须写出 ✓");
 	assert.equal(SNAPSHOT_FORMAT_VERSION, 2, "版本仍是 2（可选字段追加 ✓ v1/v2 解析器都认 ✓）");
 });

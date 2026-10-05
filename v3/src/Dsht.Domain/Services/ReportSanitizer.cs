@@ -12,7 +12,7 @@ namespace Dsht.Domain.Services
             try
             {
                 s = Regex.Replace(s, @"([?&](?:token|key|api[_-]?key|auth|session|password|passwd|secret|cookie)[=])([^&#\s]+)", "$1[REDACTED]", RegexOptions.IgnoreCase);
-                s = Regex.Replace(s, @"(?i)\b(api[_-]?key|password|passwd|secret|cookie|token|session)\b\s*[=:]\s*[^,\s;]+", "$1=[REDACTED]");
+                s = Regex.Replace(s, @"(?i)\b(api[_-]?key|balance[_-]?key|password|passwd|secret|cookie|token|session)\b\s*[=:]\s*[^,\s;]+", "$1=[REDACTED]");
                 s = Regex.Replace(s, @"\b[0-9a-fA-F]{40,}\b", "[REDACTED]");
             }
             catch { }
