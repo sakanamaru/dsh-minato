@@ -60,18 +60,8 @@ namespace Dsht.Gui.Avalonia.Shells
 
             sorts.Children.Add(sl);
 
-            ComboBox box = new ComboBox { MinWidth = 180, SelectedIndex = host.SortMode, FontSize = 12.5 };
-
-            box.Items.Add("最后活动（新→旧）");
-
-            box.Items.Add("输入 token（多→少）");
-
-            box.Items.Add("缓存命中率（低→高）");
-
-            box.Items.Add("上下文压力（高→低）");
-
-            box.Items.Add("解码速度（快→慢）");
-
+            string[] sortOpts = new string[] { "最后活动（新→旧）", "输入 token（多→少）", "缓存命中率（低→高）", "上下文压力（高→低）", "解码速度（快→慢）" };
+            ComboBox box = SlimCombo(sortOpts, host.SortMode, 176);
             box.SelectionChanged += delegate { host.SortMode = box.SelectedIndex; host.Rerender(); };
 
             sorts.Children.Add(box);
@@ -382,7 +372,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
         {
 
-            StackPanel s = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(14, 0, 0, 0) };
+            StackPanel s = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(14, 0, 0, 0), MinWidth = 128 };   // 美学：B6 改 Auto 列后标签与数值贴死 → 最小宽度撑开 ✓
 
             Grid top = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
 
