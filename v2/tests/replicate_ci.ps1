@@ -32,6 +32,14 @@ if (-not (Test-Path -LiteralPath (Join-Path $v2 'dsh_v2.cs'))) {
 }
 Set-Location $Repo
 
+# C2 FIX（2026-10-06 审查）：全程落盘日志 —— 上次"1 项失败"没留完整输出、失败项无从定位 ✗
+# 现在每一步的完整原始输出都写进带时间戳的日志；结尾（无论成败）都打印日志路径 ✓
+$script:logFile = Join-Path $env:TEMP ('v2-ci-replicate-' + (Get-Date -Format 'yyyyMMdd-HHmmss') + '.log')
+Write-Host "全程日志：$script:logFile"
+function LogRaw($title, $text) {
+    Add-Content -LiteralPath $script:logFile -Value ("`r`n===== " + $title + " =====`r`n" + $text) -Encoding UTF8
+}
+
 $csc = "$env:WINDIR\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
 if (-not (Test-Path -LiteralPath $csc)) { Write-Error "找不到 csc：$csc（需 Windows + .NET Framework 4.x）"; exit 2 }
 
@@ -46,8 +54,10 @@ foreach ($cand in @((Get-Command dotnet -ErrorAction SilentlyContinue).Source, (
 
 $script:fail = 0
 function Check($name, $ok, $detail) {
-    if ($ok) { Write-Host ("  [PASS] {0,-34} {1}" -f $name, $detail) }
-    else { Write-Host ("  [FAIL] {0,-34} {1}" -f $name, $detail) -ForegroundColor Red; $script:fail++ }
+    $line = "  [{0}] {1,-34} {2}" -f $(if ($ok) { 'PASS' } else { 'FAIL' }), $name, $detail
+    if ($ok) { Write-Host $line }
+    else { Write-Host $line -ForegroundColor Red; $script:fail++ }
+    Add-Content -LiteralPath $script:logFile -Value $line -Encoding UTF8
 }
 function SrcList {
     return @((Join-Path $v2 'dsh_v2.cs')) + @(Get-ChildItem (Join-Path $v2 'src') -Recurse -Filter *.cs |
@@ -57,10 +67,11 @@ function SrcList {
 # ======================================================= v2 单元测试（CI: Build & run unit tests）
 Write-Host "`n=== [test] v2 unit tests (same-assembly, /define:UNIT) ==="
 $src = SrcList
-& $csc /nologo /target:exe /define:UNIT /out:unittests.exe $src (Join-Path $v2 'tests\unit_tests.cs') /warn:4 | Out-Null
+& $csc /nologo /target:exe /define:UNIT /out:unittests.exe $src (Join-Path $v2 'tests\unit_tests.cs') /warn:4 2>&1 | Out-String | ForEach-Object { LogRaw "csc step output" $_ }
 Check 'unit test build' ($LASTEXITCODE -eq 0) "$($src.Count) 个源文件"
 if ($LASTEXITCODE -eq 0) {
     $u = & .\unittests.exe 2>&1 | Out-String
+    LogRaw 'v2 unit tests full output' $u
     $rc = $LASTEXITCODE
     $sum = (($u -split "`n") | Where-Object { $_ -match 'passed' } | Select-Object -Last 1)
     Check 'unit tests run' ($rc -eq 0) ("rc=$rc  " + $sum.Trim())
@@ -69,10 +80,11 @@ if ($LASTEXITCODE -eq 0) {
 
 # ======================================================= GUI 逻辑测试（CI: GUI logic tests）
 Write-Host "`n=== [test] v2 GUI logic tests ==="
-& $csc /nologo /target:exe /main:GuiLogicTests /out:guilogictests.exe (Join-Path $v2 'gui_v2.cs') (Join-Path $v2 'tests\gui_logic_tests.cs') /warn:4 | Out-Null
+& $csc /nologo /target:exe /main:GuiLogicTests /out:guilogictests.exe (Join-Path $v2 'gui_v2.cs') (Join-Path $v2 'tests\gui_logic_tests.cs') /warn:4 2>&1 | Out-String | ForEach-Object { LogRaw "csc step output" $_ }
 Check 'gui logic build' ($LASTEXITCODE -eq 0) ''
 if ($LASTEXITCODE -eq 0) {
     $g = & .\guilogictests.exe 2>&1 | Out-String
+    LogRaw 'v2 GUI logic tests full output' $g
     $grc = $LASTEXITCODE
     $gsum = (($g -split "`n") | Where-Object { $_ -match 'passed' } | Select-Object -Last 1)
     Check 'gui logic tests run' ($grc -eq 0) ("rc=$grc  " + $gsum.Trim())
@@ -82,6 +94,7 @@ Remove-Item unittests.exe, guilogictests.exe -Force -ErrorAction SilentlyContinu
 
 if ($Fast) {
     Write-Host ""
+    Write-Host "完整日志：$script:logFile"
     if ($script:fail -eq 0) { Write-Host "== v2 测试（快速模式）：全部通过 ==" -ForegroundColor Green; exit 0 }
     Write-Host "== v2 测试（快速模式）：$($script:fail) 项失败 ==" -ForegroundColor Red; exit 1
 }
@@ -90,7 +103,9 @@ if ($Fast) {
 Write-Host "`n=== [test] dotnet build (v2.8 stage 2 core project, net8.0) ==="
 if (-not $dotnet) { Check 'dotnet build core project' $false 'no SDK found' }
 else {
-    & $dotnet build (Join-Path $v2 'DeepSeekHarnessToolkit.Core.csproj') -c Release --nologo 2>&1 | Select-Object -Last 2
+    $dbOut = & $dotnet build (Join-Path $v2 'DeepSeekHarnessToolkit.Core.csproj') -c Release --nologo 2>&1 | Out-String
+    LogRaw 'dotnet build core project' $dbOut
+    ($dbOut -split "`n") | Select-Object -Last 2 | ForEach-Object { Write-Host $_ }
     Check 'dotnet build core project' ($LASTEXITCODE -eq 0) ''
     $dll = Get-Item (Join-Path $v2 'bin\Release\net8.0\DeepSeek Harness Toolkit.dll') -ErrorAction SilentlyContinue
     Check 'core dll produced' ($null -ne $dll) $(if ($dll) { "$([math]::Round($dll.Length/1KB,1)) KB" } else { 'missing' })
@@ -98,17 +113,18 @@ else {
 
 # ======================================================= GUI 变体编译（CI: Compile GUI variants）
 Write-Host "`n=== [test] Compile GUI variants (attached + standalone) ==="
-& $csc /nologo /optimize+ /target:exe /win32icon:icon.ico /out:core_check.exe $src /warn:4 | Out-Null
+& $csc /nologo /optimize+ /target:exe /win32icon:icon.ico /out:core_check.exe $src /warn:4 2>&1 | Out-String | ForEach-Object { LogRaw "csc step output" $_ }
 Check 'core compile guard' ($LASTEXITCODE -eq 0) ''
-& $csc /nologo /optimize+ /target:winexe /win32icon:icon.ico ("/win32manifest:" + (Join-Path $v2 'app.manifest')) /resource:logo.png /out:gui_check.exe (Join-Path $v2 'gui_v2.cs') /warn:4 | Out-Null
+& $csc /nologo /optimize+ /target:winexe /win32icon:icon.ico ("/win32manifest:" + (Join-Path $v2 'app.manifest')) /resource:logo.png /out:gui_check.exe (Join-Path $v2 'gui_v2.cs') /warn:4 2>&1 | Out-String | ForEach-Object { LogRaw "csc step output" $_ }
 Check 'GUI (attached) compile' ($LASTEXITCODE -eq 0) ''
-& $csc /nologo /optimize+ /target:winexe /win32icon:icon.ico ("/win32manifest:" + (Join-Path $v2 'app.manifest')) /resource:logo.png /resource:core_check.exe,DSHCore.exe /out:gui_standalone_check.exe (Join-Path $v2 'gui_v2.cs') /warn:4 | Out-Null
+& $csc /nologo /optimize+ /target:winexe /win32icon:icon.ico ("/win32manifest:" + (Join-Path $v2 'app.manifest')) /resource:logo.png /resource:core_check.exe,DSHCore.exe /out:gui_standalone_check.exe (Join-Path $v2 'gui_v2.cs') /warn:4 2>&1 | Out-String | ForEach-Object { LogRaw "csc step output" $_ }
 Check 'GUI (standalone) compile' ($LASTEXITCODE -eq 0) ''
 Remove-Item core_check.exe, gui_check.exe, gui_standalone_check.exe -Force -ErrorAction SilentlyContinue
 
 # ======================================================= 集成测试（CI: Run integration tests）
 Write-Host "`n=== [test] Run integration tests (stubbed matrix, no real ~/.dsh) ==="
 $i = & powershell -NoProfile -ExecutionPolicy Bypass -File (Join-Path $v2 'tests\integration.ps1') -RepoRoot $v2 2>&1 | Out-String
+LogRaw 'v2 integration tests full output' $i
 $irc = $LASTEXITCODE
 Check 'integration tests' ($irc -eq 0) "rc=$irc"
 if ($irc -ne 0) { (($i -split "`n") | Where-Object { $_ -match 'FAIL' } | Select-Object -First 15) | ForEach-Object { Write-Host "         $_" } }
@@ -116,11 +132,11 @@ else { (($i -split "`n") | Where-Object { $_ -match 'PASS \d+  FAIL' } | Select-
 
 # ======================================================= 发布编译（CI: build job）
 Write-Host "`n=== [build] Release compiles (csc) ==="
-& $csc /nologo /optimize+ /target:exe /win32icon:icon.ico "/out:DeepSeek Harness Toolkit.exe" $src /warn:4 | Out-Null
+& $csc /nologo /optimize+ /target:exe /win32icon:icon.ico "/out:DeepSeek Harness Toolkit.exe" $src /warn:4 2>&1 | Out-String | ForEach-Object { LogRaw "csc step output" $_ }
 Check 'core exe' ($LASTEXITCODE -eq 0) ''
-& $csc /nologo /optimize+ /target:winexe /win32icon:icon.ico ("/win32manifest:" + (Join-Path $v2 'app.manifest')) /resource:logo.png "/out:Toolkit GUI.exe" (Join-Path $v2 'gui_v2.cs') /warn:4 | Out-Null
+& $csc /nologo /optimize+ /target:winexe /win32icon:icon.ico ("/win32manifest:" + (Join-Path $v2 'app.manifest')) /resource:logo.png "/out:Toolkit GUI.exe" (Join-Path $v2 'gui_v2.cs') /warn:4 2>&1 | Out-String | ForEach-Object { LogRaw "csc step output" $_ }
 Check 'Toolkit GUI.exe' ($LASTEXITCODE -eq 0) ''
-& $csc /nologo /optimize+ /target:winexe /win32icon:icon.ico ("/win32manifest:" + (Join-Path $v2 'app.manifest')) /resource:logo.png "/resource:DeepSeek Harness Toolkit.exe,DSHCore.exe" "/out:Toolkit GUI Standalone.exe" (Join-Path $v2 'gui_v2.cs') /warn:4 | Out-Null
+& $csc /nologo /optimize+ /target:winexe /win32icon:icon.ico ("/win32manifest:" + (Join-Path $v2 'app.manifest')) /resource:logo.png "/resource:DeepSeek Harness Toolkit.exe,DSHCore.exe" "/out:Toolkit GUI Standalone.exe" (Join-Path $v2 'gui_v2.cs') /warn:4 2>&1 | Out-String | ForEach-Object { LogRaw "csc step output" $_ }
 Check 'Toolkit GUI Standalone.exe' ($LASTEXITCODE -eq 0) ''
 
 # ======================================================= 发布清单（CI: Regenerate hashes.txt）
@@ -169,6 +185,8 @@ else {
     Remove-Item $zip -Force -ErrorAction SilentlyContinue
 }
 
+Write-Host ""
+Write-Host "完整日志：$script:logFile"
 Write-Host ""
 if ($script:fail -eq 0) { Write-Host "== 本地 CI 复刻：全部通过 ==" -ForegroundColor Green; exit 0 }
 Write-Host "== 本地 CI 复刻：$($script:fail) 项失败 ==" -ForegroundColor Red; exit 1

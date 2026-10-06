@@ -23,8 +23,11 @@ dsh-minato 是一个**本地**工具箱，用于查看和管理你机器上 Deep
 
 | 场景 | 访问什么 | 触发条件 |
 |---|---|---|
-| 检查更新 | 你配置的 npm registry（默认 npmmirror）· GitHub Releases | 你**主动**点「检查更新」或运行 `update-center` 时 |
-| 更新 dsh | 你配置的 npm registry | 你**主动**点「执行更新」时 |
+| 检查更新（update-info / update-center / check） | 你配置的 npm registry · GitHub Releases（取更新日志；插件缺 repository 字段时也会问 npm） | 你**主动**运行，或在「更新」页刷新时 |
+| 更新 dsh（update / install） | 你配置的 npm registry | 你**主动**点「执行更新」并确认后 |
+| 体检（doctor） | 你配置的 npm registry（一次连通性探测） | 你**主动**运行体检时 |
+| 校验安装（verify-install --url） | 你**显式传入的那个 URL** | 只有传了 `--url` 才联网（默认不联网） |
+| DeepSeek 余额（balance） | api.deepseek.com | 仅当你在设置里填了 balance_key、且**主动**查看余额时 |
 | 打开浏览器 | **本机** `127.0.0.1` | 你**主动**启动 dsh web 时 |
 
 **不会**在后台静默联网 ✓；**不会**把任何本地内容发送出去 ✓。
@@ -39,9 +42,10 @@ dsh-minato 是一个**本地**工具箱，用于查看和管理你机器上 Deep
 
 - 本工具自己的配置与日志（在**本工具自己的目录**里）
 - 你**主动**创建的备份（在你指定的目录里）
-- 你**主动**安装时创建的快捷方式与卸载信息
+- 你**主动**创建的快捷方式 / 开机自启入口 / 卸载信息
+- 你**主动确认**后，修改 dsh profile 的插件配置文件（`bridge-install` / 插件「隔离·恢复」只动 `cordis.patch.yml` 这类文本）
 
-**不会**修改 dsh 的任何文件 ✓。
+除此之外**不会**修改 dsh 的任何文件 ✓ —— 会话、存储、运行数据一律只读 ✓。
 
 ## 卸载
 

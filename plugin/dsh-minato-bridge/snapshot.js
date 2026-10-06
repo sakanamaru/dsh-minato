@@ -103,7 +103,7 @@ export function buildSnapshot(sessions, generatedAt, intervalMs) {
 		const header = s.header || {};
 		const row = { id: strOrUndef(s.id) || "", live: s.live === true };
 		// ★ 2026-10-02：实时活动三件（由 apply 按 seq 差值算出后**传进来** ✓ 这里只透传 ✓ 纯函数 ✓）
-		if (s.active === true || s.active === false) row.active = s.active;   // 审查修复：false 也必须落盘——否则"挂着(dsh内未动)"分支永远走不到，退回15分钟启发式 ✗         // ✓ 只写真 true ✓（false 由 markActivity 显式写 ✓）
+		if (s.active === true || s.active === false) row.active = s.active;   // true 与 false 都落盘（3.0.4 修复）：false 让"挂着(dsh 内未动)"分支可达，不退回 15 分钟启发式 ✓
 		put(row, "lastActiveAt", strOrUndef(s.lastActiveAt));
 		put(row, "seq", numOrUndef(s.seq));
 		// 标题可能来自投影单元，也可能来自 header ✓（两种都试 ✓）

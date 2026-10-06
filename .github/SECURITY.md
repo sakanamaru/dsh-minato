@@ -1,6 +1,6 @@
 # Security Policy
 
-dsh-minato is an **unofficial** Windows toolbox for DeepSeek Harness (dsh).
+dsh-minato is an **unofficial**, cross-platform (Windows/Linux) deploy & ops toolkit for DeepSeek Harness (dsh): a CLI, an Avalonia GUI, and an optional read-only bridge plugin.
 It handles your dsh data directory (typically `~/.dsh`), files stored inside it, and can
 delete data — so treat it as a data-management tool, not just a launcher.
 
@@ -16,7 +16,7 @@ CI-generated `hashes.txt` (SHA-256), and the manifest is GPG-signed by the maint
 | Channel | What it provides |
 |---|---|
 | This GitHub repository | Source of truth (MIT) |
-| Its Releases page | The only official binaries (`*.exe`, upload-package zip) |
+| Its Releases page | The only official binaries (`*.exe`, `*.zip`, `*.tar.gz`) |
 | GitHub Actions (this repo's workflows) | The only builder of official binaries |
 
 Third-party mirrors, cloud-drive re-uploads, "paid / cracked / modified" editions and any

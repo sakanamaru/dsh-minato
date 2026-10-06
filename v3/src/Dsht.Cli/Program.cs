@@ -677,12 +677,11 @@ Console.WriteLine("  config-get | config-set <key> <value>");
             int _wsDone = PackageAllWorkspaces(r.Path, reg);
             if (_wsDone > 0) Console.WriteLine("BACKUP_WORKSPACES " + _wsDone + T(" 个工作区已打包（新格式 _workspace/<名称>/.dshws ✓）", " workspaces packaged (new layout _workspace/<name>/.dshws)"));
             AddContentHashToMarker(r.Path);   // 标记补内容哈希 ✓（能发现"计数对但内容残" ✗✓）
-            // 不完整就说出来 ✓：读不到/复制失败的文件被计数（此前静默吞掉 ✗），备份最不能有静默缺口 ✗
-            if (r.FailedCopies > 0)
-            // ★ 架构审计抓到（S9）：**这里原来还会再打一条 `BACKUP_INCOMPLETE`** ✗
-            //   → 同一情况**两个标记、两种格式** ✗ 而这一条**连路径都没有** ✗✗（解析方无法区分 ✓）
-            // ✓ 现在：**只保留上面那条带路径的** ✓✓（信息更全 ✓ 且只有一种格式 ✓）
-            OpLog(reg, "INFO", "backup OK " + r.Path);
+            // ★★ 审查修复（2026-10-06，C1）：S9 修复把 if 的方法体连同花括号一起删了 ✗
+            //   → 裸 `if (r.FailedCopies > 0)` 吞掉了 OpLog ✗✗ 完整备份**不写日志**、不完整反而写 "backup OK"（与事实相反）
+            // ✓ 现在：**无条件写** ✓ 不完整用 WARN + INCOMPLETE 文案（与上面控制台的 BACKUP_INCOMPLETE 行一致 ✓）
+            OpLog(reg, r.FailedCopies > 0 ? "WARN" : "INFO",
+                  (r.FailedCopies > 0 ? "backup INCOMPLETE " : "backup OK ") + r.Path);
             return 0;
         }
 

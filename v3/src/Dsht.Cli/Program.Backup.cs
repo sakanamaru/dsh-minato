@@ -122,7 +122,6 @@ namespace Dsht.Cli
                 // ★ 修：want 取不到时是 -1 ✗ → 不能直接比 ✗（否则每一个包都会被判不符 ✗✗）
                 if (want >= 0 && have != want) return T("备份内容与标记不符（标记 ", "backup does not match its marker (marker ") + want + T(" 项，实际 ", " items, actual ") + have + T(" 项）：", "): ") + System.IO.Path.GetFileName(pkgDir);
                 return null;
-                return T("该备份不完整（完成标记 ", "this backup is incomplete (marker says ") + want + T(" 个文件，实际 ", " files, actual ") + have + T(" 个）—— 恢复出来的数据会缺内容", " files) - a restore would come back with content missing");
             }
             catch { return null; }
         }

@@ -557,7 +557,6 @@ namespace Dsht.Gui.Avalonia.Shells
                 b.Click += delegate { host.SetStartMode(idx); };
                 s.Children.Add(b);
             }
-            s.Children.Add(T(cur == 1 ? "" : "", 10.5, Palette.TextFaint));
             Button dep = new Button
             {
                 Content = T(cur == 1 ? "下载" : "安装", 11, Palette.Text),
@@ -1624,7 +1623,6 @@ namespace Dsht.Gui.Avalonia.Shells
                 //   ✓ 现在：**遇到 `[stderr]` 就进入跳过模式** ✓✓ 直到块结束 ✓
                 else if (l.StartsWith("[stderr]", StringComparison.Ordinal)) { inStderr = true; continue; }
                 else if (inStderr) { if (l.StartsWith("LOG_", StringComparison.Ordinal)) inStderr = false; else continue; }
-                else if (l.StartsWith("[stderr]", StringComparison.Ordinal)) continue;   // F17 FIX: stderr text is not a log record
                 if (l.Trim().Length == 0) continue;
                 IBrush fg = Palette.Text;
                 if (l.IndexOf("ERROR", StringComparison.OrdinalIgnoreCase) >= 0) fg = Palette.Bad;
@@ -1944,6 +1942,17 @@ namespace Dsht.Gui.Avalonia.Shells
             }
         }
 
+        /// <summary>2026-10-06 审查 U1：这几个键在 V3（跨平台 GUI + CLI）里**没有消费方** ✗
+        /// 设置页保留它们（配置兼容 ✓），但整行标灰并如实注明 ✓（低成本诚实方案；补实现是另一件事 ✓）。</summary>
+        private static string DeadNoteFor(string key)
+        {
+            if (key == "close_action") return "⚠ V3 不消费此项：本窗口的关闭就是直接退出，没有托盘/询问（经典版 v2.x 核心的设置，保留仅为配置兼容）";
+            if (key == "host") return "⚠ V3 不消费此项：服务地址固定为 127.0.0.1:3080（经典版 v2.x 核心的设置，保留仅为配置兼容）";
+            if (key == "check_update") return "⚠ V3 不消费此项：本工具自身的更新检查未接线（V3 里真正生效的是 check_dsh_update）";
+            if (key == "lang") return "⚠ 此项只影响命令行输出语言；本图形界面暂为中文";
+            return null;
+        }
+
         /// <summary>单个配置项的卡片（key + 人话说明 + CONFIGNOTE 备注 + 编辑控件 ✓）。</summary>
         private static Control SettingsItemCard(MainWindow host, ConfigItem c)
         {
@@ -2019,6 +2028,14 @@ namespace Dsht.Gui.Avalonia.Shells
 
             }
             row.Children.Add(edit);
+            // ★ 2026-10-06 审查 U1：V3 无消费方的键 → 整行标灰 + 如实注明 ✓（控件保留、值仍显示 ✓）
+            string deadNote = DeadNoteFor(c.Key);
+            if (deadNote != null)
+            {
+                edit.IsEnabled = false;
+                edit.Opacity = 0.6;
+                row.Children.Add(T(deadNote, 11, Palette.Warn));
+            }
             return Card(row, new Thickness(0), new Thickness(16, 12));
         }
 
@@ -2406,7 +2423,6 @@ namespace Dsht.Gui.Avalonia.Shells
                     ex.Children.Add(Mono(st.Extras[i].Key + "  " + st.Extras[i].Value, 11.5, Palette.Text));
                 s.Children.Add(Card(ex, new Thickness(0), new Thickness(16, 14)));
             }
-            s.Children.Add(RawCard(host, "原始标记行", "status --detail 的 CLI 输出原文"));
             return s;
         }
 
