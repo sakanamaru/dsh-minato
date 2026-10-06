@@ -61,7 +61,7 @@ namespace Dsht.Gui.Avalonia.Shells
             sorts.Children.Add(sl);
 
             string[] sortOpts = new string[] { "最后活动（新→旧）", "输入 token（多→少）", "缓存命中率（低→高）", "上下文压力（高→低）", "解码速度（快→慢）" };
-            ComboBox box = SlimCombo(sortOpts, host.SortMode, 176);
+            ComboBox box = SlimCombo(sortOpts, host.SortMode, 176); box.VerticalAlignment = VerticalAlignment.Center;
             box.SelectionChanged += delegate { host.SortMode = box.SelectedIndex; host.Rerender(); };
 
             sorts.Children.Add(box);
@@ -85,6 +85,7 @@ namespace Dsht.Gui.Avalonia.Shells
             rc.Children.Add(rt);
 
             Button refresh = GhostButton(rc, delegate { host.Refresh(); }, true);
+            refresh.Height = 30; refresh.VerticalAlignment = VerticalAlignment.Center;   // 与 SlimCombo 严格同高 ✓
 
             Grid.SetColumn(refresh, 2);
 

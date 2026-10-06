@@ -115,7 +115,7 @@ namespace Dsht.Gui.Avalonia.Shells
                 ItemsSource = items,
                 SelectedIndex = selectedIndex,
                 MinWidth = minWidth,
-                MinHeight = 30,   // 与 GhostButton 同高（用户截图：下拉比刷新按钮矮一截 ✗）
+                Height = 30,   // 固定高 = 工具行按钮同高（用户两轮截图：MinHeight 会被内容/边距撑出 1-3px 差 ✗ 固定才严丝合缝）
                 FontSize = 11.5,
                 Padding = new Thickness(8, 2),
                 Background = Palette.InsetBg,
