@@ -121,15 +121,6 @@ namespace Dsht.Gui.Avalonia
                         if (int.TryParse(t3.Substring("CONFIG gui_start_page ".Length).Trim(), out np) && np >= 0 && np < NavItems.Length) _mainSection = np;
                     }
                     // ★ 概览自动刷新（2026-10-02 ✓）：同一份 config-get 里顺手读 ✓ 不多起进程 ✓
-                    if (t3.StartsWith("CONFIG gui_shell ", StringComparison.Ordinal))
-                    {
-                        // 布局偏好（2026-10-06 U4：顶栏切换器的选择被记住 ✓ 越界保持默认 ✗ 不猜 ✗）
-                        int ns; if (int.TryParse(t3.Substring("CONFIG gui_shell ".Length).Trim(), out ns) && ns >= 0 && ns <= 4) _shell = ns;
-                    }
-                    if (t3.StartsWith("CONFIG gui_style ", StringComparison.Ordinal))
-                    {
-                        int nt; if (int.TryParse(t3.Substring("CONFIG gui_style ".Length).Trim(), out nt) && nt >= 0 && nt <= 3) Palette.Apply(nt);
-                    }
                     if (t3.StartsWith("CONFIG gui_auto_refresh ", StringComparison.Ordinal))
                         ApplyAutoRefresh(t3.Substring("CONFIG gui_auto_refresh ".Length).Trim());
                 }
@@ -427,13 +418,6 @@ namespace Dsht.Gui.Avalonia
             //   ✓ 现在：**写完成后、最终 Refresh 之前**再清** ✓✓（见 320 行之后 ✓）
             Refresh();
             string outp = cli == null ? "未找到工具箱 CLI。" : await System.Threading.Tasks.Task.Run(delegate { return Run(cli, args); });
-            // U9：动作结果的级别 → toast 边框色（error=红 / warn=橙 / info=中性 ✓ 成功不再顶橙边 ✓）
-            _lastActionLevel = "info";
-            if (outp != null)
-            {
-                if (outp.IndexOf("_FAIL", StringComparison.Ordinal) >= 0) _lastActionLevel = "error";
-                else if (outp.IndexOf("WARN", StringComparison.Ordinal) >= 0 || outp.IndexOf("未生效", StringComparison.Ordinal) >= 0 || outp.IndexOf("不完整", StringComparison.Ordinal) >= 0 || outp.IndexOf("拒绝", StringComparison.Ordinal) >= 0) _lastActionLevel = "warn";
-            }
             _actionLog = label + "结果：" + Environment.NewLine + outp.Trim();
             InvalidateCliCache();   // F4 FIX: 写**完成**之后清 ✓ 此时缓存里必然是写前状态 ✓ 紧接着的 Refresh 会重新跑命令 ✓✓
             Refresh();
@@ -465,7 +449,6 @@ namespace Dsht.Gui.Avalonia
         }
         /// <summary>看板上的操作日志（一键启动/停止的结果，原样展示给用户）。</summary>
         private string _actionLog = "";
-        private string _lastActionLevel = "info";   // U9：最近一条动作结果的级别（toast 边框着色用 ✓）
         public string ActionLog { get { return _actionLog; } }
 
         /// <summary>一键启动 dsh（调用工具箱核心的 `start`：非交互，GUI 用）。</summary>
@@ -1083,7 +1066,6 @@ namespace Dsht.Gui.Avalonia
         public void SetStyle(int kind)
         {
             Palette.Apply(kind);
-            PersistUiPref("gui_style", kind);   // U4：记住风格选择 ✓ 重启保留 ✓
             BuildShell();
         }
         public int MainSection { get { return _mainSection; } }
@@ -1215,7 +1197,6 @@ namespace Dsht.Gui.Avalonia
             b.Click += delegate(object s, RoutedEventArgs e)
             {
                 _shell = id;
-                PersistUiPref("gui_shell", id);   // U4：记住布局选择 ✓
                 BuildShell();
             };
         }
@@ -1259,7 +1240,7 @@ namespace Dsht.Gui.Avalonia
             if (!string.IsNullOrEmpty(_actionLog) && _actionLog != _lastToasted)
             {
                 _lastToasted = _actionLog;
-                ShowToast(_actionLog, _lastActionLevel);
+                ShowToast(_actionLog);
             }
         }
 
@@ -1296,14 +1277,10 @@ namespace Dsht.Gui.Avalonia
         }
 
         /// <summary>弹一条 ✓（8 秒后自动消失 ✓ 也可以点掉 ✓）。</summary>
-        public void ShowToast(string text) { ShowToast(text, "info"); }
-
-        /// <summary>弹一条 ✓（8 秒自动消失 ✓ 可点掉 ✓）。**边框按级别着色**（U9：成功不再顶橙边 ✓）。</summary>
-        public void ShowToast(string text, string level)
+        public void ShowToast(string text)
         {
             if (_toast == null || _toastText == null || string.IsNullOrEmpty(text)) return;
             _toastText.Text = text;
-            _toast.BorderBrush = level == "error" ? Palette.Bad : (level == "warn" ? Palette.Warn : Palette.Border);
             _toast.IsVisible = true;
             if (_toastTimer == null)
             {
@@ -1655,30 +1632,30 @@ namespace Dsht.Gui.Avalonia
             if (IsOverviewLike)
             {
                 _rawOutput = await System.Threading.Tasks.Task.Run(delegate { return RunCached(cli, "status --detail"); });
-                // ★ 性能优化（2026-10-06 #3）：overview 一次调用给出概览页全部四组标记行 ✓✓
-                //   0.5 秒实时档的成本大头是**进程启动**（4 个 66MB exe → 1 个）✓
-                //   ui_parallel=off（排障开关）保留老的四命令路径 ✓ 开关仍然真的接线 ✓
-                if (UiParallel)
+                _status = StatusMarkers.Parse(_rawOutput);
+                // 概览页顺带把这几样也取回来（都很快，且都是只读）
+                // ✗ 原来是**串行** await 三次 → 每次切页都等 3×100~200ms ≈ 0.5~1 秒 ✗（用户反馈"切换卡片响应不及时" ✓）
+                // 现在**并行** ✓✓ —— 三者互相独立（profiles / sessions / backup-list ✓）→ 总耗时 = 最慢那个 ✓
+                // 先读一次排障开关 ✓（必须**在读之前** ✓ 否则 UiParallel 永远是默认值 ✗ —— 我上一轮就是漏了这步 ✓）
+                string cfgText2 = await System.Threading.Tasks.Task.Run(delegate { return CfgCached(cli); });   // ✓ 缓存 ✓ 省一次进程启动 ✓✓
+                ParseTroubleshootSwitches(cfgText2);
+                if (!UiParallel)
                 {
-                    _rawOutput = await System.Threading.Tasks.Task.Run(delegate { return RunCached(cli, "overview"); });
+                    // 排障开关 off → **回到老行为（串行）** ✓ 真的接线 ✓ 不做摆设 ✗
+                    _profiles = ProfilesMarkers.Parse(await System.Threading.Tasks.Task.Run(delegate { return RunCached(cli, "profiles"); }));
+                    _data = SessionsMarkers.Parse(await System.Threading.Tasks.Task.Run(delegate { return RunCached(cli, "sessions"); }));
+                    _backups = SummaryMarkers.ParseBackups(await System.Threading.Tasks.Task.Run(delegate { return RunCached(cli, "backup-list"); }));
                 }
                 else
                 {
-                    // 老行为（串行四命令）：聚合大输出在个别环境被管道/杀软卡住时的排障退路 ✓
-                    _rawOutput = await System.Threading.Tasks.Task.Run(delegate { return RunCached(cli, "status --detail"); });
-                    string part = await System.Threading.Tasks.Task.Run(delegate { return RunCached(cli, "sessions"); });
-                    _rawOutput += "\n" + part;
-                    part = await System.Threading.Tasks.Task.Run(delegate { return RunCached(cli, "backup-list"); });
-                    _rawOutput += "\n" + part;
-                    part = await System.Threading.Tasks.Task.Run(delegate { return RunCached(cli, "profiles"); });
-                    _rawOutput += "\n" + part;
-                }
-                _status = StatusMarkers.Parse(_rawOutput);
-                _profiles = ProfilesMarkers.Parse(_rawOutput);
-                _data = SessionsMarkers.Parse(_rawOutput);
-                _backups = SummaryMarkers.ParseBackups(_rawOutput);
-                string cfgText2 = await System.Threading.Tasks.Task.Run(delegate { return CfgCached(cli); });   // ✓ 缓存 ✓ 省一次进程启动 ✓✓
-                ParseTroubleshootSwitches(cfgText2);
+                System.Threading.Tasks.Task<string> tPf = System.Threading.Tasks.Task.Run(delegate { return RunCached(cli, "profiles"); });
+                System.Threading.Tasks.Task<string> tSe = System.Threading.Tasks.Task.Run(delegate { return RunCached(cli, "sessions"); });
+                System.Threading.Tasks.Task<string> tBk = System.Threading.Tasks.Task.Run(delegate { return RunCached(cli, "backup-list"); });
+                await System.Threading.Tasks.Task.WhenAll(tPf, tSe, tBk);
+                _profiles = ProfilesMarkers.Parse(tPf.Result);
+                _data = SessionsMarkers.Parse(tSe.Result);
+                _backups = SummaryMarkers.ParseBackups(tBk.Result);
+                }   // ✗ 原来带 --detail → 每份备份都要算目录大小（重 I/O ✗）→ 概览每次刷新都卡几秒 ✓✓ 这里只要 Count/Latest ✓ 不需要大小 ✓（方案 A ✓）
                 if (_doctor == null) _doctor = new DoctorSummary();
 
                 // ★ DeepSeek 余额检测（2026-10-02 用户要求 ✓✓）：与状态刷新**分开** ✗
@@ -1855,24 +1832,6 @@ namespace Dsht.Gui.Avalonia
         }
         /// <summary>配置写入后**立刻让缓存失效** ✓✓（否则设置页改了看不到变化 ✗）。</summary>
         private static void InvalidateCfgCache() { _cfgCache = null; _cfgCacheAt = System.DateTime.MinValue; }
-
-        /// <summary>把 GUI 偏好（布局/风格）落盘 ✓（2026-10-06 U4：重启后保留 ✓）。
-        /// 静默 fire-and-forget：不进动作闸门、不弹 toast —— config-set 轻量且幂等 ✓
-        /// 闸门挡的是重型 CLI 动作 ✓ 每次点切换器都弹一条太吵 ✗ 失败也只是下次启动用旧值 ✓。</summary>
-        private void PersistUiPref(string key, int val)
-        {
-            try
-            {
-                string cli = CliPath();
-                if (cli == null) return;
-                _ = System.Threading.Tasks.Task.Run(delegate
-                {
-                    Run(cli, "config-set " + key + " " + val.ToString(System.Globalization.CultureInfo.InvariantCulture));
-                    InvalidateCfgCache();   // 写完后让下一次 CfgCached 读到新值 ✓
-                });
-            }
-            catch { }
-        }
         // ================================================================ CLI 结果短缓存（性能）
 
         /// <summary>只读 CLI 命令的**短缓存** ✓✓
@@ -1934,20 +1893,6 @@ namespace Dsht.Gui.Avalonia
         }
 
 
-        /// <summary>按命令给超时上限（2026-10-06 优化 #4）：原来 30 秒一刀切 ✗ 会把跑了一半的
-        /// npm install / 大备份 / 大恢复直接杀掉（留半截状态 ✗ 交接 §9 挂账的高危项）。
-        /// 长任务 10 分钟封顶 ✓ 其余维持 30 秒 —— 挂住的只读命令快速反馈更重要 ✓。
-        /// RunStreaming 保持 30 秒：它跑的 doctor/update-center 是会自行收尾的只读流 ✓。</summary>
-        private static int TimeoutForMs(string args)
-        {
-            if (string.IsNullOrEmpty(args)) return 30000;
-            string a = args.TrimStart();
-            string[] longCmds = new string[] { "update ", "install ", "uninstall ", "backup ", "backup-export", "backup-delete", "restore ", "import ", "bridge-install" };
-            for (int i = 0; i < longCmds.Length; i++) if (a.StartsWith(longCmds[i], StringComparison.Ordinal)) return 600000;
-            if (a == "update" || a == "install" || a == "uninstall" || a == "backup" || a == "restore" || a == "import") return 600000;
-            return 30000;
-        }
-
         private static string Run(string cli, string args)
         {
             try
@@ -1965,8 +1910,7 @@ namespace Dsht.Gui.Avalonia
                     string err = "";
                     System.Threading.Tasks.Task<string> soT = System.Threading.Tasks.Task.Run(delegate { return p.StandardOutput.ReadToEnd(); });
                     System.Threading.Tasks.Task<string> seT = System.Threading.Tasks.Task.Run(delegate { return p.StandardError.ReadToEnd(); });
-                    int limitMs = TimeoutForMs(args);
-                    if (!p.WaitForExit(limitMs)) { try { p.Kill(); } catch { } return "（超时 " + (limitMs / 1000) + " 秒，已结束该进程）"; }
+                    if (!p.WaitForExit(30000)) { try { p.Kill(); } catch { } return "（超时 30 秒，已结束该进程）"; }
                     sb.Append(soT.Result);
                     err = seT.Result;
                     if (!string.IsNullOrEmpty(err)) sb.Append(Environment.NewLine).Append("[stderr] ").Append(err);
@@ -2005,7 +1949,7 @@ namespace Dsht.Gui.Avalonia
                         sb.Append(ln).Append("\r\n");
                         if (onLine != null) { try { onLine(ln); } catch { } }
                     }
-                    if (!p.WaitForExit(30000)) { try { p.Kill(); } catch { } return "（超时 30 秒，已结束该进程）"; }   // 只读流保持 30 秒（见 TimeoutForMs 注释 ✓）
+                    if (!p.WaitForExit(30000)) { try { p.Kill(); } catch { } return "（超时 30 秒，已结束该进程）"; }
                     string err = seT.Result;
                     if (!string.IsNullOrEmpty(err)) sb.Append("[stderr] ").Append(err);
                     return sb.Length == 0 ? "（无输出）" : sb.ToString();
