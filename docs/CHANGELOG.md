@@ -6,6 +6,45 @@ All notable changes to **dsh-minato** (unofficial). Full release notes, assets a
 
 ---
 
+## v3.0.6 — 2026-10-06（审查修复 8 条 + 性能与界面重整 / review fixes, performance and a GUI reshuffle）
+
+### Added / 新增
+
+- **`overview` 命令**（只读）：一个进程给出概览页所需的**全部**标记行（status --detail + sessions +
+  backup-list + profiles）→ GUI 每拍从 4 个进程降到 1 个 ✓（0.5 秒实时档的成本大头就是进程启动）
+- **两个界面偏好键** `gui_shell`(0..4 侧栏布局) / `gui_style`(0..3 视觉风格)：顶栏切换即时静默落盘、启动回读 ✓
+  （四处同步 + `compare_markers` ignore 已更新 ✓）
+- **`close_action` / `host` 两个键真正生效**（此前只回显 ✗）：`host` 带白名单（仅 127.0.0.1 / localhost），
+  默认行为不变 ✓
+
+### Fixed / 修复
+
+- **审查必修 8 条**：C1 备份日志诚实性（完整备份不写日志、不完整反而写 backup OK ✗ → 现无条件写，
+  不完整用 WARN + INCOMPLETE）、C3 不可达 return、C8 插件注释、H1 恒空控件、H2 死 stderr 分支、
+  U3 概览重复原始输出、U1 四个无效设置项标注、C6 PRIVACY 写入声明与 SECURITY 范围（详见 `docs/审查发现-2026-10-06.md`）
+- 页眉自动刷新条遮挡标题（PageHeader 缺 `Grid.SetColumn`）
+- 会话页排序下拉统一 `SlimCombo` + 指标块最小宽度（B6 回归）
+
+### Changed / 变更
+
+- ⚠ **行为变化**：`host` 与 `close_action` 现在真的生效（此前选了没反应 ✗）
+- **超时放宽**：写操作（update/install/backup/restore/import/bridge-install 等）10 分钟封顶，只读仍 30 秒
+  —— 不再中途杀掉半截 npm / 备份包 ✓
+- **Windows 进程探测去 shell-out**：`tasklist`/CIM 换成直连查询（status 实测 1275ms → 894ms；
+  去掉的 ~950ms 为真实收益，余下为沙箱 artifact）
+- **GUI 信息架构重整**：概览/看板去重（重复卡片与 5 张跳转卡删除、图表唯一化）、`Shells.cs` 拆 4 个 partial、
+  新增 `ConfirmDialog`；下拉与按钮同高、看板并页、概览填充等观感收口
+
+### Known / 已知
+
+- **布局观感类改动测试覆盖不到** ✗ 需人工过 10 页 × 4 风格（构建/测试/门槛只能证明"没坏"✓）
+- `MainWindow.axaml.cs` 的折行重排已隔离成独立提交，但忽略空白仍有 24+/80−；该文件行尾为 LF（仓库多数 `.cs` 为 CRLF）
+  —— blob 经 autocrlf 归一，**不影响产物** ✓
+- 工作树 32 个文件混行尾（卫生项，不影响发布）
+- Linux 真机（虚拟机）验证仍停留在 **3.0.0**；本版只有 CI 打包与冒烟
+
+---
+
 ## v3.0.5 — 2026-10-05（自动刷新取新数据 / auto-refresh reads fresh data）
 
 ### Fixed / 修复
