@@ -60,8 +60,8 @@ namespace Dsht.Gui.Avalonia
         };
         private static readonly string[][] NavDesc = new string[][]
         {
-            new string[] { "一键启动/停止 dsh，以及 token 消耗、缓存命中、解码速度、会话数。", "运行时长、进程 PID、启动时间与原始标记行。" },
-            new string[] { "关键指标（KPI）总览，以及一键启动/停止等操作的回执。", "手绘图表：近 14 天新增会话、缓存命中率分布。" },
+            new string[] { "这台机器的运行状态：dsh 是否在跑（含官方桌面端）+ 运行事实 + DeepSeek 余额；指标与图表的唯一主场在「看板」。", "status --detail 的标记行原文。" },
+            new string[] { "指标唯一主场：会话/token/命中率/解码速度 KPI + 操作回执。", "趋势图：近 N 天新增会话、命中率分布、token 消耗、体检结论。" },
             new string[] { "逐条会话：标题、token、缓存命中率、解码速度、上下文压力（排序用工具栏的下拉）。", "汇总统计：总量、命中率、速度，以及最耗 token 的会话排行。" },
             new string[] { "每个 profile 启用了哪个形态（web/headless/acp）以及装了哪些插件（含第三方）。" },
             new string[] { "备份清单：每个备份的时间、范围与大小。" },
@@ -198,6 +198,12 @@ namespace Dsht.Gui.Avalonia
                 HorizontalContentAlignment = HorizontalAlignment.Center,
                 VerticalContentAlignment = VerticalAlignment.Center
             };
+            if (danger)
+            {
+                // 美学A6：关闭键 hover 警示色 ✓（只挂一次 ✓ Recolor 不重复挂 ✓）
+                b.PointerEntered += delegate { b.Foreground = Palette.Bad; };
+                b.PointerExited += delegate { b.Foreground = Palette.TextDim; };
+            }
             ToolTip.SetTip(b, tip);
             b.Click += delegate { onClick(); };
             _windowButtons.Add(b);
@@ -207,8 +213,10 @@ namespace Dsht.Gui.Avalonia
         /// <summary>窗口按钮随主题重上色（关闭键用警示色，其余用次要文字色）。</summary>
         private void RecolorWindowButtons()
         {
-            for (int i = 0; i < _windowButtons.Count; i++)
-                _windowButtons[i].Foreground = i == _windowButtons.Count - 1 ? Palette.TextDim : Palette.TextDim;
+            // §9 遗留修复（美学A6）：原来三元两分支相同 = 三个按钮恒 TextDim ✗
+            // ✓ 现在：刷色只设基础色；关闭键的 hover 警示色在 MakeWindowButton 构造时挂一次 ✓
+            //   （ApplyChrome 每次 BuildShell 都会调本方法 ✗ hover 绝不能在这里挂 → 会叠加 ✓）
+            for (int i = 0; i < _windowButtons.Count; i++) _windowButtons[i].Foreground = Palette.TextDim;
         }
         // ---------------- 备份 / 设置 的操作（都走 CLI，异步，不阻塞界面） ----------------
 
@@ -360,7 +368,15 @@ namespace Dsht.Gui.Avalonia
         public void DryRunRestore(string name) { RunCliAction("restore --dry-run --path \"" + name + "\"", "恢复预览"); }
 
         /// <summary>应用恢复。**只在隔离数据根里允许**（CLI 自己的准入闸门会拒绝其它情况，界面把它的话原样显示）。</summary>
-        public void ApplyRestore(string name) { RunCliAction("restore --path \"" + name + "\" --apply", "应用恢复"); }
+        /// <summary>应用恢复。**两次点击确认**（美学A2：高危操作里只有它原来一次点击 ✗
+        /// 删除备份输时间 / 隔离插件 / 更新 web 都是两次 ✓ 统一 ✓）。CLI 的隔离闸门仍在 ✓✓</summary>
+        public void ApplyRestore(string name)
+        {
+            string key = "restore|" + name;
+            if (PendingDelete != key) { PendingDelete = key; Rebuild(); return; }
+            PendingDelete = "";
+            RunCliAction("restore --path \"" + name + "\" --apply", "应用恢复");
+        }
 
         public void SetConfig(string key, string value) { InvalidateCfgCache(); RunCliAction("config-set " + key + " \"" + (value == null ? "" : value.Replace("\"", "")) + "\"", "保存设置 " + key); }
 
@@ -1239,7 +1255,8 @@ namespace Dsht.Gui.Avalonia
             //   点击瞬切的那次（_loading=true）**不淡** ✓ —— 反馈要立刻，过渡要柔和 ✓✓
             //   实现：先把 Opacity 置 0，一拍（40ms）后置 1 → DoubleTransition 自动补间 ✓
             //   整段包 try/catch ✗ 任何一环失败就"直接可见" ✓✓ —— 动画绝不许有把界面变黑的模式 ✗
-            if (!_loading)
+            bool fade = _fadeNextBuild; _fadeNextBuild = false;   // 美学B1：淡入只在数据到达那一次 ✓
+            if (fade && !_loading)
             {
                 try
                 {
@@ -1323,6 +1340,8 @@ namespace Dsht.Gui.Avalonia
 
         // —— 加载反馈（用户反馈「延迟还在」的根治：**点击必须立刻有反应** ✓）——
         private bool _loading;
+        private bool _fadeNextBuild;   // 美学B1：下一次 BuildShell 是否淡入（只有"数据到达型"重建才置真 ✓）
+        private bool _fadeSuppressed;  // 手动刷新按钮：不要淡入（连点不闪 ✓）
         /// <summary>一次刷新正在后台跑 ✓。BuildShell 据此决定画不画加载浮层 ✓。</summary>
         public bool IsLoading { get { return _loading; } }
         /// <summary>体检页的**逐行实时列表** ✓（`doctor --stream` 来一条记一条 ✓）。
@@ -1524,6 +1543,7 @@ namespace Dsht.Gui.Avalonia
         public void Refresh()
         {
             _silentRefresh = false;   // ★ 普通刷新 = 要重建整页 ✓（静默刷新走 RefreshFieldsOnly ✓）
+            _fadeSuppressed = true;   // 美学B1：用户主动点的刷新 → 不淡入 ✓
             RefreshCore();
         }
 
@@ -1606,7 +1626,13 @@ namespace Dsht.Gui.Avalonia
                 bool silent = _silentRefresh;
                 _silentRefresh = false;
                 if (silent && !_refreshQueued && _liveFields.Count > 0) RefreshLiveFields();
-                else BuildShell();
+                else
+                {
+                    // 美学B1：只有"数据到达型"重建才淡入 ✓（手动刷新被 _fadeSuppressed 压制 ✓）
+                    _fadeNextBuild = !_fadeSuppressed;
+                    BuildShell();
+                }
+                _fadeSuppressed = false;
                 if (_refreshQueued) { _refreshQueued = false; Refresh(); }   // ✓ 不丢 ✓ 排队再刷 ✓
             }
         }
@@ -1633,6 +1659,7 @@ namespace Dsht.Gui.Avalonia
                     // 审查 H3 修复：体检期间排队的刷新不能丢 ✗（与 RefreshGuardedAsync.finally 同一套 ✓）
                     _busy = false;
                     _loading = _refreshQueued;
+                    _fadeNextBuild = true;   // 体检流式完成 = 数据到达 ✓
                     BuildShell();
                     if (_refreshQueued) { _refreshQueued = false; Refresh(); }
                 });

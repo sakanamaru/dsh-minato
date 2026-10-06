@@ -38,7 +38,7 @@ namespace Dsht.Gui.Avalonia.ViewModels
 
         // —— 语义色（四风格通用，只在 Apply 里微调深浅）——
         public static IBrush Good = new SolidColorBrush(Color.Parse("#16A34A"));
-        public static IBrush Warn = new SolidColorBrush(Color.Parse("#D97706"));
+        public static IBrush Warn = new SolidColorBrush(Color.Parse("#B45309"));
         public static IBrush Bad = new SolidColorBrush(Color.Parse("#DC2626"));
         public static IBrush Idle = new SolidColorBrush(Color.Parse("#8A919C"));
         public static IBrush Muted = new SolidColorBrush(Color.Parse("#C9CDD4"));
@@ -105,11 +105,11 @@ namespace Dsht.Gui.Avalonia.ViewModels
                 BorderStrong = new SolidColorBrush(Color.Parse("#343D4B"));
                 Text = new SolidColorBrush(Color.Parse("#E8EAF0"));
                 TextDim = new SolidColorBrush(Color.Parse("#A6ADBB"));
-                TextFaint = new SolidColorBrush(Color.Parse("#6C7382"));
+                TextFaint = new SolidColorBrush(Color.Parse("#9AA3B2"));
                 Good = new SolidColorBrush(Color.Parse("#3FB97F"));
                 Warn = new SolidColorBrush(Color.Parse("#F0B35E"));
                 Bad = new SolidColorBrush(Color.Parse("#EF6A6A"));
-                Idle = new SolidColorBrush(Color.Parse("#6C7382"));
+                Idle = new SolidColorBrush(Color.Parse("#9AA3B2"));
                 Muted = new SolidColorBrush(Color.Parse("#46505E"));
                 GoodSoft = new SolidColorBrush(Color.Parse("#17352A"));
                 WarnSoft = new SolidColorBrush(Color.Parse("#3A2E18"));
@@ -134,11 +134,11 @@ namespace Dsht.Gui.Avalonia.ViewModels
                 BorderStrong = new SolidColorBrush(Color.Parse("#D0D8E4"));
                 Text = new SolidColorBrush(Color.Parse("#131C2B"));
                 TextDim = new SolidColorBrush(Color.Parse("#55617A"));
-                TextFaint = new SolidColorBrush(Color.Parse("#8B96AC"));
+                TextFaint = new SolidColorBrush(Color.Parse("#6B7280"));
                 Good = new SolidColorBrush(Color.Parse("#0EA36B"));
-                Warn = new SolidColorBrush(Color.Parse("#E08A00"));
+                Warn = new SolidColorBrush(Color.Parse("#B45309"));
                 Bad = new SolidColorBrush(Color.Parse("#E5484D"));
-                Idle = new SolidColorBrush(Color.Parse("#8B96AC"));
+                Idle = new SolidColorBrush(Color.Parse("#6B7280"));
                 Muted = new SolidColorBrush(Color.Parse("#CBD3DF"));
                 GoodSoft = new SolidColorBrush(Color.Parse("#DFF2E9"));
                 WarnSoft = new SolidColorBrush(Color.Parse("#FBEFD5"));
@@ -163,9 +163,9 @@ namespace Dsht.Gui.Avalonia.ViewModels
                 BorderStrong = new SolidColorBrush(Color.Parse("#D6D9E0"));
                 Text = new SolidColorBrush(Color.Parse("#151A23"));
                 TextDim = new SolidColorBrush(Color.Parse("#5B6270"));
-                TextFaint = new SolidColorBrush(Color.Parse("#969DA9"));
+                TextFaint = new SolidColorBrush(Color.Parse("#6B7280"));
                 Good = new SolidColorBrush(Color.Parse("#16A34A"));
-                Warn = new SolidColorBrush(Color.Parse("#D97706"));
+                Warn = new SolidColorBrush(Color.Parse("#B45309"));
                 Bad = new SolidColorBrush(Color.Parse("#DC2626"));
                 Idle = new SolidColorBrush(Color.Parse("#8A919C"));
                 Muted = new SolidColorBrush(Color.Parse("#C9CDD4"));
