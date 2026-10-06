@@ -1028,6 +1028,21 @@ namespace Dsht.Gui.Avalonia.Shells
         /// <summary>**整体视图**：父会话照常显示 ✓，它的子代理**折叠在下拉框里** ✓✓
         /// （用户要求："整体列出子代理时归类到父会话内（做下拉框）" ✓✓）
         /// 98/98 的子 id 都有 SESSION 行 ✓ → 不会出现"找不到父"的孤儿 ✓</summary>
+        /// <summary>性能优化（2026-10-06 #1）：给列表一个有界的滚动视口。
+        /// 外层页面 ScrollViewer 给内容**无限高** ✗ → VirtualizingStackPanel 从不虚拟化 ✗（SessionListGrouped 注释已承认）。
+        /// 包一层限高 ScrollViewer 后，超出部分由列表自己滚动 + **开始虚拟化**：构建/布局量从 O(全部) 降到 O(可见) ✓✓
+        /// （items 是预建控件 → 省的是布局/测量，不是实例化 ✓ 如实说明 ✓）。</summary>
+        private static Control BoundedList(Control list)
+        {
+            return new ScrollViewer
+            {
+                Content = list,
+                MaxHeight = 520,
+                VerticalScrollBarVisibility = global::Avalonia.Controls.Primitives.ScrollBarVisibility.Auto,
+                HorizontalScrollBarVisibility = global::Avalonia.Controls.Primitives.ScrollBarVisibility.Disabled
+            };
+        }
+
         private static Control SessionListGrouped(MainWindow host)
         {
             // ★★ 架构审计（性能）：这里原来是**裸 StackPanel + Children.Add** ✗
@@ -1089,7 +1104,7 @@ namespace Dsht.Gui.Avalonia.Shells
             list.ItemsSource = items;   // 已经构建好的卡片控件 ✓（面板负责虚拟化 ✓）
             list.ItemsPanel = new global::Avalonia.Controls.Templates.FuncTemplate<Panel>(
                 delegate { return new VirtualizingStackPanel(); });
-            return list;
+            return BoundedList(list);
         }
         private static Control SessionList(MainWindow host, int mode)
         {
@@ -1110,7 +1125,7 @@ namespace Dsht.Gui.Avalonia.Shells
                 ItemsControl list = new ItemsControl();
                 list.ItemsSource = host.ListSource;   // 过滤后的 ✓
                 list.ItemTemplate = new FuncDataTemplate<SessionRowVm>(delegate(SessionRowVm vm, INameScope ns) { return SessionRowCompact(vm); });
-                Border card = Card(list, new Thickness(0), new Thickness(0));
+                Border card = Card(BoundedList(list), new Thickness(0), new Thickness(0));
                 card.ClipToBounds = true;
                 return card;
             }
@@ -1120,7 +1135,7 @@ namespace Dsht.Gui.Avalonia.Shells
             {
                 return Palette.StyleKind == 3 ? SessionCardDash(vm) : SessionCard(vm);
             });
-            return cards;
+            return BoundedList(cards);
         }
 
         /// <summary>标准会话卡片：状态点 + 标题/元信息 + 三个指标块（标签+数值+比例条）。</summary>
@@ -1602,7 +1617,8 @@ namespace Dsht.Gui.Avalonia.Shells
                 return s;
             }
 
-            StackPanel lines = new StackPanel { Spacing = 1 };
+            // 性能优化（2026-10-06 #2）：string + 数据模板 + 虚拟化 —— 2000 行档不再全量建 TextBlock ✓
+            List<string> logLines = new List<string>();
             string[] all = raw.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
             int shown = 0;
             bool inStderr = false;   // N13 FIX: a [stderr] block spans several lines
@@ -1624,11 +1640,7 @@ namespace Dsht.Gui.Avalonia.Shells
                 else if (l.StartsWith("[stderr]", StringComparison.Ordinal)) { inStderr = true; continue; }
                 else if (inStderr) { if (l.StartsWith("LOG_", StringComparison.Ordinal)) inStderr = false; else continue; }
                 if (l.Trim().Length == 0) continue;
-                IBrush fg = Palette.Text;
-                if (l.IndexOf("ERROR", StringComparison.OrdinalIgnoreCase) >= 0) fg = Palette.Bad;
-                else if (l.IndexOf("WARN", StringComparison.OrdinalIgnoreCase) >= 0) fg = Palette.Warn;
-                else if (l.IndexOf("INFO", StringComparison.OrdinalIgnoreCase) >= 0) fg = Palette.TextDim;
-                lines.Children.Add(Mono(l, 11, fg));
+                logLines.Add(l);
                 shown++;
             }
             if (shown == 0)
@@ -1636,7 +1648,11 @@ namespace Dsht.Gui.Avalonia.Shells
                 s.Children.Add(Card(T("筛选后没有匹配的日志行（换个级别或关键词试试）。", 12, Palette.TextDim), new Thickness(0), new Thickness(16, 16)));
                 return s;
             }
-            s.Children.Add(Card(lines, new Thickness(0), new Thickness(16, 14)));
+            ItemsControl logList = new ItemsControl();
+            logList.ItemsSource = logLines;
+            logList.ItemTemplate = new FuncDataTemplate<string>(delegate(string s2, INameScope ns2) { return Mono(s2, 11, LogLineBrush(s2)); });
+            logList.ItemsPanel = new global::Avalonia.Controls.Templates.FuncTemplate<Panel>(delegate { return new VirtualizingStackPanel(); });
+            s.Children.Add(Card(new ScrollViewer { Content = logList, MaxHeight = 460, VerticalScrollBarVisibility = global::Avalonia.Controls.Primitives.ScrollBarVisibility.Auto }, new Thickness(0), new Thickness(16, 14)));
             s.Children.Add(T("共 " + shown + " 行 · 级别 " + (string.IsNullOrEmpty(host.LogFilter) ? "全部" : host.LogFilter)
                 + " · 关键词 " + (string.IsNullOrEmpty(host.LogGrep) ? "（无）" : host.LogGrep)
                 + " · 最多 " + host.LogLines + " 行（筛选由 CLI 的 --level/--grep/--lines 完成）", 11, Palette.TextFaint));
@@ -1712,7 +1728,13 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 // 地址 ✓（GitHub / 官方页 ✓）
                 if (!string.IsNullOrEmpty(it.Url) && it.Url != "unknown")
-                    card.Children.Add(T(it.Url, 11, Palette.Accent));
+                {
+                    // U8：URL 可点（desktop 有按钮、webui/插件此前只是纯文本 ✗ affordance 断裂 ✓ 补上）
+                    StackPanel urlRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+                    urlRow.Children.Add(T(it.Url, 11, Palette.Accent));
+                    urlRow.Children.Add(GhostButton(T("打开", 11, Palette.Text), delegate { host.OpenUrl(it.Url); }, true));
+                    card.Children.Add(urlRow);
+                }
 
                 // 动作行 ✓
                 StackPanel acts = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
@@ -1853,7 +1875,7 @@ namespace Dsht.Gui.Avalonia.Shells
             List<ConfigItem> items = ConfigMarkers.Parse(host.RawOutput);
             if (items.Count == 0)
             {
-                s.Children.Add(Card(T("没有读到配置项（CLI 未返回 CONFIG 行）。", 12, Palette.TextDim), new Thickness(0), new Thickness(16, 14)));
+                s.Children.Add(Card(T("没有读到配置项（CLI 未返回 CONFIG 行）。点「刷新」重试；一直读不到就检查 dsh-minato.exe 是否与本程序同目录。", 12, Palette.TextDim), new Thickness(0), new Thickness(16, 14)));
                 return s;
             }
             // —— 更新中心 ✓✓（用户问："web 更新选项/检查更新按钮在哪里" ✓ 答案是**之前没有** ✗ → 现在有 ✓）——
@@ -1938,6 +1960,8 @@ namespace Dsht.Gui.Avalonia.Shells
                 case "browser_mode": return new string[] { "auto", "snap", "direct", "xdg" };
                 case "gui_auto_refresh": return new string[] { "off", "0.5", "1", "3", "5" };
                 case "gui_start_page": return MainWindow.NavItems;   // 索引即值 ✓（0..9 ✓）
+                case "gui_shell": return new string[] { Name(0), Name(1), Name(2), Name(3), Name(4) };   // 索引即值（0..4 ✓ 2026-10-06 U4）
+                case "gui_style": return new string[] { Palette.StyleName(0), Palette.StyleName(1), Palette.StyleName(2), Palette.StyleName(3) };   // 索引即值（0..3 ✓）
                 default: return null;
             }
         }
@@ -1975,9 +1999,10 @@ namespace Dsht.Gui.Avalonia.Shells
                 // ★ 选择框（用户要求 ✓✓）：枚举型配置一律下拉选 ✓
                 string[] opts = OptionsFor(c.Key);
                 int idx;
-                if (c.Key == "gui_start_page")
+                if (c.Key == "gui_start_page" || c.Key == "gui_shell" || c.Key == "gui_style")   // 索引即值的三个键（2026-10-06 U4）
                 {
-                    int sp; if (!int.TryParse(c.Value, out sp) || sp < 0 || sp >= opts.Length) sp = 1; idx = sp;
+                    int dflt = (c.Key == "gui_shell" ? 4 : (c.Key == "gui_style" ? 0 : 1));   // 各自默认 ✓
+                    int sp; if (!int.TryParse(c.Value, out sp) || sp < 0 || sp >= opts.Length) sp = dflt; idx = sp;
                 }
                 else idx = Array.IndexOf(opts, c.Value);
                 ComboBox cb = new ComboBox { MinWidth = 200, FontSize = 12, ItemsSource = opts, SelectedIndex = idx };
@@ -1985,7 +2010,10 @@ namespace Dsht.Gui.Avalonia.Shells
                 cb.SelectionChanged += delegate
                 {
                     if (cb.SelectedIndex >= 0 && cb.SelectedIndex < opts.Length)
-                        host.SetConfig(c.Key, c.Key == "gui_start_page" ? cb.SelectedIndex.ToString() : opts[cb.SelectedIndex]);
+                    {
+                        bool byIndex = (c.Key == "gui_start_page" || c.Key == "gui_shell" || c.Key == "gui_style");
+                        host.SetConfig(c.Key, byIndex ? cb.SelectedIndex.ToString() : opts[cb.SelectedIndex]);
+                    }
                 };
                 edit.Children.Add(cb);
             }
@@ -2567,7 +2595,7 @@ namespace Dsht.Gui.Avalonia.Shells
             {
                 s.Children.Add(Card(new TextBlock
                 {
-                    Text = d == null ? "正在读取…" : (string.IsNullOrEmpty(d.FailReason) ? "没有可显示的 profile 信息。" : d.FailReason),
+                    Text = d == null ? "正在读取…" : (string.IsNullOrEmpty(d.FailReason) ? "没有可显示的 profile 信息。下一步：先安装 dsh（侧栏「安装」按钮），装完点「刷新」。" : d.FailReason + " —— 下一步：确认 dsh 已安装，或点「刷新」重试。"),
                     Foreground = Palette.TextDim,
                     FontSize = 12,
                     TextWrapping = TextWrapping.Wrap
@@ -2902,6 +2930,15 @@ namespace Dsht.Gui.Avalonia.Shells
             s.Children.Add(Line("• 输入 token 的条形是相对最长的那条会话画的，用来横向对比，不是绝对刻度。"));
             s.Children.Add(Line("• 显示 unknown 表示 dsh 投影里没有这个字段（例如空会话没有命中率）—— 我们不会用 0 冒充它。"));
             return Card(s, new Thickness(0), new Thickness(18, 16));
+        }
+
+        /// <summary>日志行着色（与虚拟化前的启发式逐字一致 ✓）：ERROR 红 / WARN 橙 / INFO 淡 / 其它正文色。</summary>
+        private static IBrush LogLineBrush(string l)
+        {
+            if (l.IndexOf("ERROR", StringComparison.OrdinalIgnoreCase) >= 0) return Palette.Bad;
+            if (l.IndexOf("WARN", StringComparison.OrdinalIgnoreCase) >= 0) return Palette.Warn;
+            if (l.IndexOf("INFO", StringComparison.OrdinalIgnoreCase) >= 0) return Palette.TextDim;
+            return Palette.Text;
         }
 
         private static Control Line(string text)

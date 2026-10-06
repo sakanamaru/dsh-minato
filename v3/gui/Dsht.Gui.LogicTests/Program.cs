@@ -128,6 +128,17 @@ namespace Dsht.Gui.LogicTests
             Check("体检：空输入不抛", !SummaryMarkers.ParseDoctor("").Ok && SummaryMarkers.ParseDoctor(null).Error == 0);
             BackupSummary bs = SummaryMarkers.ParseBackups("BACKUP_LIST_OK 3\nBACKUP_ITEM dsh-data-x Manual 10 2026-09-28 19:00:00");
             Check("备份摘要：数量", bs.Ok && bs.Count == 3);   // the Latest field was removed as dead state; assert the count only
+            // ★ overview 聚合（2026-10-06 性能 #3）：一份输出四个解析器各取所需（前缀扫描、互不干扰 ✓）
+            string ov = "STATUS_UP\nSTATUS_PID 42\n" +
+                "SESSIONS_OK 1\nSESSION x1 turns=3\nSESSIONS_TOTAL in=10 out=2\n" +
+                "BACKUP_LIST_OK 0\n" +
+                "PROFILES_OK 1\nPROFILE web form=web bundles=1 thirdparty=0\nBUNDLE web @deepseek-ai/dsh-web-app official";
+            Check("overview：status/sessions/backups/profiles 四个解析器各取所需",
+                StatusMarkers.Parse(ov).Pid == "42" &&
+                SessionsMarkers.Parse(ov).Rows.Count == 1 &&
+                SummaryMarkers.ParseBackups(ov).Count == 0 &&
+                ProfilesMarkers.Parse(ov).Count == 1);
+
             Console.WriteLine("== " + _pass + "/" + (_pass + _fail) + " passed, " + _fail + " failed ==");
             return _fail == 0 ? 0 : 1;
         }

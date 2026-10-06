@@ -32,7 +32,7 @@ profile 隔离等少数操作还需要 **v2.x 核心程序**（有 `profilepatch
 
 | 页面 | 数据源（CLI 标记行） | 内容 |
 |---|---|---|
-| 概览 | `status --detail` + `profiles`/`sessions`/`backup-list` | 一键启动/停止 dashboard：运行状态 hero、PID/启动时间/已运行、token/缓存命中/解码速度/会话数，子页签切原始输出 |
+| 概览 | `overview`（聚合 `status --detail` + `profiles` + `sessions` + `backup-list`，一次调用）| 一键启动/停止 dashboard：运行状态 hero、PID/启动时间/已运行、token/缓存命中/解码速度/会话数，子页签切原始输出 |
 | 看板 | 同上 | KPI 总览 + 操作回执；子页签是**手绘图表**（近 14 天新增会话、缓存命中率分布，纯 Grid/Border 柱子，零图表依赖） |
 | 会话与 Token | `sessions` | 汇总条 + 工具栏（排序/过滤）+ 会话列表或统计子页（最耗 token 排行）；子菜单切"列表/统计"，排序一律走工具栏下拉 |
 | 形态与插件 | `profiles` | 每个 profile 的形态（web/headless/acp）与插件卡片（含第三方），过滤 chips + 就地搜索；隔离等写操作走 v2.x 核心并有二次确认 |

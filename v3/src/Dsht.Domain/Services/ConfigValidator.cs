@@ -60,6 +60,9 @@ namespace Dsht.Domain.Services
                 double sec;
                 return (double.TryParse(v, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out sec) && sec >= 0.5 && sec <= 3600) ? null : "bad-value";
             }
+            // ★ GUI 布局/风格偏好（2026-10-06）：范围与 Shells/Palette 一致 ✓ 越界拒绝 ✗ 不猜 ✗
+            if (k == "gui_shell") { int n; return (int.TryParse(v, out n) && n >= 0 && n <= 4) ? null : "bad-value"; }
+            if (k == "gui_style") { int n; return (int.TryParse(v, out n) && n >= 0 && n <= 3) ? null : "bad-value"; }
             // ★ DeepSeek 余额检测的 key（2026-10-02 ✓）：自由文本，空 = 未绑定 ✓；不猜格式 ✗（明文本地存储 ✓ 见 CONFIGNOTE ✓）
             if (k == "balance_key")
             {
@@ -104,6 +107,8 @@ namespace Dsht.Domain.Services
                 }
             }
             else if (k == "balance_key") c.BalanceKey = v;
+            else if (k == "gui_shell") { int n; if (int.TryParse(v, out n) && n >= 0 && n <= 4) c.GuiShell = n; }   // 越界保持原值 ✓（Validate 已拦 ✓ 双保险 ✓）
+            else if (k == "gui_style") { int n; if (int.TryParse(v, out n) && n >= 0 && n <= 3) c.GuiStyle = n; }
             return c;
         }
     }

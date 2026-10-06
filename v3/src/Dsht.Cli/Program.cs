@@ -45,6 +45,7 @@ namespace Dsht.Cli
 
             if (cmd == "") return Menu(reg);
             if (cmd == "status") return Status(reg, Has(args, "--detail"));
+            if (cmd == "overview") return Overview(reg);   // 聚合只读：status --detail + sessions + backup-list + profiles（GUI 一次调用 ✓）
             if (cmd == "describe") return Describe(reg);
             if (cmd == "bridge-install") return BridgeInstall(args, reg);   // ✓ 可选的桥接插件 ✓（用户要求"安装桥接插件有按钮吗" ✓）
             if (cmd == "profilecheck") return ProfileCheck(args, reg);
@@ -204,10 +205,23 @@ namespace Dsht.Cli
         /// <summary>用法速查（菜单"全部命令"与未知命令共用）。
         /// 注意：这里**绝不能调用自己** ✗ —— 之前用正则抽取内联那行时把函数体写成了 `Usage();`，
         /// 变成无限递归 → 菜单项 12 直接栈溢出（真机扫描抓到的 ✗）。</summary>
+        /// <summary>overview（V3 独有，**只读**）：一个进程给出概览页所需的**全部**标记行 ——
+        /// status --detail + sessions + backup-list + profiles 的并集。GUI 每拍从 4 个进程降到 1 个 ✓
+        /// （0.5 秒实时档的刷新成本大头是进程启动 ✓）。各子命令输出逐字不变 ✓ 解析方按前缀取行 ✓
+        /// 只读聚合页：任一子块失败不打断后面的块（能显示多少显示多少 ✓）。</summary>
+        private static int Overview(ServiceRegistry reg)
+        {
+            Status(reg, true);
+            Sessions(reg);
+            BackupList(new string[] { "backup-list" }, reg);
+            Profiles(reg);
+            return 0;
+        }
+
         private static void Usage()
         {
             Console.WriteLine(T("dsh-minato 命令速查：", "dsh-minato commands:"));
-            Console.WriteLine("  status [--detail] | describe | doctor | bootdiag | check | selftest | version | about");
+            Console.WriteLine("  status [--detail] | overview | describe | doctor | bootdiag | check | selftest | version | about");
             Console.WriteLine("  profiles | profilecheck [--dir <d>] [--file <yaml>] [--diag] | profilepatch --profile <name> --id <entry> [--enable] [--yes]");
             Console.WriteLine("  sessions | log [--lines <n>] [--level info|warn|error] [--grep <text>] [--export <file> [--yes]]");
             Console.WriteLine("  update-info | update-center | update [--yes]");

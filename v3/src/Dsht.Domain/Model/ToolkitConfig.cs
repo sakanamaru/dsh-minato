@@ -36,6 +36,11 @@ namespace Dsht.Domain.Model
         /// **纯 GUI 偏好** ✓ 同上；文本保存与其它键一致（`config-set gui_auto_refresh 3` ✓）。</summary>
         public string GuiAutoRefresh = "off";
 
+        /// <summary>侧栏布局选择（0..4 = Shells.Sidebar..Hybrid）。纯 GUI 偏好 ✓ 2026-10-06 起持久化 ✓。</summary>
+        public int GuiShell = 4;
+        /// <summary>视觉风格（0..3 = Palette A..D）。纯 GUI 偏好 ✓ 2026-10-06 起持久化 ✓。</summary>
+        public int GuiStyle = 0;
+
         /// <summary>DeepSeek 平台 API key（**余额检测用** ✓ 2026-10-02 用户要求"自己填写 key" ✓）。
         /// 空 = 未绑定 → 概览页不显示余额卡 ✓（用户要求"未绑定隐藏" ✓）。
         /// ⚠ **明文**保存在本机配置文件里 —— 只在用户自己的机器上 ✓ 不上传 ✓（CONFIGNOTE 如实写明 ✓）。
@@ -47,7 +52,7 @@ namespace Dsht.Domain.Model
             ToolkitConfig c = new ToolkitConfig();
             c.Lang = Lang; c.Host = Host; c.Workspace = Workspace; c.KeepBackups = KeepBackups;
             c.CheckUpdate = CheckUpdate; c.CheckDshUpdate = CheckDshUpdate; c.DshVersions = DshVersions;
-            c.UpdateChannel = UpdateChannel; c.CloseAction = CloseAction; c.AutoStart = AutoStart; c.AutoStartTarget = AutoStartTarget; c.BrowserMode = BrowserMode; c.UiParallel = UiParallel; c.ScanChildren = ScanChildren; c.GuiStartPage = GuiStartPage; c.GuiAutoRefresh = GuiAutoRefresh; c.BalanceKey = BalanceKey;
+            c.UpdateChannel = UpdateChannel; c.CloseAction = CloseAction; c.AutoStart = AutoStart; c.AutoStartTarget = AutoStartTarget; c.BrowserMode = BrowserMode; c.UiParallel = UiParallel; c.ScanChildren = ScanChildren; c.GuiStartPage = GuiStartPage; c.GuiAutoRefresh = GuiAutoRefresh; c.GuiShell = GuiShell; c.GuiStyle = GuiStyle; c.BalanceKey = BalanceKey;
             return c;
         }
     }

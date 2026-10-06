@@ -506,15 +506,19 @@ namespace Dsht.Cli
             Console.WriteLine("CONFIG scan_children " + (_cfg.ScanChildren ? "on" : "off"));
             Console.WriteLine("CONFIG gui_start_page " + _cfg.GuiStartPage);   // ★ 界面偏好（2026-10-02 用户要求"启动默认打开页面可自选" ✓）
             Console.WriteLine("CONFIG gui_auto_refresh " + _cfg.GuiAutoRefresh);   // ★ 概览自动刷新（2026-10-02 ✓：off/0.5/1/3/5/自定义秒 ✓）
+            Console.WriteLine("CONFIG gui_shell " + _cfg.GuiShell);   // ★ 布局偏好（2026-10-06：顶栏切换器的选择被记住 ✓ 仅 GUI 用 ✓）
+            Console.WriteLine("CONFIG gui_style " + _cfg.GuiStyle);   // ★ 风格偏好（同上 ✓ A/B/C/D → 0..3 ✓）
             Console.WriteLine("CONFIG balance_key " + ((_cfg.BalanceKey == null ? "" : _cfg.BalanceKey).Trim().Length > 0 ? "set" : ""));   // ★ 审查 M1 修复：不回显明文（终端回滚缓冲留底 ✗）只报 set/unset ✓ GUI 按"留空=保持"工作 ✓
             // 备注行 ✓✓：GUI 原样显示在对应设置项下面 ✓（"出现什么问题时试哪个" ✓）
             Console.WriteLine("CONFIGNOTE browser_mode " + T("【浏览器打不开时改这个】auto=自动（先 snap run firefox → 再直开 → 最后 xdg-open）/ snap=只走 snap（Ubuntu 的 snap 版 firefox 必须这样 ✓）/ direct=只直开 firefox / xdg=只交给系统默认", "when the browser will not open"));
-            Console.WriteLine("CONFIGNOTE ui_parallel " + T("【切页卡顿时改这个】on=并行取数据（快 ✓ 默认）/ off=串行（老行为，个别环境下更稳）", "when switching pages feels slow"));
+            Console.WriteLine("CONFIGNOTE ui_parallel " + T("【切页卡顿时改这个】on=概览页一次聚合调用 overview（快 ✓ 默认）/ off=四个命令分开跑（老行为，排障用）", "when switching pages feels slow"));
             Console.WriteLine("CONFIGNOTE scan_children " + T("【会话页想更快时关掉】on=扫描会话文件得出主/子代理归类（默认 ✓ 197 个会话约 200ms）/ off=不扫（会话页更快，但子代理统计会为空）", "to make the sessions page faster"));
             Console.WriteLine("CONFIGNOTE auto_start " + T("【不想让 GUI 自动起 dsh 时关掉】on=GUI 启动时自动启动（默认）/ off=不自动", "if you do not want the GUI to auto-start dsh"));
             Console.WriteLine("CONFIGNOTE auto_start_target " + T("【开机自启启动什么】auto=按平台（Windows/macOS 启动官方桌面端，Linux 启动 dsh web）/ desktop=官方桌面端 / web=dsh web", "what to start at login"));
             Console.WriteLine("CONFIGNOTE gui_start_page " + T("【GUI 启动先开哪页】0=概览 1=看板 2=会话与Token 3=形态与插件 4=备份 5=体检 6=设置 7=说明 8=更新 9=日志（默认 1）", "which page the GUI opens first"));
             Console.WriteLine("CONFIGNOTE gui_auto_refresh " + T("【概览页自动刷新间隔】off=暂停（默认）/ 0.5=实时 / 1=快 / 3=中 / 5=慢 / 或自定义秒数（0.5–3600）——只在概览/看板页生效", "overview auto-refresh interval"));
+            Console.WriteLine("CONFIGNOTE gui_shell " + T("【侧栏布局】0=侧栏式 1=顶部标签 2=卡片网格 3=主从式 4=混合式（默认 4）——顶栏切换器会记住你的选择", "sidebar layout 0-4; the top-bar switcher remembers your choice"));
+            Console.WriteLine("CONFIGNOTE gui_style " + T("【视觉风格】0=A 浅色卡片 1=B 深色卡片 2=C 深色紧凑 3=D 浅色仪表盘（默认 0）——顶栏 A-D 会记住你的选择", "visual style A-D; the top-bar switcher remembers your choice"));
             Console.WriteLine("CONFIGNOTE balance_key " + T("【DeepSeek 平台 API key，用于余额检测】留空=未绑定（概览页不显示余额卡）。⚠ key 以明文保存在本机配置文件里，只在你自己的机器上，不上传", "DeepSeek platform API key for the balance card; empty = unbound; stored in plain text in the local config only"));
             return 0;
         }

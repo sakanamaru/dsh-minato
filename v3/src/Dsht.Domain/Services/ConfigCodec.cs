@@ -91,6 +91,17 @@ namespace Dsht.Domain.Services
                 if (v2.Length == 0 || v2 == "off") c.GuiAutoRefresh = "off";
                 else if (double.TryParse(v2, System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out sec2) && sec2 >= 0.5 && sec2 <= 3600) c.GuiAutoRefresh = v2;
             }
+            else if (t.StartsWith("gui_shell=", StringComparison.Ordinal))
+            {
+                // 与白名单同一条规则 ✓：0..4 之外不认（保持默认 ✓ 不猜 ✗）
+                int n;
+                if (int.TryParse(t.Substring("gui_shell=".Length).Trim(), out n) && n >= 0 && n <= 4) c.GuiShell = n;
+            }
+            else if (t.StartsWith("gui_style=", StringComparison.Ordinal))
+            {
+                int n;
+                if (int.TryParse(t.Substring("gui_style=".Length).Trim(), out n) && n >= 0 && n <= 3) c.GuiStyle = n;
+            }
             else if (t.StartsWith("balance_key=", StringComparison.Ordinal)) c.BalanceKey = t.Substring("balance_key=".Length).Trim();
             }
             return c;
@@ -116,6 +127,8 @@ namespace Dsht.Domain.Services
             sb.Append("scan_children=").Append(c.ScanChildren ? "on" : "off").Append("\r\n");
             sb.Append("gui_start_page=").Append(c.GuiStartPage).Append("\r\n");
             sb.Append("gui_auto_refresh=").Append(c.GuiAutoRefresh).Append("\r\n");
+            sb.Append("gui_shell=").Append(c.GuiShell).Append("\r\n");
+            sb.Append("gui_style=").Append(c.GuiStyle).Append("\r\n");
             sb.Append("balance_key=").Append(c.BalanceKey == null ? "" : c.BalanceKey).Append("\r\n");
             return sb.ToString();
         }

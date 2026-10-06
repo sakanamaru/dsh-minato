@@ -56,7 +56,7 @@ $checks = @(
   @('命令 balance',              'cmd == "balance"', 1),
   @('多工作区前置约束',          '_wss.Length >= 2 ? null', 1),
   @('通道说明',                  'CHANNEL_NOTE', 1),
-  # ---- 命令面（31 个 ✓）：删掉任何一个 = **静默失去一个功能** ✗ ----
+  # ---- 命令面（32 个 ✓）：删掉任何一个 = **静默失去一个功能** ✗ ----
   @('命令 about',                'cmd == "about"', 1),
   @('命令 backup',               'cmd == "backup"', 1),
   @('命令 backup-delete',        'cmd == "backup-delete"', 1),
@@ -88,6 +88,7 @@ $checks = @(
   @('命令 verify-install',       'cmd == "verify-install"', 1),
   @('命令 version',              'cmd == "version"', 1),
   @('命令 wipe',                 'cmd == "wipe"', 1),
+  @('命令 overview',           'cmd == "overview"', 1),
   # ---- 更早轮次的关键闸门（V3 自身 ✓）----
   # F-I FIX (CLI final review): this asserted WIPE_REFUSED, but that marker only exists in the block that
   # sits BELOW the command's `return 0` - the wipe command no longer deletes anything, so that guard is
