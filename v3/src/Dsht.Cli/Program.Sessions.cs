@@ -194,6 +194,7 @@ namespace Dsht.Cli
             Console.WriteLine("SESSIONS_TOTAL in=" + (tot.UncachedInputTokens + tot.CacheReadTokens)
                 + " out=" + tot.OutputTokens
                 + " cacheRead=" + tot.CacheReadTokens
+                + " uncached=" + tot.UncachedInputTokens   // ★ 口径拆开：in = uncached + cacheRead（用户反馈"400 亿太恐怖"→ 让数字自我解释 ✓）
                 + " hit=" + Num1(tot.CacheHitPercent)
                 + " decode=" + Num1(tot.DecodeTokensPerSec));
             return 0;

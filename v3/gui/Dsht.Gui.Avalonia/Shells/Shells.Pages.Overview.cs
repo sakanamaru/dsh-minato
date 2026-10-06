@@ -150,7 +150,16 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 delegate { SessionsSnapshot d = host.Data; return d == null ? "—" : SessionRow.Human(Agg(host).In); },
 
-                delegate { SessionsSnapshot d = host.Data; return "输出 " + (d == null ? "—" : SessionRow.Human(Agg(host).Out)); },
+                delegate
+                {
+                    SessionsSnapshot d = host.Data; KpiAgg a = Agg(host);
+                    if (d == null) return "输出 —";
+                    // ★ 口径拆开（用户反馈：400 亿这个数字太吓人 → 让它自我解释 ✓）
+                    long uncached = a.In - a.Cache;
+                    if (uncached < 0) uncached = 0;
+                    return "新输入 " + SessionRow.Human(uncached) + " · 缓存命中 " + SessionRow.Human(a.Cache)
+                        + " · 生成 " + SessionRow.Human(a.Out);
+                },
 
                 Palette.Text, 3, null));
 
