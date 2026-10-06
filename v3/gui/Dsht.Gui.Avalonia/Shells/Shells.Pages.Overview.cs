@@ -302,9 +302,10 @@ namespace Dsht.Gui.Avalonia.Shells
 
             }
 
-            ComboBox arCb = new ComboBox { MinWidth = 140, FontSize = 12, ItemsSource = arLabels, SelectedIndex = sel };
+            ComboBox arCb = new ComboBox { MinWidth = 118, FontSize = 12, ItemsSource = arLabels, SelectedIndex = sel };
 
             // ★ 先设 SelectedIndex、后挂事件 ✓ —— 初始化那一拍不会触发一次多余的写盘 ✓
+            ToolTip.SetTip(arCb, "只在概览/看板生效 ✓ 0.5 秒档 = 每拍起一个 CLI 进程（有真实成本 ✓）自定义可输 0.5–3600 秒");
 
             arCb.SelectionChanged += async delegate
 
@@ -334,7 +335,6 @@ namespace Dsht.Gui.Avalonia.Shells
 
             arBar.Children.Add(arCb);
 
-            arBar.Children.Add(T("只在概览/看板生效 ✓ 0.5 秒档 = 每拍起一个 CLI 进程（有真实成本 ✓）", 10.5, Palette.TextFaint));
 
             return new Border
 
@@ -346,7 +346,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 Padding = new Thickness(12, 7),
 
-                Margin = new Thickness(12, 0, 24, 0),
+                Margin = new Thickness(12, 0, 12, 0),
 
                 VerticalAlignment = VerticalAlignment.Center,
 

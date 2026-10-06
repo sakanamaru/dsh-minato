@@ -680,7 +680,7 @@ namespace Dsht.Gui.Avalonia.Shells
             if (host.IsOverviewLike && host.SubTab == 0)
             {
                 Control ar = AutoRefreshBar(host);
-                if (ar != null) g.Children.Add(ar);
+                if (ar != null) { Grid.SetColumn(ar, 1); g.Children.Add(ar); }   // ★ 必须设列 ✗ 否则两块同叠列 0（截图抓到标题被遮）
             }
             return g;
         }
