@@ -372,30 +372,20 @@ namespace Dsht.Gui.Avalonia.Shells
 
         /// —— 原来主标签也嵌一份 ChartsBody，同一组图渲染两遍 ✗ 已拆 ✓）。</summary>
 
+        /// <summary>看板 = **指标与图表的唯一主场（单页）**。
+        /// 用户反馈"主标签太空 + 图表子标签重复"→ 合成一页：KPI 四卡 + 操作回执 + 4 张图 ✓
+        /// 同一组图只出现一次（既填满也不重复 ✓）。「图表」子标签已随之取消。</summary>
         private static Control BoardContent(MainWindow host)
-
         {
-
             StackPanel s = new StackPanel { Margin = PageMargin, Spacing = 14 };
-
-            if (host.SubTab == 1) { s.Children.Add(ChartsBody(host)); return s; }
-
             s.Children.Add(KpiStrip(host));
-
-            // 操作回执：最近一条动作的结果（细节在右下角 toast）—— NavDesc 里承诺的"回执"落在这里 ✓
-
+            // 操作回执：最近一条动作的结果（细节在右下角 toast）
             if (!string.IsNullOrEmpty(host.ActionLog))
-
                 s.Children.Add(Card(T(host.ActionLog, 12, Palette.TextDim), new Thickness(0), new Thickness(14, 10)));
-
             else
-
                 s.Children.Add(Card(T("还没有操作 —— 侧栏底部可以一键启动 / 停止 dsh；结果会显示在这里并弹 toast。", 11.5, Palette.TextFaint), new Thickness(0), new Thickness(14, 10)));
-
-            s.Children.Add(T("趋势与分布图在「图表」子标签：近 N 天新增会话 / 缓存命中率分布 / token 消耗 / 体检结论。", 11.5, Palette.TextFaint));
-
+            s.Children.Add(ChartsBody(host));
             return s;
-
         }
 
         private static Control StatusDetail(MainWindow host)
@@ -549,6 +539,8 @@ namespace Dsht.Gui.Avalonia.Shells
                 delegate { ProfilesSnapshot p2 = host.Profiles; return (p2 == null ? "—" : p2.Count.ToString()) + " / " + ThirdCount(p2); },
 
                 delegate { ProfilesSnapshot q = host.Profiles; return BundleCount(q) + " 个组合包（含第三方 " + (q == null ? "—" : q.Profiles.Count.ToString()) + " 个 profile）"; }, Palette.Text, null, 1, 2));
+            s.Children.Add(row1);   // ★ P1.1b 拼接时丢失的一行（row1 建了没挂上 → 身份卡整行隐身）
+
 
 
 
@@ -644,6 +636,37 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 s.Children.Add(Card(bh2, new Thickness(0), new Thickness(16, 12)));
 
+            }
+
+            // 用户反馈"概览太空" → 加**最耗 token 三条会话速览**（概览独有内容 ✓ 不与任何页重复 ✓）
+            SessionsSnapshot sv = host.Data;
+            if (sv != null && sv.Ok && sv.Rows.Count > 0)
+            {
+                List<SessionRow> top = new List<SessionRow>(sv.Rows);
+                top.Sort(delegate(SessionRow a2, SessionRow b2) { return b2.In.CompareTo(a2.In); });
+                StackPanel tl = new StackPanel { Spacing = 8 };
+                StackPanel th = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+                th.Children.Add(T("最耗 token 的三条会话", 13, Palette.Text, FontWeight.SemiBold));
+                th.Children.Add(GhostButton(T("查看全部 →", 11, Palette.Accent), delegate { host.SetMainSection(2); }, true));
+                tl.Children.Add(th);
+                int showN = Math.Min(3, top.Count);
+                for (int ti = 0; ti < showN; ti++)
+                {
+                    SessionRow r = top[ti];
+                    Grid row = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto,Auto") };
+                    Ellipse dot = new Ellipse { Width = 8, Height = 8, Fill = Palette.StatusBrush(r.StatusKind), VerticalAlignment = VerticalAlignment.Center };
+                    Grid.SetColumn(dot, 0);
+                    TextBlock tt = T(r.TitleText, 12, Palette.Text); tt.Margin = new Thickness(8, 0, 0, 0); tt.VerticalAlignment = VerticalAlignment.Center;
+                    tt.TextTrimming = TextTrimming.CharacterEllipsis;
+                    Grid.SetColumn(tt, 1);
+                    TextBlock tv = T(SessionRow.Human(r.In) + " · 命中 " + r.HitText, 11.5, Palette.TextDim); tv.VerticalAlignment = VerticalAlignment.Center; tv.Margin = new Thickness(12, 0, 0, 0);
+                    Grid.SetColumn(tv, 2);
+                    TextBlock tc = T(r.Turns + " 轮", 11, Palette.TextFaint); tc.VerticalAlignment = VerticalAlignment.Center; tc.Margin = new Thickness(12, 0, 0, 0);
+                    Grid.SetColumn(tc, 3);
+                    row.Children.Add(dot); row.Children.Add(tt); row.Children.Add(tv); row.Children.Add(tc);
+                    tl.Children.Add(row);
+                }
+                s.Children.Add(Card(tl, new Thickness(0), new Thickness(16, 14)));
             }
 
 
