@@ -13,7 +13,16 @@ namespace Dsht.Cli
     internal static class PlatformComposition
     {
         internal const int WebPort = 3080;
-        internal const string WebUrl = "http://127.0.0.1:3080";
+        /// <summary>探测/显示用的 web 地址。**host 接线（2026-10-06）**：配置键 host 现在真的生效 ——
+        /// 默认 127.0.0.1（行为不变 ✓）；设成 localhost 时探测/显示用 http://localhost:3080 ✓。</summary>
+        internal static string WebUrl = "http://127.0.0.1:3080";
+
+        /// <summary>启动前（Compose 之前）调用：把配置里的 host 应用到 WebUrl ✓ 白名单只有 127.0.0.1/localhost ✓。</summary>
+        internal static void ApplyWebHost(string host)
+        {
+            string h = (host ?? "").Trim();
+            if (h == "localhost" || h == "127.0.0.1") WebUrl = "http://" + h + ":3080";
+        }
 
         public static bool IsWindows()
         {

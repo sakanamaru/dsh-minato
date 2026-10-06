@@ -98,6 +98,13 @@ namespace Dsht.Gui.Avalonia
             BuildWindowChrome();
             InitChrome();
             for (int i = 0; i < 5; i++) BindShell(i);
+            Closing += delegate(object s2, global::Avalonia.Controls.WindowClosingEventArgs ce)
+            {
+                // close_action：tray=最小化到托盘（可取消）/ ask=弹确认（可取消）/ 空|exit=直接退出 ✓
+                string act = (_closeAction ?? "").Trim();
+                if (act == "tray" && !_realExit) { ce.Cancel = true; HideToTray(); return; }
+                if (act == "ask" && !_realExit) { ce.Cancel = true; ConfirmExitAsync(); return; }
+            };
             for (int i = 0; i < 4; i++) BindStyle(i);
             // ★★★ 用户反馈「延迟还在」：根因不在切页慢，而在**点击后零反馈** ✗✗
             //   实测（2026-10-02）：体检页要跑 `doctor`（6.5s，含 npm registry 探测）、
@@ -132,6 +139,7 @@ namespace Dsht.Gui.Avalonia
                     }
                     if (t3.StartsWith("CONFIG gui_auto_refresh ", StringComparison.Ordinal))
                         ApplyAutoRefresh(t3.Substring("CONFIG gui_auto_refresh ".Length).Trim());
+                    if (t3.StartsWith("CONFIG close_action ", StringComparison.Ordinal)) _closeAction = t3.Substring("CONFIG close_action ".Length).Trim();
                 }
             }
             catch { }
@@ -1340,6 +1348,9 @@ namespace Dsht.Gui.Avalonia
 
         // —— 加载反馈（用户反馈「延迟还在」的根治：**点击必须立刻有反应** ✓）——
         private bool _loading;
+        private string _closeAction = "";   // close_action 接线（2026-10-06）：exit=直退 / ask=确认 / tray=托盘
+        private bool _realExit;
+        private global::Avalonia.Controls.TrayIcon _tray;
         private bool _fadeNextBuild;   // 美学B1：下一次 BuildShell 是否淡入（只有"数据到达型"重建才置真 ✓）
         private bool _fadeSuppressed;  // 手动刷新按钮：不要淡入（连点不闪 ✓）
         /// <summary>一次刷新正在后台跑 ✓。BuildShell 据此决定画不画加载浮层 ✓。</summary>
@@ -1882,6 +1893,38 @@ namespace Dsht.Gui.Avalonia
         }
         /// <summary>配置写入后**立刻让缓存失效** ✓✓（否则设置页改了看不到变化 ✗）。</summary>
         private static void InvalidateCfgCache() { _cfgCache = null; _cfgCacheAt = System.DateTime.MinValue; }
+
+        // —— close_action 接线（2026-10-06 用户要求"无效选项接上"）：ask=确认 / tray=系统托盘 / exit=直退 ——
+        private async void ConfirmExitAsync()
+        {
+            bool yes = await ConfirmDialog.Ask(this, "退出 dsh-minato", "确定要退出吗？");
+            if (yes) { _realExit = true; Close(); }
+        }
+
+        /// <summary>tray 模式：隐藏主窗口 + 建系统托盘图标（一次性）。托盘不可用（个别 Linux）→ 退化为直退 ✓ 不猜 ✗。</summary>
+        private void HideToTray()
+        {
+            try
+            {
+                if (_tray == null)
+                {
+                    _tray = new global::Avalonia.Controls.TrayIcon();
+                    _tray.Icon = Icon;
+                    _tray.ToolTipText = "dsh-minato";
+                    global::Avalonia.Controls.NativeMenu menu = new global::Avalonia.Controls.NativeMenu();
+                    global::Avalonia.Controls.NativeMenuItem show = new global::Avalonia.Controls.NativeMenuItem("显示 dsh-minato");
+                    show.Click += delegate { Show(); Activate(); };
+                    global::Avalonia.Controls.NativeMenuItem quit = new global::Avalonia.Controls.NativeMenuItem("退出");
+                    quit.Click += delegate { _realExit = true; try { _tray.Dispose(); } catch { } Close(); };
+                    menu.Items.Add(show); menu.Items.Add(quit);
+                    _tray.Menu = menu;
+                    _tray.IsVisible = true;
+                }
+                Hide();
+                ShowToast("已最小化到系统托盘 ✓ 托盘图标右键可显示或退出 ✓");
+            }
+            catch { _realExit = true; Close(); }
+        }
 
         // —— GUI 偏好落盘（U4）· **走动作串行闸门**（复核 F2：fire-and-forget 与其它 config-set
         //   并发写同一配置文件有损坏风险 ✗ 3.0.3 起的"一次一个 CLI 动作"纪律不能被偏好写入绕过 ✓）——

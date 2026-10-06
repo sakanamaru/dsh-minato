@@ -406,7 +406,15 @@ namespace Dsht.Gui.Avalonia.Shells
 
             string[] lvOpts = new string[] { "全部", "INFO", "WARN", "ERROR" };
 
-            ComboBox lvCb = new ComboBox { MinWidth = 92, FontSize = 12, ItemsSource = lvOpts, SelectedIndex = string.IsNullOrEmpty(host.LogFilter) ? 0 : (System.Array.IndexOf(lvOpts, host.LogFilter.ToUpperInvariant()) < 0 ? 0 : System.Array.IndexOf(lvOpts, host.LogFilter.ToUpperInvariant())) };
+            // ★ Roslyn 8.0.425 病理规避（2026-10-06 实测定位）：Array.IndexOf 三元**内联进
+            //   无目标类型的方法实参**会让 csc 100% CPU 死循环（内存涨到 1.3GB+）→ 先算成局部变量 ✓
+            int lvSel = 0;
+            if (!string.IsNullOrEmpty(host.LogFilter))
+            {
+                int f = System.Array.IndexOf(lvOpts, host.LogFilter.ToUpperInvariant());
+                if (f > 0) lvSel = f;
+            }
+            ComboBox lvCb = SlimCombo(lvOpts, lvSel, 88);
 
             lvCb.SelectionChanged += delegate { host.SetLogFilter(lvCb.SelectedIndex <= 0 ? "" : lvOpts[lvCb.SelectedIndex]); };
 
@@ -416,7 +424,8 @@ namespace Dsht.Gui.Avalonia.Shells
 
             int[] lineOpts = new int[] { 100, 500, 2000 };
 
-            ComboBox lnCb = new ComboBox { MinWidth = 84, FontSize = 12, ItemsSource = lineOpts, SelectedIndex = host.LogLines >= 2000 ? 2 : (host.LogLines <= 100 ? 0 : 1) };
+            int lnSel = host.LogLines >= 2000 ? 2 : (host.LogLines <= 100 ? 0 : 1);
+            ComboBox lnCb = SlimCombo(lineOpts, lnSel, 80);
 
             lnCb.SelectionChanged += delegate { host.SetLogLines(lineOpts[lnCb.SelectedIndex]); };
 
@@ -1106,9 +1115,9 @@ namespace Dsht.Gui.Avalonia.Shells
 
         {
 
-            if (key == "close_action") return "⚠ V3 不消费此项：本窗口的关闭就是直接退出，没有托盘/询问（经典版 v2.x 核心的设置，保留仅为配置兼容）";
 
-            if (key == "host") return "⚠ V3 不消费此项：服务地址固定为 127.0.0.1:3080（经典版 v2.x 核心的设置，保留仅为配置兼容）";
+
+
 
             if (key == "check_update") return "⚠ V3 不消费此项：本工具自身的更新检查未接线（V3 里真正生效的是 check_dsh_update）";
 
@@ -1186,7 +1195,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 else idx = Array.IndexOf(opts, c.Value);
 
-                ComboBox cb = new ComboBox { MinWidth = 200, FontSize = 12, ItemsSource = opts, SelectedIndex = idx };
+                ComboBox cb = SlimCombo(opts, idx, 180);
 
                 // ★ 先设 SelectedIndex、后挂事件 ✓ —— 初始化那一拍不写盘 ✓
 

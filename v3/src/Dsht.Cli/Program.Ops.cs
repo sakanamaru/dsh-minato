@@ -520,6 +520,8 @@ namespace Dsht.Cli
             Console.WriteLine("CONFIGNOTE gui_shell " + T("【侧栏布局】0=侧栏式 1=顶部标签 2=卡片网格 3=主从式 4=混合式（默认 4）——顶栏切换器会记住你的选择", "sidebar layout 0-4; the top-bar switcher remembers your choice"));
             Console.WriteLine("CONFIGNOTE gui_style " + T("【视觉风格】0=A 浅色卡片 1=B 深色卡片 2=C 深色紧凑 3=D 浅色仪表盘（默认 0）——顶栏 A-D 会记住你的选择", "visual style A-D; the top-bar switcher remembers your choice"));
             Console.WriteLine("CONFIGNOTE balance_key " + T("【DeepSeek 平台 API key，用于余额检测】留空=未绑定（概览页不显示余额卡）。⚠ key 以明文保存在本机配置文件里，只在你自己的机器上，不上传", "DeepSeek platform API key for the balance card; empty = unbound; stored in plain text in the local config only"));
+            Console.WriteLine("CONFIGNOTE close_action " + T("【关闭窗口时】exit=直接退出（默认）/ ask=先弹确认 / tray=最小化到系统托盘（托盘图标右键可显示或退出）", "close behavior: exit / ask / tray (system tray)"));
+            Console.WriteLine("CONFIGNOTE host " + T("【dsh 监听地址】127.0.0.1 或 localhost（探测与显示用的回环名，功能等价）", "loopback name used for probing/display: 127.0.0.1 or localhost"));
             return 0;
         }
         /// <summary>config-set <key> <value>：白名单内才写盘，否则 CONFIGSET_FAIL 原因。</summary>

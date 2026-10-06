@@ -20,11 +20,20 @@ namespace Dsht.Cli
     public static partial class Program
     {
         private const int WebPort = 3080;
-        private const string WebUrl = "http://127.0.0.1:3080";
 
         public static int Main(string[] args)
         {
             try { Console.OutputEncoding = new System.Text.UTF8Encoding(false); } catch { }
+            // host 接线（2026-10-06）：配置键 host 现在**真的生效** —— Compose 之前预读一次配置，
+            // 让 WebUrl 用配置的 loopback 名（默认 127.0.0.1 行为不变 ✓）。
+            try
+            {
+                string preText = PlatformComposition.IsWindows()
+                    ? new Dsht.Platform.Windows.WindowsConfigSource(new Dsht.Platform.Windows.WindowsPaths()).ReadConfig()
+                    : new Dsht.Platform.Linux.LinuxConfigSource(new Dsht.Platform.Linux.LinuxPaths()).ReadConfig();
+                PlatformComposition.ApplyWebHost(ConfigCodec.Parse(preText, null).Host);
+            }
+            catch { }
             ServiceRegistry reg = Compose();
             _cfg = LoadConfig(reg);
             string cmd = args.Length > 0 ? args[0] : "";
@@ -757,7 +766,7 @@ Console.WriteLine("  config-get | config-set <key> <value>");
                 }
             }
             ServiceReport sr = reg.Get<IServiceTarget>().Probe();
-            string ws = sr.State == ServiceState.Ready ? WebUrl + " " + T("已在运行", "running")
+            string ws = sr.State == ServiceState.Ready ? PlatformComposition.WebUrl + " " + T("已在运行", "running")
                 : (sr.State == ServiceState.Listening ? T("启动中（端口已开，服务未就绪）", "starting (port open, not ready)") : T("未启动", "not started"));
             Console.WriteLine("  Web 服务   : " + ws);
             Console.WriteLine("  UI 语言    : " + (_cfg.Lang == "auto" ? T("跟随系统", "follow system") : (_cfg.Lang == "zh" ? "简体中文" : "English")));

@@ -302,7 +302,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             }
 
-            ComboBox arCb = new ComboBox { MinWidth = 118, FontSize = 12, ItemsSource = arLabels, SelectedIndex = sel };
+            ComboBox arCb = SlimCombo(arLabels, sel, 118);
 
             // ★ 先设 SelectedIndex、后挂事件 ✓ —— 初始化那一拍不会触发一次多余的写盘 ✓
             ToolTip.SetTip(arCb, "只在概览/看板生效 ✓ 0.5 秒档 = 每拍起一个 CLI 进程（有真实成本 ✓）自定义可输 0.5–3600 秒");

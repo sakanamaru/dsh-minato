@@ -211,7 +211,7 @@ namespace Dsht.Cli
                 bool isDsh = pid > 0 && proc.IsDshCommandLine(pid);
                 string who = isDsh ? "监听进程确为 dsh" : (pid > 0 ? "监听进程不是 dsh！命令行: " + ReportSanitizer.Sanitize(proc.CommandLine(pid)) : "无法确认监听进程身份");
                 items.Add(new DocItem("Service", isDsh ? 0 : 2, who));
-                bool httpOk = http.Responds(WebUrl, 800);
+                bool httpOk = http.Responds(PlatformComposition.WebUrl, 800);
                 items.Add(new DocItem("Service", 0, "HTTP: " + (httpOk ? "有应答（dsh 未授权统一 401 属正常门控）" : "无应答")));
                 items.Add(new DocItem("Service", sr.State == ServiceState.Ready ? 0 : 1, "服务状态: " + (sr.State == ServiceState.Ready ? "运行中" : (sr.State == ServiceState.Listening ? "启动中" : "已停止"))));
             }

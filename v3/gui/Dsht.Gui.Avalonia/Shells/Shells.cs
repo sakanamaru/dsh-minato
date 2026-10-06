@@ -107,6 +107,25 @@ namespace Dsht.Gui.Avalonia.Shells
             return b;
         }
 
+        /// <summary>统一下拉样式（用户反馈"下拉框突兀"）：纤细、贴卡片语言 —— 细边框 + 内陷底 + 小圆角。</summary>
+        private static ComboBox SlimCombo(System.Collections.IEnumerable items, int selectedIndex, double minWidth)
+        {
+            return new ComboBox
+            {
+                ItemsSource = items,
+                SelectedIndex = selectedIndex,
+                MinWidth = minWidth,
+                MinHeight = 26,
+                FontSize = 11.5,
+                Padding = new Thickness(8, 2),
+                Background = Palette.InsetBg,
+                BorderBrush = Palette.Border,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(7),
+                VerticalContentAlignment = VerticalAlignment.Center
+            };
+        }
+
         /// <summary>统一空状态（美学B5）：图标 + 主句 + 下一步 —— 各页不再手写样式漂移 ✓。</summary>
         private static Control EmptyState(string main, string next)
         {
