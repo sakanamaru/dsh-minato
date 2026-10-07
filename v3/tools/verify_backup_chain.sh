@@ -125,4 +125,21 @@ DSH_HOME="$A" $T $CLI config-set ws "" >/dev/null 2>&1
 
 echo ""
 echo "== 结果：PASS=$pass FAIL=$fail =="
+# ★★★ 批次 E5（2026-10-07 外部审查建议 §2.1）：**项数下限**断言 ✓✓
+#   为什么：`[ "$fail" -eq 0 ]` 只能抓"检查跑了但红了" ✗ ——
+#     而**删除一条检查**（或整段被 `exit` 提前截断）时 PASS 变少、FAIL 仍是 0 ✓
+#     → 脚本照样报"通过" ✗✗（这正是本脚本里 chain 类脚本出过的"假绿"形态 ✓）
+#   做法与 `verify_failure_paths.sh:127-131` 完全一致 ✓（同一句话、同一退出语义 ✓）
+#   取值说明（**下限不是目标** ✓）：静态清点 `ok` 调用点 = **140 行外 14 项 + 第 7 段 2 项** ✓
+#     · 非 root（真机/CI 的常态）→ 16 项 ✓
+#     · root → 第 7 段（不可读目录诚实性）整段 SKIP ✓ → **14 项** ✓
+#     → 取 12：给 root 与将来的小改动留 2 项余量 ✓ 同时仍能抓到"一批检查一起消失" ✗✓
+#     （说明：本脚本在 Windows 的 Git Bash 上**不可用** —— 依赖 `timeout`/`ss`/可执行位 ✓
+#       所以这里只能静态清点 + 交给 ubuntu 上的 CI 真跑 ✓ 不假装本地验过 ✗）
+EXPECTED_MIN=12
+echo "== 结果：PASS=$pass FAIL=$fail（声明最少 $EXPECTED_MIN 项）=="
+if [ "$pass" -lt "$EXPECTED_MIN" ]; then
+  echo "  [FAIL] 项数不足：实跑 $pass < 声明 $EXPECTED_MIN（有检查被删掉或没执行到）"
+  fail=$((fail+1))
+fi
 [ "$fail" -eq 0 ] && exit 0 || exit 1

@@ -93,6 +93,53 @@ jobs:
       - name: Run GUI logic tests (marker parsing)
         shell: pwsh
         run: dotnet run --project v3/gui/Dsht.Gui.LogicTests -c Release
+
+  # ---------------------------------------------------------------------------
+  # 批次 E4（2026-10-07）：「命令 × 隔离数据根」冒烟矩阵 + 真实恢复端到端。
+  #
+  # 为什么单独一个 job（而不是往 v3-contracts 里塞步骤）：
+  #   ① 有选择的接：这一批只接**能在干净 runner 上无人值守跑通**的检查 ✓
+  #      13 项本地门槛**不接** ✗ —— 其中一部分依赖本机状态（服务在跑）或联网，
+  #      接进来只会制造**假红**（真红了没人看，比不接更糟 ✗✓）
+  #   ② 不改变任何现有 job 的语义 ✓（只新增 job ✓）
+  #
+  # 这个 job 补的是**本仓库最大的那个洞**：门槛一直在证明"能编译、契约测试通过"，
+  #   却从没有一次运行去**真的执行一条对外宣传的命令** —— 于是
+  #   `backup-export` 的成功路径一次都没被跑过，缺陷一路活到 3.0.6 ✗✗
+  #   （来源：《施工规格-2026-10-07-批次E-回路与CI.md》E4c / 外部审查建议 §2.2）
+  #
+  # ⚠ 关于 shell 脚本：`v3/tools/linux_smoke.sh` 与 `v3/tools/verify_backup_chain.sh`
+  #   依赖 POSIX 工具（`mktemp -d /tmp`、`timeout`、`ss`、`stat -c`、可执行位）✗
+  #   → **只在 ubuntu runner 上有意义** ✓ 它们由既有的 `v3-linux` job（ubuntu-latest）
+  #     执行 ✓ 这里**不**在 Windows 上假装跑它们 ✓（那只会制造假红 ✗）
+  # ---------------------------------------------------------------------------
+  v3-smoke-matrix:
+    name: V3 command smoke matrix (isolated roots)
+    needs: v3-contracts
+    runs-on: windows-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683  # v4.2.2，固定 commit SHA（供应链：不跟浮动 tag）
+      - name: Build V3 CLI (net8.0)
+        shell: pwsh
+        run: dotnet build v3/src/Dsht.Cli/Dsht.Cli.csproj -c Release --nologo
+      # ★ 本轮 E4c：逐个对外宣传的命令在**隔离 DSH_HOME** 里真跑 → 断言标记行 + 退出码 ✓
+      #   默认就是**严格模式**（`-AllowKnownDefect` 不传 = $false）✓：A1/D1 已修复，
+      #   所以这里**不允许**它再退化成 XFAIL ✓ —— export 一失败这个 job 就红 ✓✓
+      - name: Command x isolated-data-root smoke matrix
+        shell: pwsh
+        run: pwsh -NoProfile -File v3/tests/verify_command_matrix.ps1 -Repo .
+      # ★ 本轮 E4b：真实恢复（隔离根 + 真实写盘 + 零越界）—— 全 PowerShell，windows 可跑 ✓
+      - name: Real restore end-to-end (isolated root, --apply)
+        shell: pwsh
+        run: pwsh -NoProfile -File v3/tests/verify_restore_apply.ps1 -Repo .
+      # ★ 本轮 E4a 的落点：GUI 构建设 0 错误由 v3-contracts 的
+      #   "Build cross-platform GUI skeleton (Avalonia)" 步骤负责 ✓
+      #   （历史上 13 项门槛**不建** Avalonia GUI ✗ → 提交过编译不过的 GUI ✓）
+      - name: Build the Avalonia GUI explicitly (13-gate blind spot)
+        shell: pwsh
+        run: dotnet build v3/gui/Dsht.Gui.Avalonia/Dsht.Gui.Avalonia.csproj -c Release --nologo
   # V3 Linux package job: the CI used to only build on ubuntu and never publish or upload anything.
   # Depends on v3-contracts only; the v2.x release chain locked by verify_switchover is untouched.
   # No new actions: ubuntu-latest ships .NET 8, and artifacts go up with the preinstalled gh CLI.
