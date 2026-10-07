@@ -61,6 +61,14 @@ want "backup-list --verify 打印汇总行" "$A9" '^BACKUP_VERIFY_TOTAL '
 # 刚备份的包必须被判 complete ✓ 且不许出现 mismatch ✓（后者是"内容与标记不符"的硬失败）
 want "刚备份的包被判 complete" "$A9" '^BACKUP_VERIFY .* complete '
 if printf '%s' "$A9" | grep -qE '^BACKUP_VERIFY .* mismatch'; then bad "干净的包被判 mismatch ✗✗"; else ok "无 mismatch ✓"; fi
+# ★ 备份链审查（2026-10-07，D1/A1）：导出必须**真的复活** ✓✓
+#   修复前 CopyTree 返回"跳过的嵌套包数" → 非空包 100% BKEXPORT_FAIL ✗ —— Linux 同构实现同样中招 ✗
+#   这里在隔离根里真导一次：BKEXPORT_OK + 旁挂 .manifest 缺一不可 ✓
+echo "--- 10b 隔离根：backup-export（审查 D1/A1 回归：导出复活）"; EX="$ISO/export"; mkdir -p "$EX"
+A9B=$(DSH_HOME="$ISO" $T "$BIN" backup-export --to "$EX" --yes 2>&1); printf '%s\n' "$A9B" | head -4
+want "backup-export 打印 BKEXPORT_OK（修复前非空包 100% FAIL ✗✗）" "$A9B" '^BKEXPORT_OK '
+EXP=$(printf '%s\n' "$A9B" | tr -d '\r' | awk '/^BKEXPORT_OK /{print $2}'; exit 0)
+if [ -n "$EXP" ] && [ -f "$EXP.manifest" ]; then ok "导出旁挂 .manifest 存在（审查 D1 核心症状 ✓）"; else bad "导出旁挂 .manifest 缺失 ✗"; fi
 echo "--- 11 隔离根：restore --dry-run（只读预览，绝不写盘）"; A10=$(DSH_HOME="$ISO" $T "$BIN" restore --dry-run 2>&1)
 printf '%s\n' "$A10" | head -8
 # 两种可接受结果：有备份 → DRYRUN_OK（预览 ✓）；没备份 → 明确拒绝 ✓。**都不许写盘** ✓
@@ -83,7 +91,7 @@ echo "--- 17 默认端口是否仍被你的实例占用（应为监听中）"; (
 echo ""
 echo "== 结果：PASS=$pass FAIL=$fail =="
 # #43：**项数下限**断言 ✓✓ —— 否则"删掉一条检查"脚本仍报 PASS 但项数变少 ✗（与 verify_failure_paths.sh 同一做法 ✓）
-EXPECTED_MIN=8
+EXPECTED_MIN=20
 echo "== 结果：PASS=$pass FAIL=$fail（声明最少 $EXPECTED_MIN 项）=="
 if [ "$pass" -lt "$EXPECTED_MIN" ]; then
   echo "  [FAIL] 项数不足：实跑 $pass < 声明 $EXPECTED_MIN（有检查被删掉或没执行到）"
