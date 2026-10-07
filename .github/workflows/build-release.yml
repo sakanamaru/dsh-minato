@@ -181,7 +181,17 @@ jobs:
           cp out/sc/dsh-minato "$PKG/dsh-minato"
           cp -r out/fd/. "$PKG/cli-small/"
           cp -r out/gui/. "$PKG/gui/"
-          cp v3/gui/Dsht.Gui.Avalonia/Assets/logo-icon.png "$PKG/icons/hicolor/256x256/apps/dsh-minato.png"
+          # ★★★ D5 修复（Linux 真机复审 MINOR —— 图标尺寸与目录名不符）✓✓
+          #   ✗ 原来固定丢进 `icons/hicolor/256x256/apps/` ✗ —— 而 `logo-icon.png` 实测是 **64×64**
+          #     （真机：`file` 报 `PNG image data, 64 x 64` ✓ 见 Linux真机验证-2026-10-07-官方包.md §1.3(c) 观察 1）
+          #     → freedesktop 按**目录名**索引图标 ✓ 目录说 256、图是 64 → 缩放假象 ✗（图标看起来糊 ✓）
+          #   ✓ 现在：**尺寸由 PNG 头读出来，目录名跟着图片走** ✓✓（不写死 ✗ 不猜 ✗ —— 图换了目录自动跟着换 ✓）
+          #     · 只改**确实错**的那一处（目录名）✗ 不改图标本身、不改设计 ✓
+          ICONSRC=v3/gui/Dsht.Gui.Avalonia/Assets/logo-icon.png
+          ICONWH=$(python3 -c "import struct,sys;d=open(sys.argv[1],'rb').read(24);print('%dx%d'%struct.unpack('>II',d[16:24]))" "$ICONSRC")
+          mkdir -p "$PKG/icons/hicolor/$ICONWH/apps"
+          cp "$ICONSRC" "$PKG/icons/hicolor/$ICONWH/apps/dsh-minato.png"
+          echo "icon: $ICONSRC ($ICONWH) -> icons/hicolor/$ICONWH/apps/dsh-minato.png"
           cp LICENSE "$PKG/" 2>/dev/null || true
           cp README.md "$PKG/" 2>/dev/null || true
           cp v3/tools/linux_smoke.sh "$PKG/"
@@ -196,6 +206,40 @@ jobs:
           # found by the first real install on Linux). Set it explicitly at packaging time.
           chmod +x "$PKG/install.sh" 2>/dev/null || true
           find "$PKG" -name '*.sh' -exec chmod +x {} + 2>/dev/null || true
+          # ★★★ D4 修复（Linux 真机复审 MINOR —— 打包权限不干净）✓✓
+          #   真机观察（Linux真机验证-2026-10-07-官方包.md §1.3(d) 观察 3）：
+          #     `gui/Avalonia.DesignerSupport.dll`、`gui/libcoreclr.so`、`gui/createdump` 是 `-rwxr--r--`，
+          #     而同类的 `Avalonia.Base.dll` 是 `-rw-r--r--` ✗ → CI runner 构建目录的权限被**原样**打进包 ✓
+          #   ✓ 现在：**按"这个文件到底是干什么的"重设权限** ✓✓（不是无脑 chmod -R 644 ✗ —— 会把可执行文件弄坏 ✓）
+          #     · 规则一：**动态库**（`*.so` / `*.so.*`）与 `*.dll` → 0644 ✓
+          #       （它们是 mmap 加载的 ✓ 不需要执行位 ✓ 且真机里正是这一批误带 744 ✗）
+          #     · 规则二：**全包里凡是真的 ELF**（magic `\177ELF`）→ 0755 ✓
+          #       · 真可执行（`dsh-minato` / `gui/dsht-gui` / `gui/createdump`）✓
+          #       · ⚠ 同时**补回丢掉的执行位**：`dotnet publish` 在 Windows 上产出的 apphost 可能是
+          #         `-rw-rw-r--` ✗ → 真机一执行就 `Permission denied` ✗（与 3.0.0 那次"tar 里脚本丢执行位"同类 ✓）
+          #         —— 这一步**不依赖"它本来就有执行位"** ✗，所以丢位也能补回来 ✓✓
+          #     · 规则三：其余**仍带执行位的普通文件** → `*.sh` 保留 0755 ✓；真的 ELF 也保留 ✓；
+          #       其它（`README-Linux.txt` / `hashes.txt` / `LICENSE` / `.desktop` / `*.json` …）→ 0644 ✓
+          #     · 扫**全包**（不只 gui/）：真机同一批里 `README-Linux.txt` 也是 `-rwxr--r--` ✓
+          #   ★★★ 三条规则**只能作用在普通文件上**（`find -type f`）✓✓ —— 手滑写成不带 `-type f` 的
+          #     `find "$PKG" -perm -u+x` 会连**目录**一起 `chmod 644` ✗✗ → 目录丢掉 `x` → **谁也别想进去** ✗
+          #     （本轮实测踩到过：`icons/hicolor` 变成 `drw-rw-r--`，连 `rm -rf` 都删不掉 ✓ 已由 `-type f` 挡住 ✓）
+          #   ⚠ 必须在**生成 hashes.txt 之前**跑 ✓（权限不进摘要 ✓ 但顺序清楚更好读 ✓）
+          find "$PKG" -type f \( -name '*.so' -o -name '*.so.*' -o -name '*.dll' \) -exec chmod 644 {} + 2>/dev/null || true
+          for _f in $(find "$PKG" -type f 2>/dev/null); do
+            case "$_f" in *.so|*.so.*|*.dll) continue ;; esac
+            if head -c 4 "$_f" 2>/dev/null | od -An -c | grep -q '177   E   L   F'; then chmod 755 "$_f"; fi
+          done
+          for _f in $(find "$PKG" -type f -perm -u+x 2>/dev/null); do
+            case "$_f" in
+              *.sh) chmod 755 "$_f" ;;
+              *)
+                if head -c 4 "$_f" 2>/dev/null | od -An -c | grep -q '177   E   L   F'; then chmod 755 "$_f"; else chmod 644 "$_f"; fi
+                ;;
+            esac
+          done
+          echo "exec bits: $(find "$PKG" -type f -perm -u+x | wc -l) executable file(s) remain in the package"
+          find "$PKG" -type f -perm -u+x | sed 's/^/    exec: /'
           # LINUX-PKG-MANIFEST-FIX: the tarball shipped without hashes.txt, so the installer
           # verified nothing (reported on the first real install on Linux). The Windows payload
           # always carries one and refuses to install without it - this was an asymmetry.
@@ -210,6 +254,54 @@ jobs:
         run: |
           chmod +x v3/tools/verify-linux.sh
           bash v3/tools/verify-linux.sh dsh-minato-linux-x64.tar.gz dsh-minato-linux-x64.tar.gz.sha256
+      # ★★★ T1 / D2 同族修复（2026-10-07 —— 外部审查者点名）✓✓
+      #   ✗ 到这一步为止，CI 对 `install.sh` 做过的唯一一件事是 **`cp` + `chmod +x`** ✗
+      #     —— `v3/tools/verify-linux.sh` 也**不执行**它 ✓（它只核对资产、跑 `version` / `about` ✓）
+      #     → **安装器的退出码从来没有被任何自动化当过判据** ✗✗
+      #   → 后果（已经发生过一次 ✓）：`install.sh` 正常安装却 `exit 3`（自检分母把安装器自建文件算进去 ✗）
+      #     一路发到 v3.0.7 ✓ 直到有人在**真机**上手动装了一次才发现 ✓
+      #     （留档：`docs/修复记录-2026-10-07-D1注释与安装器退出码.md` ✓）
+      #   ✓ 现在：**真的装一次、真的卸一次，两次都断言 exit 0** ✓✓
+      #     · 装到 `$RUNNER_TEMP/minato-ip`（**临时 prefix** ✓ 不碰 runner 的真实 ~/.local ✓）
+      #     · 卸载后再断言 **`$HOME/.dsh` 一个条目都没变**（名字 + mtime 快照前后对照 ✓）
+      #       —— 这是安装器**最对外的那条承诺**（"卸载不会删你的数据" ✓）第一次被自动化验证 ✓
+      #     · 只**新增**这一步 ✗：不改任何现有 step / job 的语义 ✓
+      #     · ⚠ 这是 `run: |` **块内容**：本文件是 CRLF，缩进必须与相邻行一致（**10 空格** ✓）
+      #       —— 本仓库刚因为缩进错把 workflow 变成非法 YAML 而门槛仍报绿 ✗（已用真 YAML 解析器核过 ✓）
+      - name: Install and uninstall install.sh for real (assert exit 0, leave ~/.dsh untouched)
+        run: |
+          set -u
+          export HOME="$RUNNER_TEMP/minato-ip-home"
+          rm -rf "$HOME" "$RUNNER_TEMP/minato-ip" "$RUNNER_TEMP/minato-ip-src"
+          mkdir -p "$HOME" "$RUNNER_TEMP/minato-ip-src"
+          tar -xzf dsh-minato-linux-x64.tar.gz -C "$RUNNER_TEMP/minato-ip-src"
+          PKGROOT="$RUNNER_TEMP/minato-ip-src/dsh-minato-linux-x64"
+          # 数据根前后快照（名字 + mtime ✓ 排序后逐字比对 ✓）
+          snap() {
+            if [ -d "$HOME/.dsh" ]; then
+              ( cd "$HOME/.dsh" && find . -mindepth 1 -printf '%P|%T@|%s\n' | LC_ALL=C sort )
+            else
+              echo "(absent)"
+            fi
+          }
+          snap > "$RUNNER_TEMP/dsh-before.txt"
+          echo "--- ~/.dsh before install --- ($(wc -l < "$RUNNER_TEMP/dsh-before.txt") line(s))"
+          cat "$RUNNER_TEMP/dsh-before.txt"
+          echo "--- install ---"
+          bash "$PKGROOT/install.sh" --prefix "$RUNNER_TEMP/minato-ip"
+          echo "install exit=$?"
+          [ -x "$RUNNER_TEMP/minato-ip/dsh-minato" ] || { echo "install did not land dsh-minato"; exit 1; }
+          [ -L "$HOME/.local/bin/dsh-minato" ] || { echo "install did not write the command link"; exit 1; }
+          echo "--- uninstall ---"
+          bash "$PKGROOT/install.sh" --uninstall --prefix "$RUNNER_TEMP/minato-ip"
+          echo "uninstall exit=$?"
+          [ -e "$RUNNER_TEMP/minato-ip" ] && { echo "uninstall left the prefix behind"; exit 1; }
+          snap > "$RUNNER_TEMP/dsh-after.txt"
+          if ! diff -u "$RUNNER_TEMP/dsh-before.txt" "$RUNNER_TEMP/dsh-after.txt"; then
+            echo "~/.dsh changed across install+uninstall (the installer promised not to touch it)"
+            exit 1
+          fi
+          echo "OK: install.sh install + uninstall both exited 0 and left ~/.dsh untouched"
       - name: Attest Linux build provenance (tags only)
         if: startsWith(github.ref, 'refs/tags/')
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be  # v2.4.0, same pinned SHA as the Windows step

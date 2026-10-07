@@ -336,8 +336,36 @@ if [ -L "$BINDIR/$APP" ]; then
     _tgt=$(readlink "$BINDIR/$APP" 2>/dev/null || true)
     case "$_tgt" in
         "$PREFIX"/*) : ;;   # 指向我们（重装 ✓）→ 可以覆盖 ✓
-        *) die "拒绝：$BINDIR/$APP 已经指向另一个 dsh-minato 安装「$_tgt」✓ 它确实是我们建的 ✓ 只是**不是这一个 prefix** ✓（先卸载那一份，或改用同一个 --prefix ✓）
-  它不是本工具建的 ✓ 为了不动别人的东西，请先自行处理它（或换 DSH_MINATO_BINDIR ✓）" ;;
+        *)
+            # ★★★ **D3 修复（Linux 真机复审 MEDIUM）—— `--force` 在这个守卫处没有出路** ✓✓
+            #   ✗ 修复前：只要 `$BINDIR/$APP` 指向**别的** dsh-minato 安装（哪怕是本工具自己装的 ✓）
+            #     这里就**无条件** die ✗ —— 而它上面那条"目标目录非空"的守卫（L299）**是认 --force 的** ✗✓
+            #     → 于是用户已有另一份安装时，`--force` **也**改指不过去 ✗
+            #       → 只能先手动卸载旧的那份（或改 `DSH_MINATO_BINDIR`）才能换 prefix ✓
+            #     （真机原文见 `D:\dsh-minato\docs\Linux真机验证-2026-10-07-官方包.md` §4.2 末尾：
+            #       `DSH_MINATO_PREFIX=.../another-prefix ./install.sh --force` → exit=1，链接原样不动 ✓）
+            #   ✓ 现在：**--force 时给出一条明确出路** ✓✓
+            #     · **必须把话说全** ✗：打印它现在指向谁、装完会指向谁、以及"想留旧的就用同一个 --prefix" ✓
+            #       —— **绝不静默改用户环境** ✗（这条守卫的整个存在意义就是"不动别人的东西" ✓）
+            #     · 只放行**符号链接**这一种情况 ✗ —— 下面 `elif [ -e ... ]`（普通文件）**保持原样拒绝** ✓
+            #       因为普通文件可能是用户自己的东西，删掉就找不回来了 ✗（符号链接可以自己 ln -s 回来 ✓）
+            #     · **不带 --force 时行为逐字不变** ✓（还是同一条 die ✓）
+            if [ "$FORCE" -eq 0 ]; then
+                die "拒绝：$BINDIR/$APP 已经指向另一个 dsh-minato 安装「$_tgt」✓ 它确实是我们建的 ✓ 只是**不是这一个 prefix** ✓（先卸载那一份，或改用同一个 --prefix ✓）
+  它不是本工具建的 ✓ 为了不动别人的东西，请先自行处理它（或换 DSH_MINATO_BINDIR ✓）
+  想让它改指到本次的 prefix：加 --force ✓（只删这条符号链接再重建 ✓ 它指向的那个目录一个字节都不动 ✓）"
+            fi
+            warn "**--force：这条命令链接指向别的 prefix，将被改指** ✓（只删链接本身 ✓ 不动它指向的目录 ✓）"
+            say  "    改指前: $BINDIR/$APP -> $_tgt"
+            say  "    改指后: $BINDIR/$APP -> $PREFIX/$APP"
+            if [ -d "$(dirname -- "$_tgt")" ]; then
+                say  "    原来那一份**还在原地** ✓ 想留着它就用同一个 --prefix 重装 ✓（或自己跑一次它的卸载 ✓）"
+            else
+                say  "    原来那一份的目录**已经不在了** ✓（悬空链接 → 改指正好把它修好 ✓）"
+            fi
+            rm -f "$BINDIR/$APP" || die "删不掉旧链接：$BINDIR/$APP"
+            ok "已删掉旧的命令链接（--force ✓ 它指向的目录一个字节都没动 ✓）"
+            ;;
     esac
 elif [ -e "$BINDIR/$APP" ]; then
     die "$BINDIR/$APP 已存在且不是符号链接 ✓ 请先处理它 ✓"

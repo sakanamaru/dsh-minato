@@ -93,9 +93,10 @@ A real Linux end-to-end run then closed his N2 open question (comments and docs 
 卸载后再装与幂等反复跑（本次只跑到"同一 prefix 重装"）· GUI **交互**功能（点各导航页 / 按钮行为）· 断网 / 代理 / 只读文件系统 / 磁盘满 ·
 `linux_smoke.sh` 在"服务未运行"的干净机器上的分支 · 我们上报的三条"未测"（截断自证 D6 · `File.Copy` 对目标端链接 · `cp -R` / `readlink`）的真机用例 ✓
 
-> **建议接进 CI**：仓库现在**没有**任何 CI 步骤**执行** `v3/tools/install.sh` ✗（它只被 `cp` 进包 + `chmod +x` ✓，
-> `verify-linux.sh` 也不跑它 ✓）—— 本次的退出码假红（N3）正是"没人拿安装器退出码当判据"漏掉的 ✓
-> 建议在 `v3-linux` 的 Linux job 加一条：装一次（断言 **exit 0** 且清单 103/103）→ 篡改一个载荷文件（断言 **exit 3**）✓
+> **关于安装器的自动化**：本版修掉了"正常安装却 `exit 3`"的假红（N3），依据是真机手跑 —— 当时仓库里
+> **没有**任何 CI 步骤执行 `install.sh` ✗（它只被 `cp` 进包 + `chmod +x` ✓，`verify-linux.sh` 也不跑它 ✓）。
+> 此后已补上：Linux job 新增一步**真跑** `install.sh`（临时 prefix，断言 **exit 0**）→ 再 `--uninstall`
+> （断言 **exit 0** 且 `$HOME/.dsh` 前后快照逐字未变 ✓）。
 
 ## 已知边界 / Known limits
 

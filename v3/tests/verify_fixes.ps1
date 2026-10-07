@@ -35,6 +35,11 @@ $checks = @(
   @('截断闸门（函数）',          'BackupTruncatedReason', 3),
   @('截断闸门（apply 调用）',    'string trunc = BackupTruncatedReason', 1),
   @('截断闸门（dry-run 调用）',  'string truncReason = BackupTruncatedReason', 1),
+  # ---- 2026-10-07 下一批（T2 / T3）的回归守卫 ✓ ----
+  # T2/D14：`config-set` 在**状态目录还不存在**时必须先把它建出来 ✗ 否则写盘静默失败 →
+  #   回读拿到默认值 → 报 `CONFIGSET_FAIL 写入未生效`（**归因还是错的** ✓）。真机复现见修复记录 ✓
+  #   判据锚在**那一行本身** ✓（`Directory.CreateDirectory` 在平台里另有几处，不能只看它出现过 ✓）
+  @('config-set 建状态目录',     'if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir)', 1),
   @('config-set 回读',           'CONFIGSET_FAIL', 1),
   @('start 身份校验',            'START_FAIL ', 1),
   @('profilecheck 读错误',       'PROFILECHK_READ_ERRORS', 1),
@@ -148,10 +153,38 @@ if ($onlyCode.Count -eq 0 -and $onlyTable.Count -eq 0) { Write-Host "  [OK]   �
 # （命令面有"一一对应"自检 ✓ 但总项数一直没有断言 ✗ —— 本轮补上 ✓）
 # 审计发现（门槛完整性审计 §5.3）：原来是 67，而表里有 **71** 项 → **最多 4 项可被静默删掉** ✗
 # → 现在**必须正好等于表长** ✓（任何一项被删都会红 ✓）
-$EXPECTED_MIN_CHECKS = 70   # ★ 第 3 轮抓到：删掉那条不可达检查后表只剩 70 项 ✗ 而这里还是 71 ✗ → 门槛永远红 ✗✓ 已对齐 ✓
+$EXPECTED_MIN_CHECKS = 71   # ★ T2 新增一条（config-set 建状态目录）→ 71 ✓（删掉任何一条仍会红 ✓）
 if ($checks.Count -lt $EXPECTED_MIN_CHECKS) {
     $miss += ("检查表项数不足：" + $checks.Count + " < " + $EXPECTED_MIN_CHECKS)
     Write-Host ("  [MISS] 检查表项数不足：只有 " + $checks.Count + " 项（需 >= " + $EXPECTED_MIN_CHECKS + "）")
 }
-if ($miss.Count -eq 0) { Write-Host ("== 修复复核：" + $checks.Count + "/" + $checks.Count + " 全部仍在代码里 =="); exit 0 }
-Write-Host ("== 修复复核：缺失 " + $miss.Count + " 项：" + ($miss -join ', ') + " =="); exit 1
+# ---- T3 回归守卫（2026-10-07）：`install.sh` 在这个守卫处**必须有 --force 出路** ✓✓ ----
+#   修复前：`$BINDIR/$APP` 指向**别的** prefix 时无条件 die ✗（`--force` 也过不去 ✗ 真机复现过 ✓）
+#   修复后：不带 --force **逐字**保持原样拒绝 ✓；带 --force 必须**先说明白**再改指 ✓
+#   ⚠ 判据三件套**缺一不可** ✗：① 不带 force 仍然拒绝（否则就是把用户环境静默改了 ✗）
+#                            ② 改指前后分别指向谁都要打印（"绝不静默" ✓）
+#                            ③ 必须真的删掉旧链接再重建 ✓
+#   （`install.sh` 不在上面那个只扫 `*.cs` 的表里 ✓ 所以单独列在这里 ✓ 通过数一起计入下限 ✓）
+$script:rawPass = 0   # 非 `.cs` 表扫描的检查（T3 的 install.sh 三条 ✓）也算进总项数 ✓
+$ish = Join-Path $Repo 'v3\tools\install.sh'
+if (Test-Path -LiteralPath $ish) {
+    $ishText = [System.IO.File]::ReadAllText($ish)
+    $t3 = @(
+        @('install.sh --force 出路（不带 force 仍拒绝 ✓）', $ishText.Contains('if [ "$FORCE" -eq 0 ]; then')),
+        @('install.sh --force 打印改指前后 ✓', ($ishText.Contains('改指前: $BINDIR/$APP -> $_tgt') -and $ishText.Contains('改指后: $BINDIR/$APP -> $PREFIX/$APP'))),
+        @('install.sh --force 真的删旧链接 ✓', $ishText.Contains('rm -f "$BINDIR/$APP" || die "删不掉旧链接'))
+    )
+    foreach ($t in $t3) {
+        if ($t[1]) { $script:rawPass++; Write-Host ("  [OK]   " + $t[0]) }
+        else { $miss += $t[0]; Write-Host ("  [MISS] " + $t[0]) }
+    }
+    if (($checks.Count + $script:rawPass) -lt $EXPECTED_MIN_CHECKS) {
+        $miss += ("检查总项数不足：" + ($checks.Count + $script:rawPass) + " < " + $EXPECTED_MIN_CHECKS)
+        Write-Host ("  [MISS] 检查总项数不足：只有 " + ($checks.Count + $script:rawPass) + " 项（需 >= " + $EXPECTED_MIN_CHECKS + "）")
+    }
+    if ($miss.Count -eq 0) { Write-Host ("== 修复复核：" + ($checks.Count + $script:rawPass) + "/" + ($checks.Count + $script:rawPass) + " 全部仍在代码里 =="); exit 0 }
+    Write-Host ("== 修复复核：缺失 " + $miss.Count + " 项：" + ($miss -join ', ') + " =="); exit 1
+} else {
+    Write-Host ("找不到 " + $ish + "（install.sh 的 T3 守卫未复核 ✗）")
+    exit 1
+}

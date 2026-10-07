@@ -179,13 +179,12 @@ This section states only what the code does. If a claim here is not backed by th
 - **The bridge plugin needs pnpm** (`npm i -g pnpm`); `dsh` will not install it for you.
 - **The `desktop` profile is managed by the official desktop app** — plugins for it are added from that app's own
   dialog, not from the command line.
-- **`backup-export` is broken in every published release from 3.0.0 until this fix ships**: it always fails on a
-  non-empty package (files are copied but the sibling `.manifest` is not written, and `BKEXPORT_FAIL` is printed).
-  The development branch already fixes it (`BKEXPORT_OK` + sibling marker + end-to-end assertions); the fix ships
-  with the next release.
-- **CLI exit codes in those same releases cannot drive scripts**: refusals and failures still exit 0. Script against
-  the marker lines (`BACKUP_FAIL` / `RESTORE_FAIL` / `BKEXPORT_FAIL` …) instead. The development branch already
-  fixes this (failure = 1, usage error = 2, self-integrity = 3); the fix ships with the next release.
+- **`backup-export` was broken in every published release from 3.0.0 through 3.0.6**: it always failed on a
+  non-empty package (files were copied but the sibling `.manifest` was not written, and `BKEXPORT_FAIL` was printed).
+  **Fixed in 3.0.7** (`BKEXPORT_OK` + sibling marker + end-to-end assertions).
+- **CLI exit codes in those same releases could not drive scripts**: refusals and failures still exited 0. Script against
+  the marker lines (`BACKUP_FAIL` / `RESTORE_FAIL` / `BKEXPORT_FAIL` …) instead. **Fixed in 3.0.7** (failure = 1,
+  usage error = 2, self-integrity = 3).
 - **Test counts are not proof of individual safety promises**: an all-green contract/GUI/plugin suite only shows
   regression coverage — the two promises above were broken while every suite was green. Treat per-promise
   end-to-end assertions and fix records as the evidence.
