@@ -170,6 +170,52 @@ try {
         Check "服务未运行时默认路径真的恢复了（且只写隔离根）" ($now -eq "v1")
     }
 
+    Section "3.5 备份链回归（2026-10-07 审查 A1/A2/A3：导出复活 · 退出码 · 截断闸门）"
+    # 前置都在第 1/3 节就位：$bkDir = 已知好包 ✓ 根已 pin 到 $bkTo ✓ 备份根里包确定 ✓
+    # ★ 每条都对应一个"修复前实测是坏"的行为 ✓（红/绿对照记录在 docs\修复记录-2026-10-07-备份链.md ✓）
+    $pkgName = Split-Path $bkDir -Leaf
+
+    # --- A2-a：restore 根外路径 → RESTORE_FAIL 且退出码非 0（修复前 rc=0 ✗） ---
+    $out = Run $exe @("restore", "--path", "..\evil", "--yes"); $rc = $LASTEXITCODE
+    Check "A2 restore 根外：RESTORE_FAIL" ($out -match "RESTORE_FAIL")
+    Check "A2 restore 根外：退出码非 0（修复前为 0 ✗）" ($rc -ne 0)
+
+    # --- A2-b：export 校验失败（--path 逃逸）→ BKEXPORT_FAIL 且退出码非 0（修复前 rc=0 ✗） ---
+    $out = Run $exe @("backup-export", "--path", "..\evil", "--to", (Join-Path $iso 'exp1'), "--yes"); $rc = $LASTEXITCODE
+    Check "A2 export 逃逸：BKEXPORT_FAIL" ($out -match "BKEXPORT_FAIL")
+    Check "A2 export 逃逸：退出码非 0（修复前为 0 ✗）" ($rc -ne 0)
+
+    # --- A2-c：backup 失败（数据目录不存在）→ BACKUP_FAIL 且退出码非 0 ---
+    $env:DSH_HOME = (Join-Path $iso 'no-such-home')
+    $out = Run $exe @("backup", "--to", $bkTo); $rc = $LASTEXITCODE
+    $env:DSH_HOME = $data
+    Check "A2 backup 数据目录缺失：BACKUP_FAIL" ($out -match "BACKUP_FAIL")
+    Check "A2 backup 数据目录缺失：退出码非 0" ($rc -ne 0)
+
+    # --- A1：成功导出（审查最关键验收点）→ BKEXPORT_OK + rc==0 + 文件与旁挂 .manifest 都在 ---
+    $expOk = Join-Path $iso 'exp-ok'
+    $out = Run $exe @("backup-export", "--path", $pkgName, "--to", $expOk, "--yes"); $rc = $LASTEXITCODE
+    Check "A1 export 成功：BKEXPORT_OK（修复前非空包 100% FAIL ✗✗）" ($out -match "BKEXPORT_OK")
+    Check "A1 export 成功：退出码为 0" ($rc -eq 0)
+    Check "A1 导出目录含 settings.yaml 与 sessions\s1.txt" ((Test-Path -LiteralPath (Join-Path $expOk "$pkgName\settings.yaml")) -and (Test-Path -LiteralPath (Join-Path $expOk "$pkgName\sessions\s1.txt")))
+    Check "A1 旁挂 .manifest 存在（审查 D1 核心症状 ✓）" (Test-Path -LiteralPath (Join-Path $expOk ($pkgName + ".manifest")))
+
+    # --- A3：截断包（完成标记只有 bytes/failed/finished）→ restore 拒绝 + --verify 结论一致 ---
+    $truncName = "dsh-data-20990101-000000000-trunc"
+    $truncDir = Join-Path $bkTo $truncName
+    Copy-Item -LiteralPath $bkDir -Destination $truncDir -Recurse -Force
+    [System.IO.File]::WriteAllText($truncDir + ".manifest", "bytes=10`nfailed=0`nfinished=2099-01-01 00:00:00")
+    $beforeA3 = Read-Text (Join-Path $data "settings.yaml")
+    $out = Run $exe @("restore", "--path", $truncName); $rc = $LASTEXITCODE
+    Check "A3 截断包：restore 拒绝（RESTORE_FAIL）" ($out -match "RESTORE_FAIL")
+    Check "A3 截断包：理由 fail-closed（标记无法解析）" ($out -match "标记无法解析")
+    Check "A3 截断包：退出码非 0（修复前竟 RESTORE_OK + rc=0 ✗✗）" ($rc -ne 0)
+    Check "A3 截断包：拒绝后零写入" ((Read-Text (Join-Path $data "settings.yaml")) -eq $beforeA3)
+    $out = Run $exe @("backup-list", "--verify")
+    Check "A3 --verify 与 restore 结论一致（unreadable）" (($out -match [regex]::Escape($truncName)) -and ($out -match "unreadable"))
+    Remove-Item -LiteralPath $truncDir -Recurse -Force -ErrorAction SilentlyContinue
+    Remove-Item -LiteralPath ($truncDir + ".manifest") -Force -ErrorAction SilentlyContinue
+
     '4. --apply 但未设 $DSH_HOME → 明确拒绝且零写入'
     Remove-Item Env:\DSH_HOME -ErrorAction SilentlyContinue
     [System.IO.File]::WriteAllText((Join-Path $data "settings.yaml"), "v4-DIRTY")
