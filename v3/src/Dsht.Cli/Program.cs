@@ -794,8 +794,11 @@ Console.WriteLine("  config-get | config-set <key> <value>");
 
         /// <summary>restore：真实合并恢复。顺序与 v2.x 的 NIRestoreCore 一致：
         ///   定位/校验备份 → （--apply 准入）→ 运行中拒绝 → 恢复前自动备份 → 自身完整性闸门 → 恢复。
-        /// V3 独有：`--apply` 显式开关，且只允许写入**隔离数据根**（见 RestoreApplyPolicy）——
-        /// 生效数据根等于默认位置时直接拒绝，因此 V3 的真实恢复永远不会写进用户默认数据根。
+        /// 写入目标是**生效数据根**（下面 `dstRoot = paths.DataRoot`）——这与 `--apply` 无关：
+        ///   不带 `--apply` 时按 **v2.x 兼容语义**恢复到这个根，未设 `$DSH_HOME` 时它就是默认数据根
+        ///   （&lt;home&gt;/.dsh 等），唯一的额外守卫只是"服务不在运行"✓ 这是本工具的核心用途，不是缺陷。
+        /// V3 独有：`--apply` 显式开关 = **跳过「运行中」闸门 + 要求隔离数据根**（见 RestoreApplyPolicy）——
+        ///   必须设置 `$DSH_HOME` 且生效数据根不等于任何默认候选，否则 `RESTORE_FAIL`；它**不是**"允许写盘"的开关。
         /// 与 v2.x 的有意差异（更诚实）：只有真正成功才打印 RESTORE_OK（v2.x 在恢复失败时也会打印 RESTORE_OK）。</summary>
         private static int Restore(string[] args, ServiceRegistry reg)
         {
@@ -850,7 +853,8 @@ Console.WriteLine("  config-get | config-set <key> <value>");
                 bkDir = latest;
             }
 
-            // --apply 准入：真实写盘只允许发生在隔离数据根上（默认数据根永不被 V3 恢复写入）
+            // --apply 准入：**只在给了 --apply 时介入** —— 要求 $DSH_HOME 隔离根、且生效根不等于默认位置 ✓
+            //   （不给 --apply 时本判定不介入：写入仍是下面的 `dstRoot = 生效数据根` ✓ 未设 $DSH_HOME 时即默认数据根 ✓）
             string applyReason = RestoreApplyPolicy.Judge(apply, Environment.GetEnvironmentVariable("DSH_HOME"),
                 paths.DataRoot, PlatformComposition.DefaultDataRoots());
             if (applyReason != null)

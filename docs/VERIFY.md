@@ -8,6 +8,9 @@
 > · 下面所有输出都是**真机实测粘贴**（Windows 11 · PowerShell 5.1 · `dsh-minato 3.0.7-dev`），
 >   不是"应该会…" ✓
 > · 所有命令都**只碰隔离目录**：`DSH_HOME` 指到一个全新临时目录，真实 `~/.dsh` 全程不动 ✓
+>   （这是**本文档每条命令都设了 `$DSH_HOME`** 的结果 ✗ —— **不是**产品保证：不给 `--apply` 的 `restore`
+>   会写入**生效数据根**，未设 `$DSH_HOME` 时**就是默认 `~/.dsh`** ✓ 这正是外部审查者 N2 结案的那条 ✓
+>   想自核"只写隔离根"就照 §2/§4 那样带 `--apply` ✓）
 > · 标记行是**对外契约**：GUI 与脚本都靠它判断 ✗ 不要靠"退出码恰好是 0"来判断成功 ✓
 >   （退出码契约见 §9；在本轮修复前，所有拒绝路径都返回 0 ✗）
 
@@ -366,11 +369,18 @@ dotnet run --project v3/tests/Dsht.Contracts.Tests/Dsht.Contracts.Tests.csproj -
 ## 11. 这份文档**没有**覆盖的（别把它当全量保证）
 
 * **GUI 观感/布局**：只能人眼看 ✓ 不计入"已验证" ✗（见 `docs/release-notes-*.md` 的"已知边界"）。
-* **真机安装/卸载产物**：`v3-windows` / `v3-linux` 打包 job 里装了再卸、并断言文件与注册表都清干净 ✓
+* **安装/卸载产物**：**Windows** 侧 `v3-windows` 打包 job 会跑 setup.exe 的装 → 卸，并断言退出码、残留文件与注册表都清干净 ✓
   —— 那需要 CI 跑打包（tag 或手动触发）✓ 本文件不重复它 ✓。
+  **Linux** 侧 `install.sh` 目前**只是被打包进 tarball，CI 不执行它** ✗（`verify-linux.sh` 只验包形态与 CLI 能否跑 ✓）
+  —— 本版改由**真机**执行核对：修复前 `exit 3`（假红）→ 修复后 `exit 0`，并做了"篡改载荷 → `exit 3`"的反向验证 ✓
+  （见 `docs/release-notes-v3.0.7.md` 的「Linux 真机验证」小节 ✓）· **建议把安装器接进 CI** ✓
 * **联网命令**（`check` / `update-info` / `update-center` / `balance`）：结果随上游变 ✓ 不适合当承诺核对 ✓。
 * **Linux 上的 shell 验证脚本**（`v3/tools/linux_smoke.sh`、`verify_backup_chain.sh`、`verify_failure_paths.sh`）：
   依赖 POSIX 工具（`mktemp -d /tmp`、`timeout`、`ss`、可执行位）✗ → 在 Linux 或 CI 上跑 ✓；
   Windows 上跑会得到与产品无关的失败 ✓（如实说明，不假装 ✓）。
 * **崩溃/断电下的原子性**：完成标记"最后才写"保证你能**识别**未完成的包 ✓，
   但它不保证文件系统层面的事务性 ✓。
+* **不带 `--apply` 的 `restore` 会写哪儿**：写入**生效数据根** —— 未设 `$DSH_HOME` 时就是默认 `~/.dsh`
+  （[v2.x 兼容行为](release-notes-v3.0.7.md) ✓，Linux 真机端到端实测确认：`~/.dsh/.anonymous-user-id` 与
+  `.credentials.yaml` 的 mtime 被刷新 ✓）。本文档所有 `restore` 用例都带 `--apply` + `$DSH_HOME` ✓，
+  因此**没有**在这里覆盖"不带 `--apply` 写默认根"的那条路径 ✗（如实写明，不当已验证 ✓）。

@@ -526,8 +526,26 @@ if [ -f "$PREFIX/hashes.txt" ]; then
             got=$(sha256sum "$f" 2>/dev/null | cut -d' ' -f1)
             [ "$got" = "$want" ] || { bad=$((bad+1)); warn "指纹不符：$name"; }
         done < "$PREFIX/hashes.txt"
-        total=$(find "$PREFIX" -type f 2>/dev/null | wc -l | tr -d ' ')
-        say "    清单核对 $checked 项 · 不符 $bad · 缺失 $missing · 目录共 $total 个文件"
+        # ★★★ 真机实测抓到（D2）：分母原来数的是**目录里所有文件** ✗ → 把安装器**自己写的**
+        #   `.dsh-minato-files`（清单，生成时含自身）· `.dsh-minato-install`（标记）与**清单自身** `hashes.txt`
+        #   （清单无法含自身摘要 ✓）也算成"应当被清单覆盖" ✗ → 103 条全对却报 `103/106 覆盖不全`
+        #   → **正常安装假红 exit 3** ✗✗（对照实测：安装目录里 `sha256sum -c hashes.txt` 是 103/103 全 OK ✓）
+        # ✓ 现在：分母只数**我们的载荷** —— 安装清单 `.dsh-minato-files` 里记录、清单**应当**覆盖的文件
+        #   （排除 hashes.txt 自身与 .dsh-minato-files 自身 ✓；也天然不含用户搬回来的文件 ✓）
+        #   判据仍是"清单项 + 缺失 ≥ 载荷文件数"✓ → 清单**真的**不全（例如只列 2 个）时照样会红 ✓✓
+        expected=0
+        if [ -f "$PREFIX/.dsh-minato-files" ]; then
+            while IFS= read -r rel; do
+                [ -n "$rel" ] || continue
+                case "$rel" in hashes.txt|.dsh-minato-files) continue ;; esac
+                expected=$((expected+1))
+            done < "$PREFIX/.dsh-minato-files"
+        fi
+        if [ "$expected" -eq 0 ]; then
+            # 清单缺失（上面已 warn ✓）→ 退回"目录里除安装器管理文件与清单自身之外的文件数" ✓ 不静默放行 ✓
+            expected=$(find "$PREFIX" -type f ! -name "$MARKER" ! -name '.dsh-minato-files' ! -name 'hashes.txt' 2>/dev/null | wc -l | tr -d ' ')
+        fi
+        say "    清单核对 $checked 项 · 不符 $bad · 缺失 $missing · 应覆盖载荷 $expected 项（安装器管理文件与清单自身不计入 ✓）"
         if [ "$bad" -gt 0 ] || [ "$missing" -gt 0 ]; then
             # ✓ F4：**真不符要非零退出** ✗ 原来只 warn 然后照样"安装完成 ✓" exit 0 ✗✗
             warn "**指纹校验没通过** ✗ 安装包可能被改动过，或文件不完整 ✓"
@@ -536,14 +554,14 @@ if [ -f "$PREFIX/hashes.txt" ]; then
         fi
         # ★★★ 审查抓到：这里只比"清单里列出的" ✓ 而**从不检查清单覆盖了多少载荷** ✗✗
         #   清单只列 2 个文件、载荷有 248 个 → 两个都对 → 照样打印"指纹全部一致" ✗（246 个文件根本没校验 ✓）
-        # ✓ 现在：**覆盖率也要过** ✓✓（清单项数 + 缺失 必须与实际载荷文件数一致 ✓ 差值说明清单不全 ✓）
+        # ✓ 现在：**覆盖率也要过** ✓✓（清单项数 + 缺失 必须 ≥ 应覆盖载荷数 ✓ 差值说明清单不全 ✓）
         cov_total=$((checked + missing))
-        if [ "$cov_total" -lt "$total" ]; then
-            warn "**清单只覆盖 $cov_total / $total 个文件** ✗ 覆盖不全 → **不算通过** ✓"
+        if [ "$cov_total" -lt "$expected" ]; then
+            warn "**清单只覆盖 $cov_total / $expected 个载荷文件** ✗ 覆盖不全 → **不算通过** ✓"
             warn "已安装，但请从官方 Releases 重新下载核对 ✓"
             exit 3
         fi
-        ok "指纹全部一致 ✓（$checked 项，覆盖 $cov_total/$total ✓）"
+        ok "指纹全部一致 ✓（$checked 项，覆盖 $cov_total/$expected 项载荷 ✓）"
     else
         warn "没有 sha256sum，跳过指纹自检（**未校验** ✓ 不是通过 ✓）"
     fi

@@ -107,6 +107,8 @@ chmod +x "DeepSeek Harness Toolkit"
 比较**标记行的键集合**（键缺失即该平台有缺口）。为避免环境差异污染结论，先做**受控对照**：
 两侧放**同一份夹具**（一个 profile 目录，含 `cordis.patch.yml` 与 `node_modules` 下的 vendor yml），
 写操作一律用**隔离数据根**，绝不触碰默认数据根或默认端口。
+（这是**本次对照的做法** ✓ 不是产品保证：不带 `--apply` 的 `restore` 按 v2.x 兼容语义会写入**生效数据根**，
+未设 `$DSH_HOME` 时即默认 `~/.dsh` ✓ 见 `docs/release-notes-v3.0.7.md` 的审查回应 N2 ✓）
 
 | 命令 | Windows 键 | Linux 键 | 结论 |
 |---|---|---|---|

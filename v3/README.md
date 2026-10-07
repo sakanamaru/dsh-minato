@@ -146,7 +146,7 @@ interface IServiceTarget { AppKind Kind; bool IsAvailable(); ServiceReport Probe
 | macOS | 未开始（设计稿决策：Linux 优先，macOS 视需求后补） |
 | 命令面广度 | 已覆盖 GUI 消费的主要命令（含 `restore --dry-run` 预览、`selftest`、`check`、真实 `backup`）；**真实 `restore` 的数据写入已移植**（合并语义、恢复前自动备份、自身完整性闸门、`_workspace` 工作区恢复；隔离根下端到端验证 24/24）。`backup`/`backup-delete`/`backup-export`/`restore` 均已真实实现并在隔离根下验证 |
 | 工作区自动探测 | ✅ 已移植（2026-09-28）：Windows 侧取 **exe 所在目录的上两级**并用 `WorkspaceJudge` 做合理性判定（盘根 / 各盘根保留名 / 用户主目录 / `C:\Users` / Windows / ProgramData / Program Files ×2 一律拒绝）；`ws=` **配置优先**——配置了但目录不存在 → 返回 null 且**不回退探测**（避免误备份/误恢复）。dry-run 与真实恢复走同一个 `WorkspaceResolver`，目标一致。**Linux 侧仍诚实返回 null**（v2.x 的 Linux 接缝同样如此），但 `ws=` 配置在 Linux 上同样生效 |
-| 真实 restore 的写入范围 | **V3 独有约束**：默认路径（不给 `--apply`）与 v2.x 同序同语义（运行中拒绝 → 恢复前备份 → 恢复）；给 `--apply` 时只允许写入**隔离数据根**——必须设置 `$DSH_HOME` 且生效数据根不等于任何默认候选，否则 `RESTORE_FAIL` 拒绝。因此 `--apply` 永远不可能写进 `~/.dsh`（v2.x 没有这个开关，也没有这层保护） |
+| 真实 restore 的写入范围 | **写入目标始终是生效数据根，与 `--apply` 无关** ✓：不给 `--apply` 时按 **v2.x 兼容语义**恢复到该根（运行中拒绝 → 恢复前自动备份 → 恢复）——未设 `$DSH_HOME` 时它就是**默认数据根**（`~/.dsh` 等），Linux 真机端到端实测确认（`~/.dsh/.anonymous-user-id` / `.credentials.yaml` 的 mtime 被刷新 ✓）。`--apply` **不是**"允许写盘"的开关，而是"**跳过运行中闸门 + 要求隔离数据根**"：必须设置 `$DSH_HOME` 且生效数据根不等于任何默认候选，否则 `RESTORE_FAIL` 拒绝 —— 因此**带 `--apply` 时**永远不可能写进 `~/.dsh`（v2.x 没有这个开关，也没有这层保护） |
 | `RESTORE_OK` 的时机 | **有意比 v2.x 更严格**：v2.x 在恢复失败（异常/完整性不匹配）时也会打印 `RESTORE_OK`；V3 只在真正成功时打印，失败打印 `RESTORE_FAIL <原因>` |
 | `restore --dry-run --path <相对路径>` | **v2.x 的已知缺陷 —— 已在 v2.7.3 修复发布**：v2.7.2 的 `P()` 给相对路径加 `\\?\` 前缀（`\\?\.\backup\x` 是非法 Win32 路径）→ 源侧遍历被 try/catch 静默吞掉，预览报 `DRYRUN_NEW 0 / OVERWRITE 0`。V3 用相对路径能正常遍历（数字正确）。`compare_markers.ps1` 因此统一把 `-Repo` 转绝对路径，否则会比对出**假差异**（这条已在脚本注释里写明原因） |
 | GUI | Windows-only WinForms 保持不变；跨平台 GUI 只留架构能力（见设计稿 §7） |
@@ -229,12 +229,13 @@ powershell -ExecutionPolicy Bypass -File v3\tests\verify_restore_apply.ps1 -Repo
 
 | 情形 | 行为 |
 |---|---|
-| 不给 `--apply` | 与 v2.x 同序：运行中拒绝 → 恢复前自动备份 → 恢复。服务在跑就**不会**写盘 |
+| 不给 `--apply` | 与 v2.x 同序：运行中拒绝 → 恢复前自动备份 → 恢复。写入目标是**生效数据根**（未设 `$DSH_HOME` 时**就是默认数据根**，Linux 真机实测 ✓）；服务在跑就**不会**写盘 |
 | `--apply` + 已设 `$DSH_HOME` + 数据根 ≠ 任何默认候选 | **真实写盘**；并打印 `RESTORE_APPLY_ACK`（把观测到的服务状态原样留证）与 `RESTORE_APPLY_ROOT` |
 | `--apply` + 未设 `$DSH_HOME` | `RESTORE_FAIL … 需要先设置 $DSH_HOME`（零写入） |
 | `--apply` + 数据根就是默认位置 | `RESTORE_FAIL … 生效数据根就是默认位置`（零写入） |
 
 `--apply` 是**人类可问责的断言**（"我确认没有 dsh 正在使用这个数据根"），而不是绕过闸门的后门：
-它无法指向默认数据根，因此**不可能**写坏你的 `~/.dsh`；同时它把"跳过闸门"这件事与观测到的事实一起打出来，不静默。
+它无法指向默认数据根，因此**带 `--apply` 时**不可能写坏你的 `~/.dsh`；同时它把"跳过闸门"这件事与观测到的事实一起打出来，不静默。
+（⚠️ 不带 `--apply` 是 **v2.x 兼容路径**：服务不在跑时会照常恢复到**生效数据根** —— 未设 `$DSH_HOME` 时就是默认 `~/.dsh` ✓）
 `apply-not-isolated` 这条分支**故意不做端到端测试**——把"应当拒绝"的用例指向真实数据根，一旦判定有 bug 就会真写用户数据；
 它由纯领域契约测试覆盖（`RestoreApplyPolicy`，见 §2 的契约测试 334 项）。
