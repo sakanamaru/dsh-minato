@@ -951,6 +951,131 @@ static class ContractTests
                 }
             }
         }
+        // ============================================================================
+        // [35] 备份链审查（2026-10-07，D13/C1）：Export 对「0 文件 + ≥1 目录条目」的真实包
+        //   真机最小复现（Linux VM，实测 BINARY_RC=1 ✓）：
+        //     DSH_HOME 里只有一个空目录 → backup **成功**（包内 0 文件、1 个目录条目 ✓）
+        //     → backup-export → **BKEXPORT_FAIL rc=1** ✗ 且 exp/ 下**没有 .manifest** ✗
+        //   根因（读码）：Export 的守卫读 CopyTree 的返回值，而那个返回值**只数文件** ✗
+        //     → `copied==0 && 源里"有条目"` 对"0 文件 + 空目录"的包**恒成立** → 误判失败 ✗
+        //   次生（D1 同族：上次修得不彻底）：那个 return null 在 CopySibling(.manifest) **之前** ✗
+        //     → 目标目录已被拷了一半（空目录建了出来）却没有完成标记 ✗ → --verify 只能判 incomplete ✓
+        //   本用例走**真实 IBackupSource + 真实临时目录**（不用 mock ✓，与前几个用例同一惯例 ✓），
+        //   并复刻 `backup-list --verify` 的判定（Program.Backup.cs:148-176：标记在 + files= 等于实际文件数 → complete）
+        //   安全：全程在 %TEMP% 随机目录 ✓ 备份根用 DSH_MINATO_BACKUP_DIR 指到那里 ✓ 结束即清理 ✓
+        // ============================================================================
+        Console.WriteLine("[35] Export：0 文件 + ≥1 目录条目（D13 回归；真机实测抓到的误判 ✗）");
+        {
+            string d13Root = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "dsht-d13-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            string d13OldEnv = Environment.GetEnvironmentVariable("DSH_MINATO_BACKUP_DIR");
+            try
+            {
+                string d13Data = System.IO.Path.Combine(d13Root, "data");
+                string d13Bk = System.IO.Path.Combine(d13Root, "bk");
+                string d13Out = System.IO.Path.Combine(d13Root, "exp");
+                // 数据根：**0 个文件** + 空目录。
+                //   `empty` 就是真机复现里的那个目录 ✓；
+                //   `sessions` 是 dsh 数据特征名（BackupPackage.HasDshData ✓）→ 让这个包同时是"有效备份包"
+                //   → --verify 不会额外打 BACKUP_VERIFY_NOTE（与真机 --verify 输出对齐 ✓）
+                System.IO.Directory.CreateDirectory(System.IO.Path.Combine(d13Data, "empty"));
+                System.IO.Directory.CreateDirectory(System.IO.Path.Combine(d13Data, "sessions"));
+                System.IO.Directory.CreateDirectory(d13Bk);
+                System.IO.Directory.CreateDirectory(d13Out);
+                Environment.SetEnvironmentVariable("DSH_MINATO_BACKUP_DIR", d13Bk);
+                Dsht.Domain.Abstractions.IBackupSource d13bks;
+                if (Environment.OSVersion.Platform == PlatformID.Win32NT)
+                    d13bks = new Dsht.Platform.Windows.WindowsBackupSource(new Dsht.Platform.Windows.WindowsPaths());
+                else
+                    d13bks = new Dsht.Platform.Linux.LinuxBackupSource(new Dsht.Platform.Linux.LinuxPaths());
+
+                Dsht.Domain.Model.BackupResult d13Res = d13bks.Create(d13Data, Dsht.Domain.Model.BackupKind.Manual, 3, null);
+                Check("D13 前置：备份成功，且包内 0 文件 + ≥1 个目录条目（缺陷触发条件 ✓）",
+                    d13Res != null && System.IO.Directory.Exists(d13Res.Path)
+                    && System.IO.Directory.GetFiles(d13Res.Path, "*", System.IO.SearchOption.AllDirectories).Length == 0
+                    && System.IO.Directory.GetFileSystemEntries(d13Res.Path).Length > 0);
+
+                string d13Target = d13bks.Export(d13Res.Path, d13Out);
+                Check("D13 导出：返回非 null（修复前恒 null → 真机 BKEXPORT_FAIL ✗✗）", d13Target != null);
+                Check("D13 导出：空目录条目也到了目标",
+                    d13Target != null && System.IO.Directory.Exists(System.IO.Path.Combine(d13Target, "empty"))
+                    && System.IO.Directory.Exists(System.IO.Path.Combine(d13Target, "sessions")));
+                Check("D13 导出：旁挂 .manifest 存在（修复前提前 return 丢掉 → 半成品 ✗）",
+                    d13Target != null && System.IO.File.Exists(d13Target + ".manifest"));
+
+                // ---- 复刻 backup-list --verify：把备份根切到**导出目录**，用真实 ListRaw 遍历（就是 --verify 的入口 ✓）----
+                Environment.SetEnvironmentVariable("DSH_MINATO_BACKUP_DIR", d13Out);
+                string d13Listed = null;
+                List<BackupEntry> d13All = d13bks.ListRaw();
+                for (int i = 0; i < d13All.Count; i++)
+                {
+                    if (d13Target != null
+                        && System.IO.Path.GetFullPath(d13All[i].Path).TrimEnd('\\', '/') == System.IO.Path.GetFullPath(d13Target).TrimEnd('\\', '/'))
+                        d13Listed = d13All[i].Path;
+                }
+                Check("D13 verify：导出目录当备份根时能列出这个包（--verify 的遍历入口 ✓）", d13Listed != null);
+                int d13Want = -1;
+                if (d13Listed != null)
+                {
+                    string[] d13Ml = System.IO.File.ReadAllLines(d13Listed + ".manifest");
+                    for (int k = 0; k < d13Ml.Length; k++)
+                    {
+                        if (d13Ml[k].StartsWith("files=", StringComparison.Ordinal)) int.TryParse(d13Ml[k].Substring(6).Trim(), out d13Want);
+                    }
+                }
+                int d13Have = d13Listed == null ? -1 : System.IO.Directory.GetFiles(d13Listed, "*", System.IO.SearchOption.AllDirectories).Length;
+                // 这就是 --verify 判 complete 的两个条件（标记可解析 + files= 与实际相等 ✓ 见 Program.Backup.cs:171-179）
+                Check("D13 verify：标记可解析且 files=0 == 实际 0 文件 → --verify 判 complete",
+                    d13Listed != null && d13Want == 0 && d13Have == 0);
+            }
+            catch (Exception ex)
+            {
+                Check("D13 往返：未抛异常（" + ex.GetType().Name + ": " + ex.Message + "）", false);
+            }
+            finally
+            {
+                Environment.SetEnvironmentVariable("DSH_MINATO_BACKUP_DIR", d13OldEnv);
+                try { System.IO.Directory.Delete(d13Root, true); } catch { }
+            }
+        }
+        // ============================================================================
+        // [36] D13 的次生症状（D1 同族）：导出**真失败**时不许留半成品
+        //   触发：源里只有被跳过规则排除的条目（node_modules ✓ SkipRules）→ 一个条目都复制不过去 ✓
+        //   断言：Export 返回 null（如实报失败 ✓）**且**目标目录与标记都没留下 ✓
+        //     ✗ 修复前：CopyTree 已经 Directory.CreateDirectory(target) → **空壳目录留着却没有标记** ✗
+        //       → 外部工具/用户看到"有个包目录"会以为导出了一半 ✓（--verify 只能事后判 incomplete ✓）
+        // ============================================================================
+        Console.WriteLine("[36] Export：真失败时不留半成品（D13 次生症状回归）");
+        {
+            string d13bRoot = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "dsht-d13b-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            try
+            {
+                const string d13bPkgName = "dsh-data-20260101-000000000-1";
+                string d13bSrc = System.IO.Path.Combine(d13bRoot, "src", d13bPkgName);
+                string d13bOut = System.IO.Path.Combine(d13bRoot, "exp");
+                System.IO.Directory.CreateDirectory(System.IO.Path.Combine(d13bSrc, "node_modules", "left-pad"));
+                System.IO.File.WriteAllText(System.IO.Path.Combine(d13bSrc, "node_modules", "left-pad", "index.js"), "module.exports=1;");
+                System.IO.Directory.CreateDirectory(d13bOut);
+                Dsht.Domain.Abstractions.IBackupSource d13bbks;
+                if (Environment.OSVersion.Platform == PlatformID.Win32NT)
+                    d13bbks = new Dsht.Platform.Windows.WindowsBackupSource(new Dsht.Platform.Windows.WindowsPaths());
+                else
+                    d13bbks = new Dsht.Platform.Linux.LinuxBackupSource(new Dsht.Platform.Linux.LinuxPaths());
+                string d13bTarget = d13bbks.Export(d13bSrc, d13bOut);
+                Check("D13b 导出：确实一个条目都没复制过去 → 如实返回 null", d13bTarget == null);
+                Check("D13b 失败后：目标包目录**没有被留下**（修复前留空壳 ✗）",
+                    !System.IO.Directory.Exists(System.IO.Path.Combine(d13bOut, d13bPkgName)));
+                Check("D13b 失败后：也没有留下 .manifest（不许把失败包装成完整 ✗）",
+                    !System.IO.File.Exists(System.IO.Path.Combine(d13bOut, d13bPkgName) + ".manifest"));
+            }
+            catch (Exception ex)
+            {
+                Check("D13b 失败路径：未抛异常（" + ex.GetType().Name + ": " + ex.Message + "）", false);
+            }
+            finally
+            {
+                try { System.IO.Directory.Delete(d13bRoot, true); } catch { }
+            }
+        }
         Console.WriteLine("== " + _pass + "/" + (_pass + _fail) + " passed, " + _fail + " failed ==");
         return _fail == 0 ? 0 : 1;
     }

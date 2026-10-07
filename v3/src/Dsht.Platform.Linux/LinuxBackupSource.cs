@@ -213,13 +213,27 @@ namespace Dsht.Platform.Linux
                 //   → 而那个返回值是 **skippedNested**（几乎总是 0）✗✗
                 //   → `copiedN == 0 且源非空 → 返回 null` **每次都成立** ✗ → **导出永远 BKEXPORT_FAIL** ✗✗
                 // ✓ 现在：CopyTree **返回真实复制数**（跳数走 out ✓）→ 这道守卫恢复它原本的语义 ✓✓
+                //
+                // ★★★ 再修一次（2026-10-07 真机实测，D13）：拿"**文件**复制数"当判据**仍然不够** ✗✗
+                //   真机最小复现（BINARY_RC=1）：DSH_HOME 里只有一个空目录 →
+                //     backup **成功**（包内 0 文件 + 1 个目录条目 ✓）→ backup-export **BKEXPORT_FAIL** ✗
+                //   ✗ 根因：`copiedN` **只数文件** → "0 文件 + 有目录条目"时 `copiedN==0 && 源里有条目` 恒成立 ✗
+                //   ✗ 次生（D1 同族，上次修得不彻底）：这个 `return null` 在 `CopySibling(.manifest)` **之前** ✗
+                //      → 目标里已经建出了空目录（拷了一半）却**没有完成标记** ✗ → `--verify` 只能判 incomplete ✓
+                // ✓ 现在判据改成**目标侧条目数**（文件 + 目录一起数 ✓ 空目录也算条目 ✓）：
+                //     复制前后各数一次 → **一个条目都没新增** = 确实什么都没导出成功 → 判失败 ✓
+                //     （源本身空/不存在时不判失败 ✓ —— 那是"空包"不是"复制失败" ✓ 与原语义一致 ✓）
+                // ✓ 失败时**不留半成品**：本次新建的空目标目录**删掉** ✓（标记只在成功路径写 ✓✓）
+                bool targetExisted = Directory.Exists(target);
+                int entriesBefore = CountExportEntries(target);
                 int exportSkipped;
-                int copiedN = CopyTree(src, target, true, out exportSkipped);
-                try
+                CopyTree(src, target, true, out exportSkipped);   // 返回值只数文件 → 这里**不用它做判据** ✗（D13）
+                int entriesAfter = CountExportEntries(target);
+                if (ExportSourceHasEntries(src) && entriesAfter <= entriesBefore)
                 {
-                    if (copiedN == 0 && Directory.Exists(src) && Directory.GetFileSystemEntries(src).Length > 0) return null;
+                    if (!targetExisted) TryRemoveEmptyDir(target);   // 不留"没有标记的半成品"✓
+                    return null;
                 }
-                catch { }
                 // 同级旁挂文件一起带走 ✓✓ —— 否则导出后**完成标记丢失** ✗，包到了别处无法核对完整性 ✓（迁移时最需要可信的一刻 ✓）
                 CopySibling(src, target, ".manifest");
                 CopySibling(src, target, ".version");
@@ -227,6 +241,40 @@ namespace Dsht.Platform.Linux
             }
             catch { return null; }
         }
+        /// <summary>D13：数目标目录的**直接条目数**（文件 + 目录 ✓ 空目录也计入 ✓）。
+        /// 只用于"复制前后有没有新增条目"——"一个都没新增"即确实什么都没导出成功 ✓。
+        /// 读不到按 0 计 ✓（读不到时上层自有其它判据 ✓ 这里不猜 ✓）。</summary>
+        private static int CountExportEntries(string dir)
+        {
+            try
+            {
+                if (!Directory.Exists(dir)) return 0;
+                return Directory.GetFileSystemEntries(dir).Length;
+            }
+            catch { return 0; }
+        }
+
+        /// <summary>D13：源里有没有条目（文件或目录 ✓ 空目录也算 ✓）。
+        /// ⚠ 列不出来时返回 false ✓ —— **不据此判失败** ✗（读不到由复制路径如实处理 ✓ 与旧语义一致 ✓）。</summary>
+        private static bool ExportSourceHasEntries(string src)
+        {
+            try { return Directory.Exists(src) && Directory.GetFileSystemEntries(src).Length > 0; }
+            catch { return false; }
+        }
+
+        /// <summary>D13：失败路径清理 —— 只删**空**目录（本次导出新建的那个空壳 ✓）且**只删一层** ✓。
+        /// 绝不递归删 ✗（万一里面有东西，那是别人的数据 ✓ 宁可留着也不删 ✗）。</summary>
+        private static void TryRemoveEmptyDir(string dir)
+        {
+            try
+            {
+                if (!Directory.Exists(dir)) return;
+                if ((File.GetAttributes(dir) & FileAttributes.ReparsePoint) != 0) return;   // 链接不动它 ✗
+                if (Directory.GetFileSystemEntries(dir).Length == 0) Directory.Delete(dir, false);
+            }
+            catch { }
+        }
+
         public void Delete(string dir)
         {
             if (string.IsNullOrEmpty(dir)) return;

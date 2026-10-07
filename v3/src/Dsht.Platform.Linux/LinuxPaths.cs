@@ -158,14 +158,27 @@ namespace Dsht.Platform.Linux
         }
 
         /// <summary>解析路径的真实目标（解开符号链接）；拿不到就返回原值。
-        /// 架构审计 C2：隔离闸门只做词法归一化，指向真实数据根的链接会绕过它。</summary>
+        /// 架构审计 C2：隔离闸门只做词法归一化，指向真实数据根的链接会绕过它。
+        /// ★★★ L4 修复（2026-10-07 真机实测）：这里原来是把路径**拼进命令行**的 ✗
+        ///   ✗ `new ProcessStartInfo("readlink", "-f " + p)` —— 路径**没有引号** ✗
+        ///   → .NET 按空白把 Arguments 切成 argv → readlink 收到**两个**操作数
+        ///   → 输出两行（`/tmp/l4/my` 与 `dsh`）→ 返回的"真实路径"里**带换行符** ✗
+        ///   → 它被当成 DataRoot → `DSH_HOME="/tmp/l4/my dsh"` 时 `backup --to` **BACKUP_FAIL** ✗✗
+        ///   （真机原话：`BACKUP_FAIL 数据目录不存在：/tmp/dsht-pathcheck.XXXX/my` 换行 `dsh` ✓）
+        /// ✓ 现在：**引号化** ✓✓ 用 `QuoteArg` 保证"一个参数就是一个 argv 元素" ✓
+        ///   ⚠ 为什么不用 .NET Core 的 `ProcessStartInfo.ArgumentList` ✗：
+        ///     v3 源码还要能被 **.NET Framework 的 csc** 编译（`v3/tests/verify_restore_apply.ps1`
+        ///     就是用 in-box csc 建 exe 的 ✓ 一用 ArgumentList 那个门槛立刻红 ✗ 已实测 ✓）
+        ///     → 照 `LinuxServiceControl.QuoteIfNeeded` 的同一手法做字符串引号化 ✓
+        /// 同一文件里其它"命令拼接"已核过 ✓：本文件只有这一处起进程（其余是 Directory/File API ✓），
+        ///   所以只改这一处 ✓ 不做无关重构 ✗。</summary>
         internal static string RealPath(string p)
         {
             try
             {
                 if (string.IsNullOrEmpty(p)) return p;
                 if (!System.IO.Directory.Exists(p)) return p;
-                System.Diagnostics.ProcessStartInfo psi = new System.Diagnostics.ProcessStartInfo("readlink", "-f " + p);
+                System.Diagnostics.ProcessStartInfo psi = new System.Diagnostics.ProcessStartInfo("readlink", "-f " + QuoteArg(p));
                 psi.UseShellExecute = false;
                 psi.RedirectStandardOutput = true;
                 psi.RedirectStandardError = true;
@@ -181,6 +194,20 @@ namespace Dsht.Platform.Linux
                 }
             }
             catch { return p; }
+        }
+
+        /// <summary>把一个路径变成"**一个** argv 参数"：含空白/引号时包一层双引号并把
+        ///   `\` 与 `"` 转义 ✓（.NET 在 Unix 上也用它那套 Windows 规则解析 Arguments ✓
+        ///   外层引号会被去掉 ✓ 所以 readlink 收到的是**原样的**一个路径 ✓）。
+        /// ★ L4：这就是那个真机缺陷的修复点 —— 之前路径直接拼在命令后面 ✗ 空格把它切成了两个参数 ✗。
+        /// ⚠ 为什么不用 `ProcessStartInfo.ArgumentList` ✗：v3 源码要能被 .NET Framework 的 csc 编译 ✓
+        ///   （`verify_restore_apply.ps1` 用 in-box csc 建 exe ✓ 用了 ArgumentList 该门槛会红 ✗）。
+        /// 不含空白/引号时**原样返回** ✓（保持与旧行为逐字一致 ✓ 最小改动 ✓）。</summary>
+        internal static string QuoteArg(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return "\"\"";
+            if (s.IndexOf(' ') < 0 && s.IndexOf('\t') < 0 && s.IndexOf('"') < 0 && s.IndexOf('\\') < 0) return s;
+            return "\"" + s.Replace("\\", "\\\\").Replace("\"", "\\\"") + "\"";
         }
     }
 }
