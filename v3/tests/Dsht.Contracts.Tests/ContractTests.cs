@@ -770,6 +770,187 @@ static class ContractTests
             Check("契约：GUI 夹具串 %20/%25 解出来就是它期望的标题",
                 Dsht.Domain.Services.MarkerText.Decode("会话%20A%25B") == "会话 A%B");
         }
+        // ============================================================================
+        // [31] 备份链审查（2026-10-07，D5/B1）：IsSubPath **根路径做父级**回归
+        //   为什么必须有：TrimTrailingSep 特意保留盘根尾部（`D:\` ✓ 不变成 `D:` ✓）
+        //   → 旧实现 `a + "\\"` 拼出 `D:\\` ✗ → 备份根设在盘根时根里**每一个包**都被判"在根外" ✗✗
+        //   → backup-export / backup-delete 全灭 ✗（真机复现过 ✓ 修复记录有对照 ✓）
+        // ============================================================================
+        Console.WriteLine("[31] IsSubPath：根路径父级（备份链审查 D5 回归）");
+        Check("盘根：D:\\ 包含 D:\\foo", PathUtil.IsSubPath("D:\\", "D:\\foo"));
+        Check("盘根：D:\\ 不含 E:\\foo", !PathUtil.IsSubPath("D:\\", "E:\\foo"));
+        Check("POSIX 根：/ 包含 /bk", PathUtil.IsSubPath("/", "/bk"));
+        Check("POSIX 根：/ 等于自身", PathUtil.IsSubPath("/", "/"));
+        Check("常规父级仍对：C:\\bk 包含 C:\\bk\\x", PathUtil.IsSubPath("C:\\bk", "C:\\bk\\x"));
+        Check("前缀陷阱仍挡住：C:\\bk 不含 C:\\bkx", !PathUtil.IsSubPath("C:\\bk", "C:\\bkx"));
+        Check("逃逸仍 fail-closed：C:\\..\\x 判不安全", !PathUtil.IsSubPath("C:\\bk", "C:\\..\\x"));
+        Check("UNC 共享根：\\\\srv\\share 包含子目录", PathUtil.IsSubPath("\\\\srv\\share", "\\\\srv\\share\\dir"));
+        Check("UNC 不同共享：\\\\srv\\share 不含 \\\\srv\\other", !PathUtil.IsSubPath("\\\\srv\\share", "\\\\srv\\other"));
+        // ============================================================================
+        // [32] 备份链审查（2026-10-07，D1/A1）：Export **真实导出**回归
+        //   为什么必须有：旧 CopyTree 返回的是"跳过的嵌套包数"（几乎总是 0）而不是拷贝文件数 ✗
+        //   → Export 守卫 `copiedN==0 && entries>0 → null` 对**每一个非空包**都开火 ✗✗
+        //   → backup-export 自 v3.0.0 起 100% BKEXPORT_FAIL ✗（文件其实已拷 ✓ 但无旁挂 .manifest ✗）
+        // ============================================================================
+        Console.WriteLine("[32] Export：真实导出往返（备份链审查 D1 回归）");
+        {
+            string exRootTmp = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "dsht-ex-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            try
+            {
+                string exData = System.IO.Path.Combine(exRootTmp, "data");
+                string exBk = System.IO.Path.Combine(exRootTmp, "bk");
+                string exOut = System.IO.Path.Combine(exRootTmp, "out");
+                System.IO.Directory.CreateDirectory(System.IO.Path.Combine(exData, "storages"));
+                System.IO.File.WriteAllText(System.IO.Path.Combine(exData, "storages", "a.txt"), "ALPHA");
+                System.IO.File.WriteAllText(System.IO.Path.Combine(exData, "settings.yaml"), "theme: dark");
+                System.IO.Directory.CreateDirectory(exBk);
+                System.IO.Directory.CreateDirectory(exOut);
+                string exOldEnv = Environment.GetEnvironmentVariable("DSH_MINATO_BACKUP_DIR");
+                Environment.SetEnvironmentVariable("DSH_MINATO_BACKUP_DIR", exBk);
+                Dsht.Domain.Abstractions.IBackupSource exbks;
+                if (Environment.OSVersion.Platform == PlatformID.Win32NT)
+                    exbks = new Dsht.Platform.Windows.WindowsBackupSource(new Dsht.Platform.Windows.WindowsPaths());
+                else
+                    exbks = new Dsht.Platform.Linux.LinuxBackupSource(new Dsht.Platform.Linux.LinuxPaths());
+                Dsht.Domain.Model.BackupResult exRes = exbks.Create(exData, Dsht.Domain.Model.BackupKind.Manual, 3, null);
+                Check("导出前置：备份包已建", exRes != null && !string.IsNullOrEmpty(exRes.Path));
+                string exTarget = exbks.Export(exRes.Path, exOut);
+                Check("导出：返回非 null（修复前非空包永远 null ✗✗）", exTarget != null);
+                Check("导出：文件真的到目标",
+                    exTarget != null
+                    && System.IO.File.Exists(System.IO.Path.Combine(exTarget, "storages", "a.txt"))
+                    && System.IO.File.ReadAllText(System.IO.Path.Combine(exTarget, "storages", "a.txt")) == "ALPHA"
+                    && System.IO.File.Exists(System.IO.Path.Combine(exTarget, "settings.yaml")));
+                Check("导出：旁挂 .manifest 存在（审查 D1 核心症状 ✓）", exTarget != null && System.IO.File.Exists(exTarget + ".manifest"));
+                Environment.SetEnvironmentVariable("DSH_MINATO_BACKUP_DIR", exOldEnv);
+            }
+            catch (Exception ex)
+            {
+                Check("导出往返：未抛异常（" + ex.GetType().Name + ": " + ex.Message + "）", false);
+            }
+            finally
+            {
+                try { System.IO.Directory.Delete(exRootTmp, true); } catch { }
+            }
+        }
+        // ============================================================================
+        // [33] 备份链审查（2026-10-07，D4/B2）：恢复时目标侧 **junction 不穿透**回归
+        //   为什么必须有：顶层文件循环旧代码只查**源**侧重解析点 ✗ 不查目标侧 ✗
+        //   → 目标预置同名 junction 时 File.Copy 直接炸（修复前实测 ✓）/ 目录 junction 会被穿透污染 ✗✗
+        //   安全：junction（目录联接）**不需要管理员** ✓ 全程在 %TEMP% 随机目录 ✓ 结束即清理 ✓
+        // ============================================================================
+        Console.WriteLine("[33] 恢复守卫：目标侧 junction（备份链审查 D4 回归）");
+        if (Environment.OSVersion.Platform == PlatformID.Win32NT)
+        {
+            string jRoot = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "dsht-jn-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            try
+            {
+                string jData = System.IO.Path.Combine(jRoot, "data");
+                string jBk = System.IO.Path.Combine(jRoot, "bk");
+                string jDst = System.IO.Path.Combine(jRoot, "dst");
+                string jOutside = System.IO.Path.Combine(jRoot, "outside");   // junction 的真实目标 —— 绝不能被写入 ✗✗
+                System.IO.Directory.CreateDirectory(jData);
+                System.IO.File.WriteAllText(System.IO.Path.Combine(jData, "a.txt"), "TOP-LEVEL-FILE");
+                System.IO.Directory.CreateDirectory(System.IO.Path.Combine(jData, "sub"));
+                System.IO.File.WriteAllText(System.IO.Path.Combine(jData, "sub", "b.txt"), "NESTED");
+                System.IO.Directory.CreateDirectory(jBk);
+                System.IO.Directory.CreateDirectory(jDst);
+                System.IO.Directory.CreateDirectory(jOutside);
+                string jOldEnv = Environment.GetEnvironmentVariable("DSH_MINATO_BACKUP_DIR");
+                Environment.SetEnvironmentVariable("DSH_MINATO_BACKUP_DIR", jBk);
+                Dsht.Platform.Windows.WindowsBackupSource jbks = new Dsht.Platform.Windows.WindowsBackupSource(new Dsht.Platform.Windows.WindowsPaths());
+                Dsht.Domain.Model.BackupResult jRes = jbks.Create(jData, Dsht.Domain.Model.BackupKind.Manual, 3, null);
+                Check("junction 前置：备份包已建", jRes != null && !string.IsNullOrEmpty(jRes.Path));
+                // ★ 在恢复目标预置**同名 junction**：`dst\a.txt` → `outside\` ✓（mklink /J 无需管理员 ✓）
+                System.Diagnostics.Process jmk = System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "cmd.exe",
+                    Arguments = "/c mklink /J \"" + System.IO.Path.Combine(jDst, "a.txt") + "\" \"" + jOutside + "\"",
+                    UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true
+                });
+                jmk.WaitForExit();
+                Check("junction 前置：预置成功", (System.IO.File.GetAttributes(System.IO.Path.Combine(jDst, "a.txt")) & System.IO.FileAttributes.ReparsePoint) != 0);
+                Dsht.Domain.Model.RestoreOutcome jOut = jbks.Restore(jRes.Path, jDst, null);
+                Check("恢复：junction 守卫下整体成功（修复前 File.Copy 炸 ✗）", jOut != null && jOut.Ok);
+                Check("恢复：junction 目标未被穿透（D4 核心 ✗✗）",
+                    System.IO.Directory.GetFiles(jOutside).Length == 0 && System.IO.Directory.GetDirectories(jOutside).Length == 0);
+                Check("恢复：其余文件正常落位",
+                    System.IO.File.Exists(System.IO.Path.Combine(jDst, "sub", "b.txt"))
+                    && System.IO.File.ReadAllText(System.IO.Path.Combine(jDst, "sub", "b.txt")) == "NESTED");
+                Environment.SetEnvironmentVariable("DSH_MINATO_BACKUP_DIR", jOldEnv);
+            }
+            catch (Exception ex)
+            {
+                Check("junction 用例：未抛异常（" + ex.GetType().Name + ": " + ex.Message + "）", false);
+            }
+            finally
+            {
+                try
+                {
+                    string jlink = System.IO.Path.Combine(jRoot, "dst", "a.txt");
+                    if (System.IO.Directory.Exists(jlink)) System.IO.Directory.Delete(jlink);   // 先拆 junction（不递归 ✓ 只摘链接 ✓）
+                }
+                catch { }
+                try { System.IO.Directory.Delete(jRoot, true); } catch { }
+            }
+        }
+        else Check("恢复守卫：非 Windows 平台跳过 junction 用例（Linux 由同构符号链接守卫覆盖 ✓）", true);
+        // ============================================================================
+        // [34] 备份链审查（2026-10-07，D7/B3）：自哈希缓存**预置投毒免疫**回归
+        //   为什么必须有：旧缓存文件名 = `<长度>-<时间戳>.txt` —— **路径没进文件名** ✗
+        //   → %TEMP% 人人可写 ✓ → 攻击者预知文件名、提前写入 64 位假哈希 ✗✗ → 完整性闸门被喂假值 ✗
+        //   修复后文件名 = SHA256(路径|长度|时间戳) → 可枚举的投毒文件名从此不再被读取 ✓✓
+        // ============================================================================
+        Console.WriteLine("[34] 自哈希缓存：投毒免疫（备份链审查 D7 回归）");
+        {
+            Dsht.Domain.Abstractions.IIntegritySource integ;
+            string selfExe;
+            if (Environment.OSVersion.Platform == PlatformID.Win32NT)
+            {
+                Dsht.Platform.Windows.WindowsIntegritySource wsrc = new Dsht.Platform.Windows.WindowsIntegritySource();
+                integ = wsrc; selfExe = wsrc.SelfPath();
+            }
+            else
+            {
+                Dsht.Platform.Linux.LinuxIntegritySource lsrc = new Dsht.Platform.Linux.LinuxIntegritySource();
+                integ = lsrc; selfExe = lsrc.SelfPath();
+            }
+            if (string.IsNullOrEmpty(selfExe) || !System.IO.File.Exists(selfExe))
+            {
+                Check("自哈希：能定位自身可执行文件", false);
+            }
+            else
+            {
+                System.IO.FileInfo sfi = new System.IO.FileInfo(selfExe);
+                string shCacheDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "dsh-minato-selfhash");
+                System.IO.Directory.CreateDirectory(shCacheDir);
+                string poisonFile = System.IO.Path.Combine(shCacheDir, sfi.Length.ToString() + "-" + sfi.LastWriteTimeUtc.Ticks.ToString() + ".txt");
+                string poisonHex = new string('a', 64);
+                System.IO.File.WriteAllText(poisonFile, poisonHex);   // ★ 修复前：这个名字会被**直接命中** ✗✗
+                try
+                {
+                    string h1 = integ.SelfHash();
+                    Check("自哈希：不读预置投毒（修复前返回 64 个 a ✗✗）", h1 != null && h1 != poisonHex);
+                    // 独立现算期望值（不复用实现代码 ✓）
+                    string expect;
+                    using (System.Security.Cryptography.SHA256 sha = System.Security.Cryptography.SHA256.Create())
+                    using (System.IO.FileStream sfs = System.IO.File.OpenRead(selfExe))
+                    {
+                        byte[] hh = sha.ComputeHash(sfs);
+                        System.Text.StringBuilder ssb = new System.Text.StringBuilder();
+                        foreach (byte bb in hh) ssb.Append(bb.ToString("x2"));
+                        expect = ssb.ToString();
+                    }
+                    Check("自哈希：等于独立现算值", h1 == expect);
+                    string hSecond = integ.SelfHash();
+                    Check("自哈希：第二次调用同值（新缓存命中路径正常 ✓）", hSecond == h1);
+                }
+                finally
+                {
+                    try { System.IO.File.Delete(poisonFile); } catch { }
+                }
+            }
+        }
         Console.WriteLine("== " + _pass + "/" + (_pass + _fail) + " passed, " + _fail + " failed ==");
         return _fail == 0 ? 0 : 1;
     }

@@ -63,7 +63,14 @@ namespace Dsht.Platform.Windows
                     key = fi.FullName + "|" + fi.Length.ToString() + "|" + fi.LastWriteTimeUtc.Ticks.ToString();
                     string cacheDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "dsh-minato-selfhash");
                     System.IO.Directory.CreateDirectory(cacheDir);
-                    cacheFile = System.IO.Path.Combine(cacheDir, System.Convert.ToString(fi.Length) + "-" + System.Convert.ToString(fi.LastWriteTimeUtc.Ticks) + ".txt");
+                    // ★★★ 备份链审查抓到（2026-10-07，D7）：缓存文件名原来只用 **长度-时间戳** ✗✗
+                    //   → **路径根本没进文件名** ✗（上面算的 key 白算了 ✓ 从没被用 ✗）
+                    //   → %TEMP% 是**所有用户进程共享**的 ✓ → 任何人都能预知文件名并**预置投毒** ✗
+                    //     （算出自家 exe 的 len+ticks → 提前写 `<len>-<ticks>.txt` 放 64 位假哈希 ✗✗
+                    //       → 完整性闸门从此读到攻击者给的"正确"值 ✗）
+                    // ✓ 现在：文件名 = **SHA256(完整 key)**（含路径 ✓）→ 内容寻址 ✓
+                    //   想投毒得先知道精确路径+长度+时间戳的哈希 ✓ 且不再可读枚举 ✓✓
+                    cacheFile = System.IO.Path.Combine(cacheDir, Sha256Hex(key) + ".txt");
                     if (System.IO.File.Exists(cacheFile))
                     {
                         string cached = System.IO.File.ReadAllText(cacheFile).Trim();
@@ -84,6 +91,18 @@ namespace Dsht.Platform.Windows
                 }
             }
             catch { return null; }
+        }
+
+        /// <summary>字符串的 SHA256（小写 hex）✓ —— 用于把自哈希缓存的 key 变成**定长、文件系统安全**的名字 ✓（D7 ✓）。</summary>
+        private static string Sha256Hex(string s)
+        {
+            using (System.Security.Cryptography.SHA256 sha = System.Security.Cryptography.SHA256.Create())
+            {
+                byte[] h = sha.ComputeHash(System.Text.Encoding.UTF8.GetBytes(s));
+                StringBuilder sb = new StringBuilder();
+                foreach (byte b in h) sb.Append(b.ToString("x2"));
+                return sb.ToString();
+            }
         }
 
         public string ReadManifest()

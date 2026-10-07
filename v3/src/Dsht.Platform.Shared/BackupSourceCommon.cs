@@ -57,11 +57,27 @@ namespace Dsht.Platform.Shared
             if (isNewFormat)
             {
                 foreach (string d in Directory.GetDirectories(srcDir))
-                    CopyTree(d, Path.Combine(target, Path.GetFileName(d.TrimEnd('\\', '/'))), false);
+                {
+                    int wsSkipped;
+                    CopyTree(d, Path.Combine(target, Path.GetFileName(d.TrimEnd('\\', '/'))), false, out wsSkipped);
+                }
                 foreach (string f in Directory.GetFiles(srcDir))
-                    if (Path.GetFileName(f) != ".dshws") File.Copy(f, Path.Combine(target, Path.GetFileName(f)), true);
+                {
+                    if (Path.GetFileName(f) == ".dshws") continue;
+                    // ★ D4（2026-10-07 备份链审查）：顶层文件复制原来**没有**目标侧 reparse 守卫 ✗
+                    //   → 目标端一个同名 junction 会被写穿到根外 ✗（CopyTree 内部有这道守卫 ✓ 这里补上同一道 ✓✓）
+                    string tf = Path.Combine(target, Path.GetFileName(f));
+                    bool tRep = false;
+                    try { if (File.Exists(tf) || Directory.Exists(tf)) tRep = (File.GetAttributes(tf) & FileAttributes.ReparsePoint) != 0; } catch { }
+                    if (tRep) continue;
+                    File.Copy(f, tf, true);
+                }
             }
-            else CopyTree(srcDir, target, false);
+            else
+            {
+                int wsSkipped2;
+                CopyTree(srcDir, target, false, out wsSkipped2);
+            }
             o.WorkspacesRestored++;
         }
 
@@ -78,9 +94,16 @@ namespace Dsht.Platform.Shared
             return total;
         }
 
-        protected static int CopyTree(string src, string dst, bool skipLocked)
+        /// <summary>递归复制目录树。返回**实际复制成功的文件数** ✓✓（2026-10-07 备份链审查 D1 修复）。
+        /// <para>★★★ 这里原来返回的是 skippedNested（被跳过的嵌套备份目录数）✗✗
+        ///   → Export 拿它当"复制了几个文件"用：`== 0 且源非空 → 判失败` ✗
+        ///   → 而 skippedNested **几乎总是 0** ✗ → **导出永远报失败** ✗✗（真机实测：文件明明全拷过去了 ✓）
+        /// ✓ 现在：**返回复制成功的文件数**，被跳过的嵌套备份数走 `out skippedNested` ✓✓</para>
+        /// <para>★ 顺手统一：跳过规则不再内联第二份 ✗，改调 `SkipRules.SkipDir` ✓（与 FileSystemQuery 同一套 ✓ 见 D4）。</para></summary>
+        protected static int CopyTree(string src, string dst, bool skipLocked, out int skippedNested)
         {
-            int skippedNested = 0;
+            int copied = 0;
+            skippedNested = 0;
             src = src.TrimEnd('\\', '/'); dst = dst.TrimEnd('\\', '/');
             // ★★★ 架构审计抓到（MAJOR C3）：只在**源**侧跳过 reparse point ✗
             //   → 而**目标**侧的 junction / 符号链接会被**写穿** ✗✗
@@ -88,20 +111,24 @@ namespace Dsht.Platform.Shared
             // ✓ 现在：**目标侧也查** ✓✓ 是 reparse point 就拒绝写入（宁可失败也不写穿 ✓）
             bool dstIsLink = false;
             try { if (Directory.Exists(dst)) dstIsLink = (File.GetAttributes(dst) & FileAttributes.ReparsePoint) != 0; } catch { }
-            if (dstIsLink) { if (!skipLocked) throw new IOException("destination is a reparse point: " + dst); return skippedNested; }
+            if (dstIsLink) { if (!skipLocked) throw new IOException("destination is a reparse point: " + dst); return copied; }
             Directory.CreateDirectory(dst);
             string[] subs;
             try { subs = Directory.GetDirectories(src); } catch { subs = new string[0]; }
             foreach (string d in subs)
             {
                 string name = Path.GetFileName(d.TrimEnd('\\', '/'));
-                if (name.Equals("node_modules", StringComparison.OrdinalIgnoreCase)) continue;
-                if (name.Equals("backup", StringComparison.OrdinalIgnoreCase)) continue;
-                if (name.StartsWith("dsh-data-", StringComparison.OrdinalIgnoreCase)) { skippedNested++; continue; }
                 bool rep = false;
                 try { rep = (File.GetAttributes(d) & FileAttributes.ReparsePoint) != 0; } catch { }
-                if (rep) continue;
-                try { skippedNested += CopyTree(d, Path.Combine(dst, name), skipLocked); }
+                // ★ D4 顺手统一：与 FileSystemQuery.Walk 同一套跳过规则 ✓（不再内联第二份 ✗）
+                //   dsh-data-* 的**计数**语义保留 ✓（备份要如实报告"跳过了几个嵌套备份" ✓）
+                if (Dsht.Domain.Services.SkipRules.SkipDir(name, rep))
+                {
+                    if (name.StartsWith("dsh-data-", StringComparison.OrdinalIgnoreCase)) skippedNested++;
+                    continue;
+                }
+                int childSkipped;
+                try { copied += CopyTree(d, Path.Combine(dst, name), skipLocked, out childSkipped); skippedNested += childSkipped; }
                 catch { if (!skipLocked) throw; }
             }
             string[] files;
@@ -117,10 +144,11 @@ namespace Dsht.Platform.Shared
                     using (FileStream s = new FileStream(f, FileMode.Open, FileAccess.Read, FileShare.ReadWrite | FileShare.Delete))
                     using (FileStream t = new FileStream(Path.Combine(dst, Path.GetFileName(f)), FileMode.Create, FileAccess.Write, FileShare.None))
                         s.CopyTo(t);
+                    copied++;
                 }
                 catch { if (!skipLocked) throw; }
             }
-            return skippedNested;
+            return copied;
         }
 
         /// <summary>读取目录快照（名字 + 直接子条目名）供领域层做有效性判定。</summary>

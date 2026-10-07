@@ -178,7 +178,8 @@ namespace Dsht.Platform.Windows
                 _copyFailures = 0;
             int srcFiles = 0;
             CountTree(sourceDir, ref srcFiles);
-            int skipped = CopyTree(sourceDir, dest, true);
+            int skipped;
+            CopyTree(sourceDir, dest, true, out skipped);   // D1：CopyTree 现在返回复制数，跳数走 out ✓
             int dstFiles = 0;
             CountTree(dest, ref dstFiles);
             if (srcFiles - dstFiles > 0) _copyFailures += srcFiles - dstFiles;   // 源里可读、目标里没有 → 没能备份进去 ✓
@@ -194,7 +195,11 @@ namespace Dsht.Platform.Windows
                         bool wsInsideData = Dsht.Domain.Services.PathUtil.IsSubPath(dataFull, wsFull);
                         bool dataInsideWs = Dsht.Domain.Services.PathUtil.IsSubPath(wsFull, dataFull);
                         if (!wsInsideData && !dataInsideWs)
-                            skipped += CopyTree(wsFull, Path.Combine(dest, "_workspace"), true);
+                        {
+                            int wsSkipped;
+                            CopyTree(wsFull, Path.Combine(dest, "_workspace"), true, out wsSkipped);
+                            skipped += wsSkipped;
+                        }
                     }
                     catch (Exception wex)
                     {
@@ -250,11 +255,13 @@ namespace Dsht.Platform.Windows
                 if (string.IsNullOrEmpty(src) || string.IsNullOrEmpty(dstDir)) return null;
                 Directory.CreateDirectory(dstDir);
                 string target = Path.Combine(dstDir, Path.GetFileName(src.TrimEnd('\\', '/')));
-                // ★★ 架构审计抓到（MAJOR）：**这里忽略了 CopyTree 的返回值** ✗✗
-                //   → 而 skipLocked=true 模式下 CopyTree 会吞掉每一个文件的错误 ✗
-                //   → **一个文件都没复制成功也照样返回 target** ✗ → 上层打印 BKEXPORT_OK ✗（导出空包还报成功 ✓）
-                // ✓ 现在：**源里有文件却一个都没复制出来 → 返回 null** ✓✓（上层就会如实报失败 ✓）
-                int copiedN = CopyTree(src, target, true);
+                // ★★★ 备份链审查抓到（2026-10-07，D1）：上一版"修"读的是 CopyTree 的返回值 ✗
+                //   → 而那个返回值是 **skippedNested**（被跳过的嵌套备份目录数 ✓ 几乎总是 0）✗✗
+                //   → `copiedN == 0 且源非空 → 返回 null` **每次都成立** ✗ → **导出永远 BKEXPORT_FAIL** ✗✗
+                //     （文件其实全拷过去了 ✓ 旁挂 .manifest 也因为提前 return 而没带 ✗）
+                // ✓ 现在：CopyTree **返回真实复制数**（跳数走 out ✓）→ 这道守卫恢复它原本的语义 ✓✓
+                int exportSkipped;
+                int copiedN = CopyTree(src, target, true, out exportSkipped);
                 try
                 {
                     if (copiedN == 0 && Directory.Exists(src) && Directory.GetFileSystemEntries(src).Length > 0) return null;
@@ -323,13 +330,20 @@ namespace Dsht.Platform.Windows
                 {
                     string name = Path.GetFileName(d.TrimEnd('\\', '/'));
                     if (name == "_workspace") continue;                       // v2.x：工作区单独处理
-                    CopyTree(d, Path.Combine(dst, name), false);
+                    int dirSkipped;
+                    CopyTree(d, Path.Combine(dst, name), false, out dirSkipped);
                     o.TopDirs++;
                 }
                 string[] files = Directory.GetFiles(src);
                 foreach (string f in files)
                 {
-                    File.Copy(f, Path.Combine(dst, Path.GetFileName(f)), true);
+                    // ★ D4（2026-10-07 备份链审查）：顶层文件复制原来**没有**目标侧 reparse 守卫 ✗
+                    //   → 目标端一个同名 junction 会被 File.Copy 写穿 ✗（补上与 CopyTree 内部同一道 ✓✓）
+                    string tf = Path.Combine(dst, Path.GetFileName(f));
+                    bool tRep = false;
+                    try { if (File.Exists(tf) || Directory.Exists(tf)) tRep = (File.GetAttributes(tf) & FileAttributes.ReparsePoint) != 0; } catch { }
+                    if (tRep) continue;
+                    File.Copy(f, tf, true);
                     o.TopFiles++;
                 }
                 string ws = Path.Combine(src, "_workspace");

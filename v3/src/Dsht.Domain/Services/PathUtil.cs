@@ -90,6 +90,14 @@ namespace Dsht.Domain.Services
             string b = TrimTrailingSep(nb);
             if (caseFold) { a = a.ToLowerInvariant(); b = b.ToLowerInvariant(); }
             if (b == a) return true;
+            // ★★★ 备份链审查抓到（2026-10-07，D5）：根路径做父级时前缀比对会多拼一个分隔符 ✗✗
+            //   → TrimTrailingSep **特意保留**盘根尾部（`D:\` 不变成 `D:` ✓ 上方注释 ✓）
+            //     → 这里 `a + "\\"` 变成 `D:\\` ✗ → `D:\foo` 永远"不在根内" ✗（POSIX 根 `/` → `//` 同病 ✗）
+            //   → 后果：备份根设在**盘根**（如 `D:\`）时 ✓ backup-export / backup-delete 的
+            //     "必须在备份根内"校验把**根里每一个包**都判成"在根外" ✗✗ → 导出/删除全灭 ✗
+            // ✓ 现在：父级本身以分隔符结尾（即根）→ 直接比 `b.StartsWith(a)` ✓✓（不再多拼 ✓）
+            if (a.EndsWith("\\", StringComparison.Ordinal) || a.EndsWith("/", StringComparison.Ordinal))
+                return b.StartsWith(a, StringComparison.Ordinal);
             return b.StartsWith(a + "\\", StringComparison.Ordinal) || b.StartsWith(a + "/", StringComparison.Ordinal);
         }
     }

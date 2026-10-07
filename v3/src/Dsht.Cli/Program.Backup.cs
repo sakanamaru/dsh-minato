@@ -104,26 +104,34 @@ namespace Dsht.Cli
                     }
                 }
                 catch { }
+                // ★★★ A3（2026-10-07 备份链审查 D3）：以下三处原来全部"catch/取不到 → 返回 null" ✗✗
+                //   → null 被调用方当成"没被截断" ✓ → 标记坏了 / 数不了文件 / 任何异常 → 闸门 fail-open → 恢复放行 ✗
+                //   → 而 `backup-list --verify` 对同等情况判 **mismatch / unreadable** ✓（同一个包两套结论 ✗）
+                // ✓ 现在：**无法核对 ⇒ 判不完整** ✓✓（fail-closed ✓ 与 --verify 对齐 ✓ 照旧可用 --force 明说强用 ✓）
                 int want = -1;
-                string[] ls = System.IO.File.ReadAllLines(mf);
+                string[] ls;
+                try { ls = System.IO.File.ReadAllLines(mf); }
+                catch (Exception rex) { return T("完成标记读取失败（", "completion marker unreadable (") + rex.GetType().Name + T("）—— 无法核对完整性，按不完整处理：", ") - cannot verify integrity, treated as incomplete: ") + System.IO.Path.GetFileName(pkgDir); }
                 for (int i = 0; i < ls.Length; i++) { if (ls[i].StartsWith("files=", StringComparison.Ordinal)) int.TryParse(ls[i].Substring(6).Trim(), out want); }
-                if (want < 0) return null;
-                int have = 0;
-                try { have = System.IO.Directory.GetFiles(pkgDir, "*", System.IO.SearchOption.AllDirectories).Length; } catch { return null; }
+                // ★ 哈希先行（与 backup-list --verify 同序 ✓）：有哈希先比哈希 ✓
                 string mh2 = MarkerHash(mf);
                 if (mh2 != null)
                 {
                     string act2 = PackageContentHash(pkgDir);
                     if (act2 != mh2) return T("该备份内容与完成标记不符（哈希不一致）—— 内容已被改动或损坏", "this backup does not match its completion marker (hash mismatch) - the content has been altered or corrupted");
                 }
+                if (want < 0) return T("完成标记无法解析（缺少 files= 行）—— 无法核对完整性，按不完整处理：", "completion marker unparsable (no files= line) - cannot verify integrity, treated as incomplete: ") + System.IO.Path.GetFileName(pkgDir);
+                int have = 0;
+                try { have = System.IO.Directory.GetFiles(pkgDir, "*", System.IO.SearchOption.AllDirectories).Length; }
+                catch (Exception cex) { return T("无法清点备份内容（", "cannot enumerate backup content (") + cex.GetType().Name + T("）—— 按不完整处理：", ") - treated as incomplete: ") + System.IO.Path.GetFileName(pkgDir); }
                 // ★★ 架构审计抓到：这里是 have >= want ✗ 而 BackupVerify 用 want != have ✗
                 //   → 同一个包两套结论 ✗（多出文件时 restore 说"完整" ✓ 而 --verify 说 mismatch ✓）
                 // ✓ 现在：与 --verify 对齐 ✓✓（数量必须完全相等 ✓）
-                // ★ 修：want 取不到时是 -1 ✗ → 不能直接比 ✗（否则每一个包都会被判不符 ✗✗）
-                if (want >= 0 && have != want) return T("备份内容与标记不符（标记 ", "backup does not match its marker (marker ") + want + T(" 项，实际 ", " items, actual ") + have + T(" 项）：", "): ") + System.IO.Path.GetFileName(pkgDir);
+                if (have != want) return T("备份内容与标记不符（标记 ", "backup does not match its marker (marker ") + want + T(" 项，实际 ", " items, actual ") + have + T(" 项）：", "): ") + System.IO.Path.GetFileName(pkgDir);
                 return null;
             }
-            catch { return null; }
+            // ★ A3：外层兜底异常同样 fail-closed ✓（原来 catch 返回 null = 放行 ✗✗）
+            catch (Exception ex) { return T("完整性检查出错（", "integrity check failed (") + ex.GetType().Name + T("）—— 按不完整处理：", ") - treated as incomplete: ") + System.IO.Path.GetFileName(pkgDir); }
         }
         private static int BackupVerify(ServiceRegistry reg)
         {
@@ -374,12 +382,14 @@ namespace Dsht.Cli
             string reason = PathValidator.ValidateExport(Flag(args, "--path"), Flag(args, "--to"), bk.BackupsRoot,
                 delegate(string p) { return fs.DirectoryExists(p); },
                 delegate(string p) { return System.IO.Path.GetFullPath(p); });
-            if (reason != null) { Console.WriteLine("BKEXPORT_FAIL " + T("导出校验失败: " + reason, "export validation failed: " + reason)); return 0; }
+            if (reason != null) { Console.WriteLine("BKEXPORT_FAIL " + T("导出校验失败: " + reason, "export validation failed: " + reason)); return 1; }
             if (!Has(args, "--yes")) { Console.WriteLine("BKEXPORT_PLAN " + T("将把备份复制到目标目录（会写盘）—— 确认请加 --yes", "will copy the backup to the target directory (writes to disk) - add --yes to confirm")); return 0; }
             string src = PathValidator.ResolveBackupPath((Flag(args, "--path") ?? "").Trim().Trim('"'), bk.BackupsRoot);
             string to = (Flag(args, "--to") ?? "").Trim().Trim('"');
             string target = bk.Export(src, System.IO.Path.GetFullPath(to));
-            if (target == null) { Console.WriteLine("BKEXPORT_FAIL " + T("导出失败（见 launcher.log）", "export failed (see launcher.log)")); return 0; }
+            // ★ A2（2026-10-07 备份链审查）：失败路径退出码 0 → 脚本 `set -e`/`&&` 全部失明 ✗
+            //   → 现在 BKEXPORT_FAIL 返回 1 ✓（BKEXPORT_PLAN 保持 0 ✓ 计划态不是失败 ✓）
+            if (target == null) { Console.WriteLine("BKEXPORT_FAIL " + T("导出失败（见 launcher.log）", "export failed (see launcher.log)")); return 1; }
             Console.WriteLine("BKEXPORT_OK " + target);
             return 0;
         }
@@ -390,7 +400,7 @@ namespace Dsht.Cli
             IFileSystemQuery fs = reg.Get<IFileSystemQuery>();
             string reason = PathValidator.ValidateDeletePath(Flag(args, "--path"), bk.BackupsRoot,
                 delegate(string p) { return fs.DirectoryExists(p); });
-            if (reason != null) { Console.WriteLine("BKDEL_FAIL " + T("删除校验失败: " + reason, "delete validation failed: " + reason)); return 0; }
+            if (reason != null) { Console.WriteLine("BKDEL_FAIL " + T("删除校验失败: " + reason, "delete validation failed: " + reason)); return 1; }
             // ★★★ **用户要求（2026-09-30）**：「删除弹窗输入当前时间才执行」✓✓
             //   → 删除是**不可逆**的 ✓ → 光有 `--yes` 太容易误点 ✓
             //   → **必须输入当前时间**（`yyyy-MM-dd HH:mm:ss` ✓ 本地时间 ✓）且与真实时间相差 ≤ 120 秒 ✓✓
@@ -410,7 +420,7 @@ namespace Dsht.Cli
             if (!DateTime.TryParseExact(ct, "yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out ctParsed))
             {
                 Console.WriteLine("BKDEL_FAIL " + T("时间格式不对 ✓ 应为 yyyy-MM-dd HH:mm:ss ✓（现在：" + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture) + " ✓）", "bad time format"));
-                return 0;
+                return 1;
             }
             // I1 FIX (cont): the window was symmetric, so a time up to two minutes in the FUTURE
             // was accepted. A confirmation is meant to prove the user is looking at the clock now,
@@ -420,18 +430,19 @@ namespace Dsht.Cli
             {
                 Console.WriteLine("BKDEL_FAIL " + T("输入的时间与当前时间相差 " + (int)ctDiff + " 秒（超过 120 秒 ✓）→ 拒绝删除 ✓ 现在：" + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture) + " ✓",
                                                      "the time you typed is " + (int)ctDiff + "s away from now - refused"));
-                return 0;
+                return 1;
             }
             if (!Has(args, "--yes")) { Console.WriteLine("BKDEL_PLAN " + T("将删除该备份目录（会丢数据）—— 确认请加 --yes", "will delete that backup directory (data loss) - add --yes to confirm")); return 0; }
             string src = PathValidator.ResolveBackupPath((Flag(args, "--path") ?? "").Trim().Trim('"'), bk.BackupsRoot);
+            // ★ A2：BKDEL_FAIL → 1 ✓（BKDEL_PLAN 保持 0 ✓）
             try
             {
                 bk.Delete(src);
-                if (fs.DirectoryExists(src)) { Console.WriteLine("BKDEL_FAIL " + T("删除后目录仍存在", "directory still exists after delete")); return 0; }
+                if (fs.DirectoryExists(src)) { Console.WriteLine("BKDEL_FAIL " + T("删除后目录仍存在", "directory still exists after delete")); return 1; }
                 Console.WriteLine("BKDEL_OK " + System.IO.Path.GetFileName(src.TrimEnd('\\', '/')));
+                return 0;
             }
-            catch (Exception ex) { Console.WriteLine("BKDEL_FAIL " + ex.Message); }
-            return 0;
+            catch (Exception ex) { Console.WriteLine("BKDEL_FAIL " + ex.Message); return 1; }
         }
     }
 }

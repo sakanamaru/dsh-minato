@@ -821,7 +821,8 @@ namespace Dsht.Cli
             }
             Console.WriteLine("UNINSTALL_FAIL " + T("npm 退出码 ", "npm exit code ") + code + T("（复检仍观测到 dsh）", " (dsh still observed)"));
             Console.WriteLine("UNINSTALL_OBSERVED " + (after.Length > 0 ? after : "installed"));
-            return 0;
+            // ★ A2（2026-10-07 备份链审查）：UNINSTALL_FAIL → 1 ✓（SKIP/DRYRUN 保持 0 ✓ 它们不是失败 ✓）
+            return 1;
         }
         /// <summary>从**启动日志**里取出 dsh 打印的那个 URL ✓✓
         /// 为什么必须用它：dsh web 打印的是 `http://127.0.0.1:<port>/?token=…` ✓

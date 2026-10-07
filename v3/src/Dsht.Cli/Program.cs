@@ -588,11 +588,11 @@ Console.WriteLine("  config-get | config-set <key> <value>");
                     if (!string.Equals((effective ?? "").TrimEnd('\\', '/'), full.TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase))
                     {
                         Console.WriteLine("BACKUP_FAIL " + T("指定的目录**没有生效** ✓ 本次备份会写到：" + effective + " ✗（设置文件可能只读 ✓）", "the --to folder did not take effect; this backup would go to: " + effective));
-                        return 0;
+                        return 1;
                     }
                     Console.WriteLine("BACKUP_TO " + full + " " + T("本次备份写到这个目录 ✓（放在安装目录之外才稳妥 ✓）", "this backup goes here"));
                 }
-                catch (Exception ex) { Console.WriteLine("BACKUP_FAIL " + T("无法使用 --to 指定的目录：" + ex.Message, "cannot use --to dir: " + ex.Message)); return 0; }
+                catch (Exception ex) { Console.WriteLine("BACKUP_FAIL " + T("无法使用 --to 指定的目录：" + ex.Message, "cannot use --to dir: " + ex.Message)); return 1; }
             }
             // ★★★ **用户要求（2026-09-30）**：「第一次备份弹窗选择」✓✓
             //   → **第一次备份**（备份根里还没有任何有效备份 ✓）**必须指定目录** ✓✓
@@ -649,7 +649,7 @@ Console.WriteLine("  config-get | config-set <key> <value>");
                     if (explicitlySet && !string.IsNullOrEmpty(br2) && !System.IO.Directory.Exists(br2))
                     {
                         Console.WriteLine("BACKUP_FAIL " + T("**配置的备份目录不存在** ✗：" + br2 + " ✓（你可能移动或删除了它 ✓）请用 `backup-dir --reset` 恢复默认 ✓ 或用 `--to <目录>` 指定新的 ✓", "the configured backups folder does not exist: " + br2));
-                        return 0;
+                        return 1;
                     }
                     // ★★★ **N9 修复（复审 MAJOR —— GUI 把**所有** BACKUP_FAIL 都当成"要选目录"）** ✓✓
                     //   ✗ GUI 只认 `BACKUP_FAIL` ✗ → 而 CLI 对**每一种失败**都打它 ✓
@@ -661,7 +661,7 @@ Console.WriteLine("  config-get | config-set <key> <value>");
                         "**第一次备份必须指定目录** ✓ 请加 `--to <目录>` ✓（建议放在安装目录之外 ✓ 例如 D:\\dsh-backups ✓）"
                         + "；GUI 里第一次点「立即备份」也会弹窗让你选 ✓✓",
                         "the first backup needs an explicit folder - add --to <dir>, preferably outside the install folder"));
-                    return 0;
+                    return 1;
                 }
             }
             // ✓✓ **用户反馈（2026-10-01）**：「现在备份还是受阻」✗
@@ -675,7 +675,7 @@ Console.WriteLine("  config-get | config-set <key> <value>");
             if (!reg.Get<IFileSystemQuery>().DirectoryExists(src))
             {
                 Console.WriteLine("BACKUP_FAIL " + T("数据目录不存在：" + src, "data dir not found: " + src));
-                return 0;
+                return 1;
             }
             BackupResult r = bk.Create(src, BackupKind.Manual, _cfg == null ? 3 : _cfg.KeepBackups, WorkspaceRoot(reg));
             if (r == null)
@@ -685,7 +685,7 @@ Console.WriteLine("  config-get | config-set <key> <value>");
                 string why = PlatformIsWindows() ? Dsht.Platform.Windows.WindowsBackupSource.LastError : Dsht.Platform.Linux.LinuxBackupSource.LastError;
                 Console.WriteLine("BACKUP_FAIL " + T("备份失败：" + (string.IsNullOrEmpty(why) ? "（平台层没有给出原因 ✓ 见 launcher.log）" : why),
                                                           "backup failed: " + (string.IsNullOrEmpty(why) ? "(the platform layer gave no reason; see launcher.log)" : why)));
-                return 0;
+                return 1;
             }
             if (r.SkippedNested > 0)
                 Console.WriteLine(T("已跳过 " + r.SkippedNested + " 个嵌套备份目录（dsh-data-*），不复制进本次备份。",
@@ -705,7 +705,8 @@ Console.WriteLine("  config-get | config-set <key> <value>");
             // ✓ 现在：**无条件写** ✓ 不完整用 WARN + INCOMPLETE 文案（与上面控制台的 BACKUP_INCOMPLETE 行一致 ✓）
             OpLog(reg, r.FailedCopies > 0 ? "WARN" : "INFO",
                   (r.FailedCopies > 0 ? "backup INCOMPLETE " : "backup OK ") + r.Path);
-            return 0;
+            // ★ A2（2026-10-07 备份链审查）：BACKUP_INCOMPLETE 也是失败语义 → 退出码 1 ✓（BACKUP_OK 仍 0 ✓）
+            return r.FailedCopies > 0 ? 1 : 0;
         }
 
         private const string GithubHandle = "github.com/sakanamaru";
@@ -813,7 +814,7 @@ Console.WriteLine("  config-get | config-set <key> <value>");
                     if (reason == "no-path") Console.WriteLine("RESTORE_FAIL " + T("未指定备份目录", "no backup specified"));
                     else if (reason == "outside") Console.WriteLine("RESTORE_FAIL " + T("备份目录不在备份根内", "backup dir is outside the backups root"));
                     else Console.WriteLine("RESTORE_FAIL " + T("无效备份目录", "invalid backup directory"));
-                    return 0;
+                    return 1;
                 }
                 // ★ 审查抓到：上面校验的是 ResolveBackupPath 的结果 ✗，而这里用的是**原始参数** ✗
                 //   → 只给名字时（GUI 就是这样）校验看的是 &lt;备份根&gt;/&lt;名字&gt;，实际读的却是 &lt;当前目录&gt;/&lt;名字&gt; ✗✗
@@ -824,17 +825,17 @@ Console.WriteLine("  config-get | config-set <key> <value>");
                 if (!string.IsNullOrEmpty(trunc) && !Has(args, "--force"))
                 {
                     Console.WriteLine("RESTORE_FAIL " + trunc + T("；确认要用它恢复请加 --force", "; add --force to restore from it anyway"));
-                    return 0;
+                    return 1;
                 }
                 if (!string.IsNullOrEmpty(trunc)) { Console.WriteLine("RESTORE_WARN " + trunc); OpLog(reg, "WARN", "restore used --force on a truncated backup: " + bkDir); }
             }
             else
             {
-                if (!fs.DirectoryExists(bk.BackupsRoot)) { Console.WriteLine("RESTORE_FAIL " + T("没有备份", "no backups")); return 0; }
+                if (!fs.DirectoryExists(bk.BackupsRoot)) { Console.WriteLine("RESTORE_FAIL " + T("没有备份", "no backups")); return 1; }
                 List<BackupEntry> all = bk.ListRaw();
                 string latest = null;
                 for (int i = all.Count - 1; i >= 0; i--) { if (BackupPackage.IsValidPackage(all[i].Snapshot)) { latest = all[i].Path; break; } }
-                if (latest == null) { Console.WriteLine("RESTORE_FAIL " + T("无有效备份", "no valid backup")); return 0; }
+                if (latest == null) { Console.WriteLine("RESTORE_FAIL " + T("无有效备份", "no valid backup")); return 1; }
                 // ★★ 第 2 轮审查抓到：**自动选出的包也要过完整性闸门** ✓✓（我上一版只堵了 --path 分支 ✗）
                 //   → 否则被中断的包只要是最新的一个，就仍会被恢复并打印 RESTORE_OK ✗
                 {
@@ -842,7 +843,7 @@ Console.WriteLine("  config-get | config-set <key> <value>");
                     if (!string.IsNullOrEmpty(autoTrunc) && !Has(args, "--force"))
                     {
                         Console.WriteLine("RESTORE_FAIL " + autoTrunc + T("；确认要用它恢复请加 --force", "; add --force to restore from it anyway"));
-                        return 0;
+                        return 1;
                     }
                     if (!string.IsNullOrEmpty(autoTrunc)) Console.WriteLine("RESTORE_WARN " + autoTrunc);
                 }
@@ -855,7 +856,7 @@ Console.WriteLine("  config-get | config-set <key> <value>");
             if (applyReason != null)
             {
                 Console.WriteLine("RESTORE_FAIL " + RestoreApplyPolicy.Message(applyReason, !IsEn()));
-                return 0;
+                return 1;
             }
 
             // 安全闸门（逐条对齐 v2.x 的 NIRestoreCore）：运行中拒绝 → 恢复前自动备份
@@ -863,7 +864,7 @@ Console.WriteLine("  config-get | config-set <key> <value>");
             if (sr.State != ServiceState.Down && !apply)
             {
                 Console.WriteLine("RESTORE_FAIL " + T("dsh 正在运行，无法恢复", "dsh is running; cannot restore"));
-                return 0;
+                return 1;
             }
             if (apply)
             {
@@ -879,13 +880,13 @@ Console.WriteLine("  config-get | config-set <key> <value>");
             if (fs.DirectoryExists(dstRoot))
             {
                 BackupResult pre = bk.Create(dstRoot, BackupKind.PreRestore, _cfg == null ? 3 : _cfg.KeepBackups, WorkspaceRoot(reg));
-                if (pre == null) { Console.WriteLine("RESTORE_FAIL " + T("恢复前自动备份失败", "pre-restore backup failed")); return 0; }
+                if (pre == null) { Console.WriteLine("RESTORE_FAIL " + T("恢复前自动备份失败", "pre-restore backup failed")); return 1; }
                 AddContentHashToMarker(pre.Path);   // 回滚锚点也要能自证完整 ✓✓（恢复前自动备份 ✓）
             preRollbackPath = pre.Path;   // ★ C1：记下来 ✓ 恢复失败时要自动回滚 ✓
             Console.WriteLine("RESTORE_PRE_BACKUP " + pre.Path);   // 回滚锚点必须**总是**告诉用户 ✗（我曾在一次编辑中误删此行 ✗）
             }
 
-            if (!IntegrityGate(reg)) return 0;   // 对齐 v2.x：完整性不匹配时在写盘前拒绝
+            if (!IntegrityGate(reg)) return 1;   // ★ A2：RESTORE_FAIL → 1 ✓（对齐 v2.x：完整性不匹配时在写盘前拒绝）
 
             RestoreOutcome o = bk.Restore(bkDir, dstRoot, WorkspaceRoot(reg));
             if (!o.Ok)
