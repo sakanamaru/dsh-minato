@@ -18,7 +18,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { buildSnapshot, collectSessions, defaultOutFile, writeSnapshot, apply, markActivity, SNAPSHOT_FORMAT_VERSION } from "../snapshot.js";
+import { buildSnapshot, collectSessions, defaultOutFile, findToolkit, noticeOnce, startupNotice, writeSnapshot, apply, markActivity, SNAPSHOT_FORMAT_VERSION } from "../snapshot.js";
 import { name as pluginName, inject as pluginInject } from "../index.js";
 
 let pass = 0;
@@ -268,6 +268,79 @@ await check("**inject 覆盖 snapshot.js 用到的每个 ctx 服务** ✓✓（�
 	const missing = [...used].filter((u) => !pluginInject.includes(u));
 	assert.deepEqual(missing, [],
 		"这些 ctx 服务没写进 inject → 真 dsh 里会是 undefined → 插件静默什么都不做 ✗: " + missing.join(", "));
+});
+
+// ---- ★ T3（2026-10-07）：被单独安装时的一次性提示 ----
+// 起因：第三方插件目录 / 爬虫站把本插件当**独立插件**收录 ✗ → 访客很可能只装它 ✓
+//       而它单独安装**没有任何产出** ✗ → 所以「找不到工具箱」时提示一次（工具箱在 → 静默 ✓）。
+// 决策逻辑是**纯函数** ✓（给定「是否找到工具箱」→「是否提示 + 文案」✓）→ 这里直接单测 ✓。
+await check("**T3：找到工具箱 → 完全不提示** ✓（工具箱存在时必须彻底静默 ✓）", () => {
+	const d = startupNotice(true);
+	assert.equal(d.notify, false, "找到工具箱就不能提示 ✗");
+	assert.equal(d.text, "", "静默时不该有文案 ✓");
+});
+await check("**T3：找不到工具箱 → 提示，且文案说清「可选 · 只读 · 单独安装无用途」并给出工具箱入口** ✓", () => {
+	const d = startupNotice(false);
+	assert.equal(d.notify, true, "找不到工具箱必须提示 ✓");
+	assert.ok(d.text.length > 0, "必须有文案 ✓");
+	for (const kw of ["可选", "只读", "无用途"]) {
+		assert.ok(d.text.includes(kw), "文案必须含关键词「" + kw + "」✗ 实为：" + d.text);
+	}
+	assert.ok(d.text.includes("github.com/sakanamaru/dsh-minato"), "必须给出完整工具的入口链接 ✓");
+	assert.equal(d.text.split("\n").length, 1, "必须是**一行**提示 ✓");
+});
+await check("**T3：只提示一次** ✓（内存标志 ✓ 不落盘 ✓；第二次及以后静默 ✓）", () => {
+	const first = noticeOnce({ shown: false }, false);
+	assert.equal(first.notify, true, "第一次要提示 ✓");
+	assert.equal(first.state.shown, true, "状态要标成已提示 ✓");
+	const second = noticeOnce(first.state, false);
+	assert.equal(second.notify, false, "第二次必须静默 ✗（「只提示一次」✗）");
+	assert.equal(noticeOnce(second.state, false).notify, false, "第三次也必须静默 ✓");
+	// 工具箱存在时同样不提示 ✓
+	assert.equal(noticeOnce({ shown: false }, true).notify, false);
+	// **不改入参** ✓（纯函数 ✓）
+	const st = { shown: false };
+	noticeOnce(st, false);
+	assert.equal(st.shown, false, "不能就地改入参 ✓");
+});
+await check("**T3：findToolkit 是只读探测** ✓（注入 exists 桩 → 不碰真实文件系统 ✓ 找不到不猜 ✓ 异常不抛 ✓）", () => {
+	let probes = 0;
+	const only = (want) => (p) => { probes++; return p === want; };
+	// ① DSHT_CLI 优先 ✓（GUI/CLI 都认这个变量 ✓）
+	assert.equal(findToolkit({ DSHT_CLI: "D:\\t\\dsh-minato.exe" }, only("D:\\t\\dsh-minato.exe")), "D:\\t\\dsh-minato.exe");
+	// ② PATH ✓
+	const want2 = path.join("Y:", "bin", "dsh-minato.exe");
+	assert.equal(findToolkit({ PATH: ["X:\\nope", "Y:\\bin"].join(path.delimiter) }, only(want2)), want2);
+	// ③ 常见安装位置 ✓：Windows 安装器默认位置 / Linux prefix 与 ~/.local/bin
+	const want3 = path.join("C:\\lad", "Programs", "dsh-minato", "dsh-minato.exe");
+	assert.equal(findToolkit({ LOCALAPPDATA: "C:\\lad" }, only(want3)), want3);
+	const want4 = path.join("/home/u", ".local", "bin", "dsh-minato");
+	assert.equal(findToolkit({ HOME: "/home/u" }, only(want4)), want4);
+	// ④ 什么都没有 → 空串 ✓（**不猜** ✓）
+	assert.equal(findToolkit({ PATH: "X:\\nope" }, () => false), "");
+	assert.equal(findToolkit(null), "");
+	// ⑤ 探测抛异常 → 静默返回空串 ✓（绝不打断 dsh ✓）
+	assert.equal(findToolkit({ PATH: "X:\\nope" }, () => { throw new Error("boom"); }), "");
+	assert.ok(probes > 0, "探测必须是「问存在性」这种只读动作 ✓");
+});
+await check("**T3：提示路径一个文件都不写** ✓（apply 跑完临时目录仍为空 ✓ 唯一副作用是 stdout ✓）", async () => {
+	const dir = fs.mkdtempSync(path.join(os.tmpdir(), "bridge-notice-"));
+	const lines = [];
+	const origLog = console.log;
+	console.log = function () { lines.push(Array.prototype.join.call(arguments, " ")); };
+	try {
+		apply({ sessions: { list: async () => [] }, sessionQuery: { listSessions: async () => [] } },
+			{ outFile: path.join(dir, "sessions.json"), intervalMs: 100000 });
+		await new Promise((r) => setTimeout(r, 150));
+	} finally {
+		console.log = origLog;
+	}
+	assert.deepEqual(fs.readdirSync(dir), [], "提示逻辑不能写任何文件 ✗（只读承诺 ✓）");
+	assert.ok(lines.length <= 1, "一个进程最多提示一次 ✗ 实为 " + lines.length + " 行");
+	for (const l of lines) {
+		for (const kw of ["可选", "只读", "无用途"]) assert.ok(l.includes(kw), "若提示则必含关键词「" + kw + "」✗：" + l);
+	}
+	fs.rmSync(dir, { recursive: true, force: true });
 });
 
 // ---- apply ----

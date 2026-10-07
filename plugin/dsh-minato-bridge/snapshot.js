@@ -297,6 +297,117 @@ export function markActivity(sessions, prevSeq, prevActiveAt, nowIso) {
 	return rows;
 }
 
+/* ─────────── ★ T3（2026-10-07）：被单独安装时的运行期一次性提示 ───────────
+ * 背景（真实痛点 ✓）：第三方插件目录 / 爬虫站把 `plugin/dsh-minato-bridge` 当成一个**独立插件**收录 ✗ ——
+ *   从那里进来的访客只看得到本插件的 README 与 package.json ✓ → **很可能只装它** ✓
+ *   而它单独存在时**没有任何产出** ✗（只做只读注入，等工具箱来读 ✓）→ 坏的第一印象 ✓
+ * 所以：加载本插件后，若**找不到工具箱**，只打印**一次**一行提示 ✓（工具箱在 → 完全静默 ✓）。
+ * 硬约束（与插件其余部分一致 ✓）：
+ *   · **只读**：不写任何文件、不改 dsh 状态 —— 只有 `fs.existsSync` 探测 + stdout 一行 ✓
+ *   · **只提示一次**：模块级内存标志 ✓ 不落盘 ✓
+ *   · **任何失败/异常静默吞掉**：提示逻辑绝不能影响 dsh 启动 ✓
+ *   · 决策是**纯函数** ✓（「是否找到工具箱」→「是否提示 + 文案」✓）→ 可单测 ✓
+ *   · **零新依赖** ✓：只用已有的 node 内置 fs/path ✓（连一个 import 都没新增 ✓）
+ */
+
+/** 提示文案 ✓（**一行** ✓ 英文在前、中文关键词在后 —— 目录站访客多半只读到这一屏 ✓）。 */
+export const TOOLKIT_MISSING_NOTICE =
+	"dsh-minato-bridge: OPTIONAL, READ-ONLY bridge / 可选只读桥接件 for DeepSeek Harness Toolkit (dsh-minato). " +
+	"Toolkit not found / 未检测到工具箱 -> installing this plugin alone has no use / 单独安装无用途. " +
+	"Toolkit: https://github.com/sakanamaru/dsh-minato | uninstall steps / 卸载步骤: see this plugin's README.";
+
+/** 工具箱可执行名 ✓（与 GUI 的 `CliPath` 同一套 ✓ 见 v3/gui/Dsht.Gui.Avalonia/MainWindow.axaml.cs:1835）。 */
+const TOOLKIT_EXE_NAMES = [
+	"dsh-minato.exe", "dsht.exe", "dsht_v3.exe", "DeepSeek Harness Toolkit.exe",
+	"dsh-minato", "dsht", "dsht_v3", "DeepSeek Harness Toolkit"
+];
+
+/**
+ * **纯函数** ✓：给定「是否找到工具箱」→ 返回「是否提示 + 文案」。
+ * 不碰磁盘 / 环境 / 时钟 ✓（探测在 `findToolkit` ✓ 决策在这里 ✓）→ 可直接单测 ✓
+ * @param {boolean} toolkitFound
+ * @returns {{notify:boolean, text:string}}
+ */
+export function startupNotice(toolkitFound) {
+	if (toolkitFound === true) return { notify: false, text: "" };
+	return { notify: true, text: TOOLKIT_MISSING_NOTICE };
+}
+
+/**
+ * **纯函数** ✓：在 `startupNotice` 之上叠加「**一个进程只提示一次**」这条硬约束 ✓。
+ * 状态由调用方持有（**内存** ✓ 不落盘 ✓）；**不改入参** ✓，返回新状态 ✓。
+ * @param {{shown:boolean}} state
+ * @param {boolean} toolkitFound
+ * @returns {{state:{shown:boolean}, notify:boolean, text:string}}
+ */
+export function noticeOnce(state, toolkitFound) {
+	if (state && state.shown === true) return { state: { shown: true }, notify: false, text: "" };
+	const d = startupNotice(toolkitFound);
+	return { state: { shown: true }, notify: d.notify, text: d.text };
+}
+
+/**
+ * **只读探测**工具箱是否已安装 ✓（`fs.existsSync` 而已 ✓ —— 不执行它、不写任何东西、不联网 ✓）。
+ * 顺序与仓库既有实现一致 ✓：
+ *   ① `DSHT_CLI` 环境变量 ✓（GUI 与 CLI 都认它 ✓ MainWindow.axaml.cs:1831）
+ *   ② PATH 里按可执行名找 ✓（GUI `CliPath` 的兜底 ✓）
+ *   ③ 常见安装位置 ✓：
+ *      · Windows `%LOCALAPPDATA%\Programs\dsh-minato\`（安装器默认位置 ✓ v3/tools/installer.cs:269；
+ *        稳定入口 `bin\dsh-minato.exe` ✓ installer.cs:445）
+ *      · Linux `~/.local/share/dsh-minato/dsh-minato` 与 `~/.local/bin/`（✓ v3/tools/install.sh:27-28,510）
+ * 找不到 → `""` ✓（**不猜** ✓）；任何异常 → 也 `""` ✓（绝不抛 ✓）。
+ * @param {object} env 环境变量表（默认 `process.env` ✓）
+ * @param {(p:string)=>boolean} exists 存在性判定（默认 `fs.existsSync` ✓ **可注入以便单测**：
+ *   注入后本函数不碰真实文件系统 ✓ 这也让"探测是只读的"可被证明 ✓）
+ * @returns {string} 工具箱可执行路径，找不到为 `""`
+ */
+export function findToolkit(env, exists) {
+	try {
+		const e = env || {};
+		const has = typeof exists === "function"
+			? exists
+			: (p) => { try { return fs.existsSync(p); } catch { return false; } };
+		const str = (v) => (typeof v === "string" && v.trim().length > 0 ? v.trim() : "");
+		// ① 显式覆盖（GUI / CLI 都认它 ✓）
+		const direct = str(e.DSHT_CLI);
+		if (direct && has(direct)) return direct;
+		// ② PATH
+		const pathVar = str(e.PATH);
+		if (pathVar) {
+			for (const dir of pathVar.split(path.delimiter)) {
+				const d = dir.trim();
+				if (!d) continue;
+				for (const n of TOOLKIT_EXE_NAMES) {
+					const p = path.join(d, n);
+					if (has(p)) return p;
+				}
+			}
+		}
+		// ③ 常见安装位置（Windows 安装器默认位置 ✓ / Linux prefix 与 ~/.local/bin ✓）
+		const local = str(e.LOCALAPPDATA);
+		if (local) {
+			for (const p of [
+				path.join(local, "Programs", "dsh-minato", "dsh-minato.exe"),
+				path.join(local, "Programs", "dsh-minato", "bin", "dsh-minato.exe")
+			]) if (has(p)) return p;
+		}
+		const home = str(e.HOME) || str(e.USERPROFILE);
+		if (home) {
+			for (const p of [
+				path.join(home, ".local", "share", "dsh-minato", "dsh-minato"),
+				path.join(home, ".local", "bin", "dsh-minato"),
+				path.join(home, ".local", "bin", "dsht")
+			]) if (has(p)) return p;
+		}
+	} catch {
+		/* 探测失败 = 当作没找到 ✓ 绝不抛 ✓ */
+	}
+	return "";
+}
+
+/** T3 提示的**内存**状态 ✓（模块级 = 一个 dsh 进程最多提示一次 ✓ 不落盘 ✓）。 */
+const noticeState = { shown: false };
+
 /**
  * 定时把快照写到磁盘。**放在这里而不是 index.js**：它不 import 任何 dsh 包（只用到 ctx 传进来的对象），
  * 因此可以脱离 dsh 自测。index.js 只负责 cordis 声明并重新导出它。
@@ -305,6 +416,13 @@ export function markActivity(sessions, prevSeq, prevActiveAt, nowIso) {
 export function apply(ctx, config) {
 	const cfg = config || {};
 	if (cfg.enabled === false) return;
+	// ★ T3：被单独安装时的**一次性**提示 ✓（纯函数决策 ✓ 内存标志 ✓ 只读 ✓ 异常静默 ✓）
+	if (!noticeState.shown) {
+		let decision = { notify: false, text: "" };
+		try { decision = noticeOnce(noticeState, findToolkit(process.env) !== ""); } catch { /* 探测/决策异常 → 按"不提示"处理 ✓ */ }
+		noticeState.shown = true;   // 无论成败都只试一次 ✓（内存 ✓ 不落盘 ✓）
+		try { if (decision.notify) console.log(decision.text); } catch { /* stdout 不可用也不影响 dsh ✓ */ }
+	}
 	// ✓ F6：非字符串 outFile 会让 `.trim()` 抛 → **插件加载期崩** ✗（正是头注释说绝不能发生的 ✓）
 	const cfgOut = typeof cfg.outFile === "string" ? cfg.outFile.trim() : "";
 	const outFile = cfgOut.length > 0 ? cfgOut : defaultOutFile(process.env);
