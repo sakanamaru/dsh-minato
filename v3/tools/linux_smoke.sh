@@ -65,7 +65,14 @@ if printf '%s' "$A9" | grep -qE '^BACKUP_VERIFY .* mismatch'; then bad "干净�
 #   修复前 CopyTree 返回"跳过的嵌套包数" → 非空包 100% BKEXPORT_FAIL ✗ —— Linux 同构实现同样中招 ✗
 #   这里在隔离根里真导一次：BKEXPORT_OK + 旁挂 .manifest 缺一不可 ✓
 echo "--- 10b 隔离根：backup-export（审查 D1/A1 回归：导出复活）"; EX="$ISO/export"; mkdir -p "$EX"
-A9B=$(DSH_HOME="$ISO" $T "$BIN" backup-export --to "$EX" --yes 2>&1); printf '%s\n' "$A9B" | head -4
+# ★★★ **CI 断言缺陷修复（2026-10-07，run 37587237343 / job V3 Linux package）** ✓✓
+#   ✗ 这一行原来**漏了 `--path`** ✗ → 产品如实报 `BKEXPORT_FAIL 导出校验失败: no-path` ✓
+#     → 用法是 `backup-export --path <备份> --to <目标> [--yes]`（见 Program.cs 的 help ✓
+#       与 PathValidator.ValidateExport 的四道校验：no-path / no-to / outside / not-found ✓）
+#     → 所以判红是**脚本漏传参数** ✓ **不是产品缺陷** ✓（源包必须显式给出，与 backup-delete 同一套校验 ✓）
+#   ✓ 现在：把 §9 刚备份出来的包路径（$BP ✓）显式传给 --path ✓✓
+#   ⚠ $BP 为空（§9 没拿到 BACKUP_OK）时这里会照旧红 ✓ —— 不会静默变成绿 ✓
+A9B=$(DSH_HOME="$ISO" $T "$BIN" backup-export --path "$BP" --to "$EX" --yes 2>&1); printf '%s\n' "$A9B" | head -4
 want "backup-export 打印 BKEXPORT_OK（修复前非空包 100% FAIL ✗✗）" "$A9B" '^BKEXPORT_OK '
 EXP=$(printf '%s\n' "$A9B" | tr -d '\r' | awk '/^BKEXPORT_OK /{print $2}'; exit 0)
 if [ -n "$EXP" ] && [ -f "$EXP.manifest" ]; then ok "导出旁挂 .manifest 存在（审查 D1 核心症状 ✓）"; else bad "导出旁挂 .manifest 缺失 ✗"; fi
@@ -91,7 +98,9 @@ echo "--- 17 默认端口是否仍被你的实例占用（应为监听中）"; (
 echo ""
 echo "== 结果：PASS=$pass FAIL=$fail =="
 # #43：**项数下限**断言 ✓✓ —— 否则"删掉一条检查"脚本仍报 PASS 但项数变少 ✗（与 verify_failure_paths.sh 同一做法 ✓）
-EXPECTED_MIN=20
+# ★ 2026-10-07（CI 断言缺陷修复）：本脚本的断言**全部无条件执行**（每个分支都恰好产出一项 ✓）
+#   → 修复 §10b 漏参后实跑 PASS=22 ✓ → 下限提到**实数** 22 ✓（删掉任何一条都会立刻红 ✓）
+EXPECTED_MIN=22
 echo "== 结果：PASS=$pass FAIL=$fail（声明最少 $EXPECTED_MIN 项）=="
 if [ "$pass" -lt "$EXPECTED_MIN" ]; then
   echo "  [FAIL] 项数不足：实跑 $pass < 声明 $EXPECTED_MIN（有检查被删掉或没执行到）"

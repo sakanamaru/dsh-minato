@@ -90,6 +90,14 @@ function LastMarkerPath([string]$clean, [string]$okPrefix, [string]$failPrefix) 
     if ($bad.Count -gt 0) { return $bad[$bad.Count - 1].Substring($failPrefix.Length).Trim() }
     return $null
 }
+# 路径的**规范化形式** ✓✓（CI 实测 run 37587237343 得到的一条纪律）：
+#   PS 侧用 Join-Path 拼出来的路径 与 CLI 打印回来的路径 **可能只是字符串形式不同** ✗✓
+#   → 任何"PS 侧路径 vs CLI 侧路径"的比较都必须**先规范化再做** ✓ 否则会误红 ✓
+#   → 取不到就退回原样 ✓（不猜、不吞错 ✓；PS 5.1 对 `…\\…` 这类形式会抛 → 这里兜住 ✓）
+function FullPathOrSelf([string]$p) {
+    if ([string]::IsNullOrWhiteSpace($p)) { return "" }
+    try { return [System.IO.Path]::GetFullPath($p) } catch { return $p }
+}
 
 # 造一个全新隔离夹具：数据根 + 备份根 + 工作区（三处都在隔离目录内 ✓）
 function New-Fixture([string]$tag) {
@@ -207,7 +215,27 @@ try {
     Check "backup 打印 BACKUP_OK" (HasMarker $b.out '^BACKUP_OK ')
     Check "backup 退出码 = 0" ($b.rc -eq 0)
     $pkg = LastMarkerPath $b.out 'BACKUP_OK ' 'BACKUP_FAIL '
-    Check "备份目录落在 --to 指定的目录内" ($pkg -ne $null -and $pkg.StartsWith($f2.bk, [StringComparison]::OrdinalIgnoreCase))
+    # ★★★ **CI 断言缺陷修复（2026-10-07，run 37587237343 / job v3-smoke-matrix）** ✓✓
+    #   ✗ 这条原来做的是**字面前缀**比较（PS 侧拼出的 $f2.bk vs CLI 打印的包路径）✗
+    #     → 在干净 runner 上判红，而**同一份 CI 日志**里：
+    #         `BACKUP_TO <--to 目录>` ✓ 与 `BACKUP_OK <--to 目录>\dsh-data-…` ✓ 都指向 --to
+    #     → 结论：**`--to` 是生效的** ✓（产品语义正确 ✓ 读码复核 Program.cs 的 Backup()：
+    #        把 --to 写进 `<StateDir>/.backup-dir` 并**校验 effective == 给定目录**，
+    #        不一致就 `BACKUP_FAIL … 指定的目录没有生效` 退出 1 ✓ —— 也就是说"粘性根吃掉 --to"
+    #        这种情况根本过不去 ✓）→ 所以判红是**断言**的问题（同一路径的两种字符串形式 ✗），
+    #        **不是产品缺陷** ✓ 也**不是**"粘性根与 --to 冲突" ✓（本矩阵 §0 已先 --reset 复位粘性根 ✓）
+    #   ✓ 现在：两侧都先规范化（FullPathOrSelf ✓）再比，并要求**严格的目录包含**
+    #     （多一个分隔符边界：`…\bk` 不再被 `…\bk2` 误判为包含 ✓）
+    #   ⚠ 这**不是**永真断言 ✗：`--to` 真被忽略（包落到粘性根/默认根）时，这一条照样红 ✓✓
+    $pkgFull = FullPathOrSelf $pkg
+    $bkFull = (FullPathOrSelf $f2.bk).TrimEnd('\', '/')
+    $inTo = ($pkgFull.Length -gt 0) -and $pkgFull.StartsWith(($bkFull + [string][System.IO.Path]::DirectorySeparatorChar), [StringComparison]::OrdinalIgnoreCase)
+    if (-not $inTo) {
+        # 失败时**把两个值打出来** ✓ —— 下一次这种红自己能说明原因（对照 CI 日志即可判定是断言还是产品 ✓）
+        Write-Host ("       包 = " + $pkgFull)
+        Write-Host ("       --to = " + $bkFull)
+    }
+    Check "备份目录落在 --to 指定的目录内" $inTo
     Check "完成标记写在包同级（<包>.manifest）" ($pkg -ne $null -and (Test-Path -LiteralPath ($pkg + ".manifest")))
     $marker = ""
     if ($pkg -and (Test-Path -LiteralPath ($pkg + ".manifest"))) { $marker = [System.IO.File]::ReadAllText($pkg + ".manifest") }
@@ -278,10 +306,31 @@ try {
     Check "wipe 之后数据**原样还在**（不删 ✓）" (Test-Path -LiteralPath (Join-Path $f3.home "storages/a.txt"))
 
     # 3c) uninstall 计划：不带 --yes 绝不执行；且**不碰**数据根 ✓（"卸载不删数据"承诺 ✓）
+    # ★★★ **CI 断言缺陷修复（2026-10-07，run 37587237343 / job v3-smoke-matrix）** ✓✓
+    #   ✗ 这条原来**只认** `UNINSTALL_PLAN` / `UNINSTALL_DRYRUN` ✗
+    #     → 干净 runner 上**没有全局 npm 包** → 产品如实打印
+    #         `UNINSTALL_SKIP 没有观测到已安装的 dsh` + `UNINSTALL_OBSERVED not-installed` ✓
+    #     → 这时**不该**有 PLAN/DRYRUN ✓（没有可卸载的东西，硬打一个计划反而是假信息 ✗）
+    #     → 判红是断言不成立，**不是产品缺陷** ✓（读码复核 Program.App.cs 的 UninstallCmd：
+    #         WhichDsh/DshVersion 都取不到 → 打 SKIP 并 return 0 ✓）
+    #   ✓ 现在：**显式 SKIP + 打印原因** ✓，并且**照旧计入总数**（不静默跳过 ✗ —— 否则总数悄悄
+    #     变少、EXPECTED_MIN 失效 ✗；与 `v3/tools/verify_failure_paths.sh` 的项数下限同一手法 ✓）
+    #   ⚠ SKIP 分支本身也是一条真断言 ✓：必须打印 `UNINSTALL_OBSERVED not-installed`（不静默 ✗）
     $u = Run-Cli $Cli @("uninstall")
     Write-Host ("  -- uninstall（不带 --yes）   rc=" + $u.rc)
     foreach ($l in (MarkLines $u.out 'UNINSTALL_' | Select-Object -First 3)) { Write-Host ("       " + $l) }
-    Check "uninstall 先打印计划（UNINSTALL_PLAN / DRYRUN）" ((HasMarker $u.out '^UNINSTALL_PLAN ') -or (HasMarker $u.out '^UNINSTALL_DRYRUN '))
+    $uPlan = (HasMarker $u.out '^UNINSTALL_PLAN ') -or (HasMarker $u.out '^UNINSTALL_DRYRUN ')
+    $uSkip = HasMarker $u.out '^UNINSTALL_SKIP '
+    if ($uPlan) {
+        Check "uninstall 先打印计划（UNINSTALL_PLAN / DRYRUN）" $true
+    } elseif ($uSkip) {
+        Write-Host "  [SKIP] uninstall 计划：本机没有已安装的全局 dsh（UNINSTALL_SKIP ✓）"
+        Write-Host "         原因：干净环境里没有 npm 全局包 → 没有计划可打印（产品如实报 SKIP ✓ 不是缺陷 ✓）"
+        Write-Host "         该项**计入总数**（项数不变 → EXPECTED_MIN 仍有效 ✓ 不静默跳过 ✗）"
+        Check "uninstall 无全局 dsh 时如实报 SKIP（不静默 ✗；UNINSTALL_OBSERVED not-installed ✓）" (HasMarker $u.out '^UNINSTALL_OBSERVED not-installed')
+    } else {
+        Check "uninstall 先打印计划（UNINSTALL_PLAN / DRYRUN）" $false
+    }
     Check "uninstall 未确认时没有执行（无 UNINSTALL_OK）" (-not (HasMarker $u.out '^UNINSTALL_OK'))
     Check "uninstall 之后数据根**原样还在**（不删数据 ✓）" (Test-Path -LiteralPath (Join-Path $f3.home "storages/a.txt"))
 
