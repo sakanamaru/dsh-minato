@@ -462,7 +462,7 @@ Console.WriteLine("  config-get | config-set <key> <value>");
 
 
         /// <summary>工具箱版本（源码常量：保证 csc 与 dotnet 两种构建报告一致）。</summary>
-        internal const string ToolkitVersion = "3.0.7-dev";
+        internal const string ToolkitVersion = "3.0.7";
 
         private const string NpmOfficial = "https://registry.npmjs.org";
 

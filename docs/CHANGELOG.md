@@ -6,6 +6,34 @@ All notable changes to **dsh-minato** (unofficial). Full release notes, assets a
 
 ---
 
+## v3.0.7 — 2026-10-07（外部审查修复 + 审查回应 / external-review fixes and our response）
+
+### Fixed / 修复
+
+- **外部审查六条备份链缺陷**：D1 `backup-export` 恒失败（`CopyTree` 返回值语义）· D2 失败路径退出码仍为 0 ·
+  D3 完成性闸门三处 fail-open · D4 恢复顶层文件缺 reparse 守卫 · D5 `IsSubPath` 根路径恒 false ·
+  D7 自哈希缓存键缺路径分量（契约测试 355 → 376）
+- 页眉自动刷新条遮挡标题 · 会话页排序下拉与指标块回归
+
+### Added / 新增
+
+- `overview` 命令（四聚合为一）· `gui_shell`/`gui_style` 偏好键 · `close_action`/`host` 真正生效
+- `v3/tests/verify_command_matrix.ps1` 冒烟矩阵（14 条命令 × 隔离根，断言标记行 + 退出码）并接入 CI（新 job `v3-smoke-matrix`）
+- `docs/VERIFY.md`（用户如何独立核对每条承诺）· token 口径拆开（`uncached=` + 「新输入 · 缓存命中 · 生成」）
+- **发版说明新增「审查回应」节**（每条：是否复现 → 修法 → 现在靠什么守住 ✓）
+
+### Changed / 变更
+
+- 失败路径退出码变非零（1=失败 / 2=用法 / 3=启动自完整性）· 写操作超时 10 分钟封顶 · Windows 进程探测去 shell-out
+- `linux_smoke.sh` 26 行 0 断言 → 20 项断言 · `verify_backup_chain.sh` 加 `EXPECTED_MIN`
+- 诚实化：`docs/release-notes-v3.0.0.md` 三条 overstated 声明加「复核修订」注记并收回措辞 · README 双语 Known limits +3
+
+### Known / 已知
+
+- 布局观感类改动测试覆盖不到（需人工 10 页 × 4 风格）· Linux 真机验证仍停在 3.0.0 · **测试数量不等于安全承诺的保证**
+
+---
+
 ## v3.0.6 — 2026-10-06（审查修复 8 条 + 性能与界面重整 / review fixes, performance and a GUI reshuffle）
 
 ### Added / 新增
