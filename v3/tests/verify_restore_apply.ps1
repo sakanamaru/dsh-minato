@@ -27,6 +27,21 @@ $ErrorActionPreference = "Stop"
 #     → **脚本在第 55 行就死掉** ✗ → **从不打印 `== N/N passed`** ✗
 #     → 调用它的 `verify_switchover` 的 gate5 **只能报"未解析到结果行"** ✓✓
 #   ✓ 现在：**只在调外部命令时放宽为 Continue** ✓✓ 并**不再用 `2>&1` 把诊断混进输出** ✓
+function FullPathOrSelf([string]$p) {
+    if ([string]::IsNullOrWhiteSpace($p)) { return "" }
+    try { return [System.IO.Path]::GetFullPath($p) } catch { return $p }
+}
+
+# ★ 2026-10-07：路径比较必须先规范化 ✗
+#   ✗ 原来用字面 StartsWith/Contains —— Join-Path $env:TEMP 可能产出非规范形式（如 …\Temp\.）
+#     而 CLI 侧会规范化 → 字面比较在 CI 上假红（把 TEMP 造非规范即可本机复现，四条名字与 CI 逐字一致 ✓）
+#   ✓ 现在：两侧都过 FullPathOrSelf，再用**严格目录包含**（子路径必须以分隔符开头 ✓ 不是永真 ✓）
+function InDirStrict([string]$child, [string]$dir) {
+    if ([string]::IsNullOrWhiteSpace($child) -or [string]::IsNullOrWhiteSpace($dir)) { return $false }
+    $c = (FullPathOrSelf $child).TrimEnd('\', '/')
+    $d = (FullPathOrSelf $dir).TrimEnd('\', '/')
+    return $c.StartsWith($d + '\', [StringComparison]::OrdinalIgnoreCase)
+}
 function Invoke-External([scriptblock]$sb) {
     $old = $ErrorActionPreference
     $ErrorActionPreference = 'Continue'
@@ -117,11 +132,11 @@ try {
     $bkLine = ($out -split "`r?`n" | Where-Object { $_ -match "^BACKUP_OK " } | Select-Object -First 1)
     $bkDir = $null
     if ($bkLine) { $bkDir = $bkLine.Substring("BACKUP_OK ".Length).Trim() }
-    Check "备份目录位于隔离目录内" ($bkDir -ne $null -and $bkDir.StartsWith($iso, [StringComparison]::OrdinalIgnoreCase))
+    Check "备份目录位于隔离目录内" ($bkDir -ne $null -and (InDirStrict $bkDir $iso))
     # ★★★ **门槛完整性审计 M5a2 —— `--to` 本身原来没被断言** ✓✓
     #   ✗ 只断言"在 `$iso` 内" ✗ → 变异证明：**完全忽略 `--to`、改用默认根**（也在 `$iso` 内 ✓）照样 25/25 ✗✗
     #   ✓ 现在：**必须落在 `--to` 指定的那个目录下** ✓✓
-    Check "备份目录落在 --to 指定的目录下" ($bkDir -ne $null -and $bkDir.StartsWith($bkTo, [StringComparison]::OrdinalIgnoreCase))
+    Check "备份目录落在 --to 指定的目录下" ($bkDir -ne $null -and (InDirStrict $bkDir $bkTo))
     Check "备份内容含 settings.yaml" ($bkDir -ne $null -and (Test-Path -LiteralPath (Join-Path $bkDir "settings.yaml")))
     Check "备份内容含 sessions\s1.txt" ($bkDir -ne $null -and (Test-Path -LiteralPath (Join-Path $bkDir "sessions\s1.txt")))
 
@@ -132,7 +147,8 @@ try {
 
     $out = Run $exe @("restore", "--apply")
     Check "打印 RESTORE_APPLY_ACK（跳过运行中闸门的事实已留证）" ($out -match "RESTORE_APPLY_ACK")
-    Check "打印 RESTORE_APPLY_ROOT 且指向隔离数据根" ($out -match "RESTORE_APPLY_ROOT" -and $out.Contains($data))
+    $applyRoot = ((($out -split "`r?`n") | Where-Object { $_ -match '^RESTORE_APPLY_ROOT ' } | Select-Object -First 1) -replace '^RESTORE_APPLY_ROOT\s+', '').Trim()
+    Check "打印 RESTORE_APPLY_ROOT 且指向隔离数据根" (($applyRoot -ne '') -and ((FullPathOrSelf $applyRoot).TrimEnd('\', '/') -eq (FullPathOrSelf $data).TrimEnd('\', '/')))
     Check "打印 RESTORE_PRE_BACKUP（回滚锚点）" ($out -match "RESTORE_PRE_BACKUP")
     Check "打印 RESTORE_OK" ($out -match "RESTORE_OK")
     Check "被篡改的 settings.yaml 已恢复为 v1" ((Read-Text (Join-Path $data "settings.yaml")) -eq "v1")
@@ -142,7 +158,7 @@ try {
     $preLine = ($out -split "`r?`n" | Where-Object { $_ -match "^RESTORE_PRE_BACKUP " } | Select-Object -First 1)
     $preDir = $null
     if ($preLine) { $preDir = $preLine.Substring("RESTORE_PRE_BACKUP ".Length).Trim() }
-    Check "恢复前自动备份存在且位于隔离目录内" ($preDir -ne $null -and $preDir.StartsWith($iso, [StringComparison]::OrdinalIgnoreCase) -and (Test-Path -LiteralPath $preDir))
+    Check "恢复前自动备份存在且位于隔离目录内" ($preDir -ne $null -and (InDirStrict $preDir $iso) -and (Test-Path -LiteralPath $preDir))
     Check "恢复前自动备份里保存的是被篡改前的内容（v2-BROKEN）" ((Read-Text (Join-Path $preDir "settings.yaml")) -eq "v2-BROKEN")
     Check "恢复前自动备份带 -pre-restore 后缀" ($preDir -ne $null -and $preDir.EndsWith("-pre-restore"))
 
