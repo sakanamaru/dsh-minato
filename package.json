@@ -1,7 +1,9 @@
 {
   "name": "dsh-minato-bridge",
+  "homepage": "https://github.com/sakanamaru/dsh-minato",
+  "repository": { "type": "git", "url": "https://github.com/sakanamaru/dsh-minato.git", "directory": "plugin/dsh-minato-bridge" },
   "version": "0.2.0",
-  "description": "Optional read-only bridge for DeepSeek Harness: writes a small JSON snapshot of dsh session/token state for DeepSeek Harness Toolkit (dsh-minato). This root manifest exists so the repository itself can be installed as a plugin by URL. 0.2.0 adds per-session live activity (seq-delta -> active/lastActiveAt), so the panel can tell 'running' from 'parked in dsh'.",
+  "description": "NOT the toolkit - this manifest exists only so the repository can be installed as a plugin by URL. It is an optional READ-ONLY bridge that publishes dsh in-process session/token state as one small JSON snapshot for the standalone DeepSeek Harness Toolkit (dsh-minato). Install the toolkit first: https://github.com/sakanamaru/dsh-minato - this plugin alone does nothing useful. No model calls, no network, no writes to dsh state.",
   "type": "module",
   "main": "plugin/dsh-minato-bridge/index.js",
   "exports": {
