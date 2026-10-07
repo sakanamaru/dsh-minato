@@ -11,6 +11,21 @@
 **In one line**: a fresh four-way review found four high-severity bugs — all fixed, including a plugin
 feature that was only half-wired and a health report that leaked the balance key.
 
+**需要你做什么 / Action required**：**是，请升级** —— 含 4 个高危：`doctor --report` 会把余额 key 明文带出报告（发报告求助即等于外泄），插件「挂着」分支不可达，体检期间的刷新被永久丢弃，看板 KPI 沿用旧快照。
+
+**本版改了什么（概述）**
+
+- 高危修复：**桥接插件丢弃 `active=false`** —— 「挂着（dsh 内未动）」这个三态分支永远走不到，退回 15 分钟启发式，停止活动后 15 分钟内仍显示「运行中」（JS 只测过 `true`、`false` 只有 C# 在测，端到端断链）。
+- 高危修复：**`doctor --report` 泄漏 `balance_key`** —— 消毒器词表没有 `balance_key`，32 位 hex 也够不到 40+ 位 hex 规则；报告自称「（脱敏）」却把 key 带出去。
+- 高危修复：**体检期间排队的刷新被永久丢弃**（页面停在旧数据）；**看板 KPI 继承会话页旧快照**（四张卡显示子集之和 + 错误「（父会话）」标签）。
+- 中危修复：`balance_key` 三处明文露出（config-get 回显 / 设置页无掩码 / toast 弹完整命令）、备份结果弹的是上一个动作的旧文案、`auto_start_target` 缺 CONFIG 行导致设置页渲染不出该项。
+- 低危修复：`balance_key` 拒收含 CR/LF 的自由文本（此前可向 `launcher.config` 注入任意配置行）。
+
+`commit=b0a5ffc80ac15dab9180c11db5b31ba2c72ba0ae` · `tag=v3.0.4`
+
+<details>
+<summary><b>完整发版说明（点开展开）</b></summary>
+
 ---
 
 ## 修复 / Fixed
@@ -67,3 +82,5 @@ feature that was only half-wired and a health report that leaked the balance key
 
 [MIT](https://github.com/sakanamaru/dsh-minato/blob/main/LICENSE)（代码）。**图标不是 MIT** —— 见 `docs/ASSETS.md`。
 GitHub：[@sakanamaru](https://github.com/sakanamaru)
+
+</details>

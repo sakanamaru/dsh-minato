@@ -12,6 +12,21 @@
 **In one line**: the first stable release of the V3 line — a cross-platform CLI plus a ten-page GUI, a rewritten
 backup/restore engine, 47 defect fixes, and an optional read-only bridge plugin.
 
+**需要你做什么 / Action required**：**否** —— 首个正式版，正文没有需要立即处置的条目；从 v2 或 preview 升级、或直接新装都可以。
+
+**本版改了什么（概述）**
+
+- 新增 **V3 跨平台 CLI**（31 个具名命令 + 无参数数字菜单）与 **Avalonia 十页 GUI**，并首次支持 **Linux x86-64**（免 sudo 一键装 Node）。
+- 新增 **备份/恢复引擎重写**：完成标记 + 逐文件内容哈希 + 恢复前锚点（可回滚）、截断包拒收、不写穿符号链接。
+- 修复 **47 项缺陷**（三轮子代理复审 + 真机审查），含恢复失败自动回滚、junction / 符号链接不再绕过恢复隔离闸门、Node 运行时下载过官方 `SHASUMS256` 校验、`..` 越界删除一律拒绝。
+- 变更：CLI 拆分（`Program.cs` 3595 → 1060 行）、备份引擎两端去重（各 −111 行）、本地就绪度门槛 11 → 13 项。
+- 附**可选的只读桥接插件**：不装只是「运行中」标记退化为 `unknown`，其余字段照常。
+
+`commit=6ea2d2cbb01e3860a6021d45d6e8086f55ae8ea7` · `tag=v3.0.0`
+
+<details>
+<summary><b>完整发版说明（点开展开）</b></summary>
+
 ---
 
 ## 新增 / Added
@@ -135,3 +150,5 @@ dsh plugin --profile web add "<本仓库路径>/plugin/dsh-minato-bridge"
 
 [MIT](https://github.com/sakanamaru/dsh-minato/blob/main/LICENSE)（代码）。**图标不是 MIT** —— 见 `docs/ASSETS.md`。
 GitHub：[@sakanamaru](https://github.com/sakanamaru)
+
+</details>

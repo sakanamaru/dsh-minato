@@ -11,6 +11,21 @@
 **In one line**: eight audited fixes, real performance wins (one process instead of four, no more
 shell-outs for process probing, no more half-killed long tasks), and a deduplicated GUI.
 
+**需要你做什么 / Action required**：**是**（建议升级）—— 备份日志此前与事实相反（完整备份不写日志、不完整反而写 `backup OK`），会让「备份成功了」的判断失真；写操作超时放宽到 10 分钟，避免长安装/大备份被 30 秒硬超时杀成半截。
+
+**本版改了什么（概述）**
+
+- 新增只读 **`overview` 命令**：一个进程给出概览页所需的全部标记行（`status --detail` + `sessions` + `backup-list` + `profiles`），GUI 每拍由 **4 个进程降到 1 个**；各子块输出逐字不变，任一子块失败不打断其余块。
+- 修复**审查必修 8 条**：**C1 备份日志与事实相反**（完整备份不写日志、不完整反而写 `backup OK` → 现无条件写，不完整用 `WARN` + `backup INCOMPLETE`），另含 C3 不可达 `return`、C8 注释与代码不符、H1 恒空控件、H2 死分支、U1 设置页四个 V3 无效项、U3 概览重复渲染、C6 隐私与安全文档不实。
+- 修复：页眉自动刷新条遮挡标题（`PageHeader` 缺 `Grid.SetColumn`）；会话页排序下拉统一 `SlimCombo` + 指标块最小宽度（回归修复）。
+- 变更：**写操作超时放宽到 10 分钟封顶**（update / install / uninstall / backup / restore / import 等，不再中途杀掉半截 npm 安装或备份包），只读命令仍 30 秒；**Windows 进程探测去掉 shell-out**（`status` 实测 1275ms → 894ms）。
+- 变更：GUI 信息架构重整（概览 ⇄ 看板去重、`Shells.cs` 拆 4 个 partial）；⚠️ **行为变化**：`host` 与 `close_action` 现在真的生效（此前选了没反应），新增 `gui_shell` / `gui_style` 两个界面偏好键。
+
+`commit=1af7c737b7128b689a47f54a57e02059539d01d1` · `tag=v3.0.6`
+
+<details>
+<summary><b>完整发版说明（点开展开）</b></summary>
+
 ---
 
 ## 新增 / Added
@@ -78,3 +93,5 @@ shell-outs for process probing, no more half-killed long tasks), and a deduplica
 
 [MIT](https://github.com/sakanamaru/dsh-minato/blob/main/LICENSE)（代码）。**图标不是 MIT** —— 见 `docs/ASSETS.md`。
 GitHub：[@sakanamaru](https://github.com/sakanamaru)
+
+</details>

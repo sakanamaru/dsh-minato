@@ -11,6 +11,21 @@
 **In one line**: two real usability bugs are fixed — repeated clicks launched concurrent updates, and the balance
 key had no discoverable entry point.
 
+**需要你做什么 / Action required**：**是**（建议升级）—— 连点更新会并发起多个 `update --yes`（npm 安装互相踩、连做三次备份、回滚点互相覆盖）；不是安全问题，但会实际弄坏更新过程。
+
+**本版改了什么（概述）**
+
+- 修复**更新可以连续点好几次**：每次点击都新起一个 CLI 进程，点三次就是三个 `update --yes` 同时跑。现在**同时只允许一个 CLI 动作**：忙时的点击如实拒绝并说明在跑什么、跑了多久（**不排队**），按钮禁用并显示「进行中：X …」。
+- 修复**「立即备份」走自己的 `async void` 路径、绕开了闸门** → 一并纳入（闸门在其两个阶段之间放开）。
+- 新增**余额的入口**：未绑定 key 时设置页有独立分组、概览页给一行入口并带一键跳转；余额数字在未绑定时仍然一个都不显示（原设计不变）。
+- 变更：概览/看板自动刷新由**整页重建**改为**只刷注册字段** —— 不再滚动回顶、不再丢焦点与展开的下拉、不再整页淡入。
+- 变更：三语 README 的截图从折叠块恢复到**页面顶部常显**（3.0.1 折叠在 GitHub 上等于看不见）。
+
+`commit=3648d65ad39dcde328577dd998f936cfbbc236ad` · `tag=v3.0.3`
+
+<details>
+<summary><b>完整发版说明（点开展开）</b></summary>
+
 ---
 
 ## 新增 / Added
@@ -79,3 +94,5 @@ key had no discoverable entry point.
 
 [MIT](https://github.com/sakanamaru/dsh-minato/blob/main/LICENSE)（代码）。**图标不是 MIT** —— 见 `docs/ASSETS.md`。
 GitHub：[@sakanamaru](https://github.com/sakanamaru)
+
+</details>

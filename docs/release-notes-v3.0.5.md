@@ -12,6 +12,20 @@
 data, so the fields never changed; fixed, and the 60-second balance callback no
 longer rebuilds the page.
 
+**需要你做什么 / Action required**：**是，请升级** —— 自动刷新在 ≤4 秒档位一直读到缓存里的旧数据（每一拍都命中 4 秒 TTL 缓存，刷新等于失效）；同时余额回调每 60 秒整页闪一下。
+
+**本版改了什么（概述）**
+
+- 修复**自动刷新「停了」**：概览/看板的四个数据源全走 4 秒 TTL 缓存，选 3 秒档（以及 0.5 / 1 秒）**每一拍都命中缓存**、拿回上一拍旧数据，字段写回去还是同一个值。现在**自动刷新这一拍先清缓存再跑**；普通刷新与切页继续吃缓存。
+- 修复**余额回调不再整页重建**：原来开着自动刷新时每 60 秒整页闪一下 + 滚动回顶 + 160ms 淡入；现在只改数字，未注册字段的页面退化为整页重建（数据不丢）。
+- 顺带一个**诚实更正**：选择器旁「每一拍都要起一个 CLI 进程、有真实成本」在修复前对 3 秒档是假的（实际吃缓存），现在才真正成立。
+- 变更：选择器旁那句「每一拍都要起一个 CLI 进程、有真实成本」改为**如实成立**的表述（此前对 3 秒档是假的）。
+
+`commit=2d175f26967c64c2086fbf7e317898d15aa47ec9` · `tag=v3.0.5`
+
+<details>
+<summary><b>完整发版说明（点开展开）</b></summary>
+
 ---
 
 ## 修复 / Fixed
@@ -58,3 +72,5 @@ longer rebuilds the page.
 
 [MIT](https://github.com/sakanamaru/dsh-minato/blob/main/LICENSE)（代码）。**图标不是 MIT** —— 见 `docs/ASSETS.md`。
 GitHub：[@sakanamaru](https://github.com/sakanamaru)
+
+</details>

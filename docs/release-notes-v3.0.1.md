@@ -13,6 +13,21 @@
 switches, a button-triggered health check, three honest session states, a categorised settings page with
 drop-downs, a new DeepSeek balance check, and a GUI a third smaller.
 
+**需要你做什么 / Action required**：**否**（建议升级）—— 正文无安全类条目；升级可换来更诚实的会话状态、即时切页，以及体积小三分之一的 GUI。
+
+**本版改了什么（概述）**
+
+- 修复**读数不诚实**：不再把「挂在 dsh 进程里」说成「运行中」，改为 **运行中 / 挂着·最后活动 N 前 / 活动未知** 三态（老插件用最后活动时间兜底）。
+- 修复**点击后零反馈**：进页原本要等 CLI 跑完才重画（体检 6.5 秒、更新 7.9 秒屏幕不动）→ 现在点击立刻换页 + 加载指示 + 数据到达淡入。
+- 新增：**DeepSeek 余额检测**（自填 key，未绑定则整卡隐藏且不发任何请求）、概览自动刷新（0.5/1/3/5 秒 + 暂停 + 自定义）、可选启动页、体检逐行出结果、桥接插件 0.2.0「真在动」信号。
+- 变更：GUI 启用裁剪，Windows 自包含包 **约 74 MB → 约 50 MB**；设置页分类并改用下拉选择框；体检不再自动运行、改为按钮触发。
+- 变更：v2 整棵树移入 `v2/`（仓库根条目 24 → 14）；三语 README 与本页统一为同一套骨架。
+
+`commit=e065a693dd30450ffb2f8a2a4858d8129cd672b1` · `tag=v3.0.1`
+
+<details>
+<summary><b>完整发版说明（点开展开）</b></summary>
+
 ---
 
 ## 新增 / Added
@@ -89,3 +104,5 @@ drop-downs, a new DeepSeek balance check, and a GUI a third smaller.
 
 [MIT](https://github.com/sakanamaru/dsh-minato/blob/main/LICENSE)（代码）。**图标不是 MIT** —— 见 `docs/ASSETS.md`。
 GitHub：[@sakanamaru](https://github.com/sakanamaru)
+
+</details>
