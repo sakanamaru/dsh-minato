@@ -164,6 +164,7 @@ jobs:
         run: |
           chmod +x out/sc/dsh-minato
           bash v3/tools/linux_smoke.sh out/sc/dsh-minato
+        bash v3/tools/linux_paths_check.sh out/sc/dsh-minato
       - name: Verify the backup trust chain (isolated roots, never the default port)
         run: |
           chmod +x out/sc/dsh-minato
