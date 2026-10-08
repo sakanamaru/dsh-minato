@@ -1067,7 +1067,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             long[] counts = new long[days];
 
-            System.DateTime today = System.DateTime.UtcNow.Date;
+            System.DateTime today = System.DateTime.Now.Date;   // ★ 看板第二批（规格 §5.5 2.6 / §11.6-C3 ✓）：图 1 分桶键 UTC 日 → **本地日** ✓（与图 3 / 热力图同一归日口径 ✓）
 
             for (int i = 0; i < days; i++)
 
@@ -1089,17 +1089,15 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 if (winFilter && (d.Rows[i] == null || d.Rows[i].Id == null || !elig.Contains(d.Rows[i].Id))) continue;   // ★ 窗口档过滤（看板第一批 ✓）
 
-                string created = d.Rows[i].Created;
+                string day = SessionsView.LocalDayOfIso(d.Rows[i].Created);   // ★ 第二批：ISO → 本地日（✗ 旧版直接截 UTC 前缀 → 本地凌晨的会话归错日 ✓）
 
-                if (string.IsNullOrEmpty(created) || created.Length < 10) continue;
-
-                string day = created.Substring(0, 10);
+                if (day == null) continue;   // 创建时间缺失/畸形 → 不计入，不猜 ✓
 
                 for (int k = 0; k < days; k++)
 
                 {
 
-                    if (labelsFull[k].Length == 10 && day.Length >= 10 && string.Equals(day.Substring(0, 10), labelsFull[k], StringComparison.Ordinal)) { counts[k]++; if (counts[k] > max) max = counts[k]; }   // MAJOR FIX: full date, not MM-dd
+                    if (labelsFull[k].Length == 10 && string.Equals(day, labelsFull[k], StringComparison.Ordinal)) { counts[k]++; if (counts[k] > max) max = counts[k]; }   // MAJOR FIX: full date, not MM-dd
 
                 }
 
@@ -1107,13 +1105,13 @@ namespace Dsht.Gui.Avalonia.Shells
 
             StackPanel c1 = new StackPanel { Spacing = 8 };
 
-            c1.Children.Add(T("近 " + days + " 天新增会话（按 dsh 记录的创建时间，UTC 日期）", 13, Palette.Text, FontWeight.Bold));
+            c1.Children.Add(T("近 " + days + " 天新增会话（按 dsh 记录的创建时间，本地日期）", 13, Palette.Text, FontWeight.Bold));   // ★ 第二批：UTC → 本地 ✓ 规格 §11.6-C3 ✓
 
             c1.Children.Add(BarChart(labels, counts, max, Palette.Accent, "个"));
 
             c1.Children.Add(T("最高 " + max + " 个/天　合计 " + Sum(counts) + " 个（创建时间缺失的会话不计入，不猜）", 11.5, Palette.TextFaint));
 
-            c1.Children.Add(T("按会话创建日（UTC）分桶" + (winFilter ? "；只统计上方窗口内有活动的会话" : ""), 11, Palette.TextFaint));   // 规格 §5.5/D-5 ✓ 图 1 保留但明说分桶键 ✓
+            c1.Children.Add(T("按会话创建日（本地）分桶" + (winFilter ? "；只统计上方窗口内有活动的会话" : ""), 11, Palette.TextFaint));   // 规格 §5.5/D-5 + §11.6-C3 ✓ 图 1 保留但明说分桶键 ✓ 第二批改本地日 ✓
 
             s.Children.Add(Card(c1, new Thickness(0), new Thickness(18, 16)));
 
@@ -1237,6 +1235,190 @@ namespace Dsht.Gui.Avalonia.Shells
 
 
 
+            // —— 看板第二批 · 热力图：近 N 天会话**最后活动日** · 会话数（本地日 ✓✓ 规格 §11.6-C3 ✓✓）——
+            //   分桶键与图 3 **完全相同**（lastPromptAt 归本地日 ✓），只是数**会话个数**而不是 token ✓
+            //   ✗ 一个会话只计入它最后活动的那一天 —— 投影没有「逐日活跃轨迹」这个事实 ✗ 明说 ✗ 不猜 ✓
+            long[] dayCnt = new long[days];
+
+            long missingH = 0;
+
+            for (int i = 0; i < d.Rows.Count; i++)
+
+            {
+
+                SessionRow rh = d.Rows[i];
+
+                if (winFilter && (rh == null || rh.Id == null || !elig.Contains(rh.Id))) continue;   // ★ 窗口档过滤 ✓（与图 1/2/3 同一 eligible 集 ✓）
+
+                string ld = SessionsView.LocalDayOfIso(rh == null ? null : rh.Last);
+
+                if (ld == null) { missingH++; continue; }
+
+                for (int k = 0; k < days; k++)
+
+                {
+
+                    if (string.Equals(ld, labelsLocFull[k], StringComparison.Ordinal)) { dayCnt[k]++; break; }
+
+                }
+
+            }
+
+            long maxCnt = 0;
+
+            for (int k = 0; k < days; k++) if (dayCnt[k] > maxCnt) maxCnt = dayCnt[k];
+
+            StackPanel ch = new StackPanel { Spacing = 8 };
+
+            ch.Children.Add(T(string.Format(SessionsMarkers.HeatTitle, days), 13, Palette.Text, FontWeight.Bold));
+
+            // 网格：行 = 星期（一→日 ✓ ISO），列 = 周（最旧在左 ✓）；窗口首日之前的补齐格不画 ✓
+            System.DateTime firstDay = todayLoc.AddDays(-(days - 1));
+
+            int lead = ((int)firstDay.DayOfWeek + 6) % 7;   // DayOfWeek: Sunday=0 → 一=0…日=6
+
+            int cols = (lead + days + 6) / 7;
+
+            Grid hg = new Grid();   // 间距用各格 Margin 出（此 Avalonia 版本的 Grid 无 ColumnSpacing/RowSpacing ✓ 编译门槛实测 ✓）
+
+            hg.ColumnDefinitions.Add(new ColumnDefinition(16, GridUnitType.Pixel));   // 星期标签列
+
+            for (int ci = 0; ci < cols; ci++) hg.ColumnDefinitions.Add(new ColumnDefinition(14, GridUnitType.Pixel));
+
+            for (int ri = 0; ri < 7; ri++) hg.RowDefinitions.Add(new RowDefinition(14, GridUnitType.Pixel));
+
+            string[] wd = new string[] { "一", "二", "三", "四", "五", "六", "日" };
+
+            for (int ri = 0; ri < 7; ri++)
+
+            {
+
+                TextBlock wl = T(wd[ri], 9, Palette.TextFaint);
+
+                wl.VerticalAlignment = VerticalAlignment.Center;
+
+                Grid.SetRow(wl, ri); Grid.SetColumn(wl, 0);
+
+                hg.Children.Add(wl);
+
+            }
+
+            for (int k = 0; k < days; k++)
+
+            {
+
+                int pos = lead + k;
+
+                Border cell = new Border { Width = 14, Height = 14, CornerRadius = new CornerRadius(3), Background = HeatBrush(dayCnt[k]), Margin = new Thickness(1.5) };
+
+                ToolTip.SetTip(cell, labelsLocFull[k] + "：" + dayCnt[k] + " 个会话");   // 悬浮出真值 ✓
+
+                Grid.SetRow(cell, pos % 7); Grid.SetColumn(cell, pos / 7 + 1);
+
+                hg.Children.Add(cell);
+
+            }
+
+            ch.Children.Add(hg);
+
+            ch.Children.Add(T("最高 " + maxCnt + " 个/天（与图 3 同一归日口径：各会话最后活动时间归本地日）", 11.5, Palette.TextFaint));
+
+            ch.Children.Add(T(string.Format(SessionsMarkers.HeatFootnote, missingH), 11, Palette.TextFaint));
+
+            s.Children.Add(Card(ch, new Thickness(0), new Thickness(18, 16)));
+
+
+
+            // —— 看板第二批 · 耗时分解堆叠（真值 ✓ 整会话累计归窗口 ✓ 规格 §11.6-C1 ✓✓）——
+            //   四桶：等首 token(ttftMs) / 流式解码(decodeMs) / llm 其他(=llmMs−ttft−decode ≥0 ✓ 勘察 §5 恒等式) / 工具执行(toolMs)
+            StackPanel ctm = new StackPanel { Spacing = 8 };
+
+            ctm.Children.Add(T(SessionsMarkers.TimeTitle, 13, Palette.Text, FontWeight.Bold));
+
+            if (d.TimeRows.Count == 0)
+
+            {
+
+                // 旧 CLI 没有 SESSTIME_SESSION 行 → 如实说明 ✗ 不画空图 ✗ 不猜 ✓
+                ctm.Children.Add(T("当前数据源未提供逐会话计时（旧版 CLI 没有 SESSTIME_SESSION 行）—— 不画空图，不猜。", 11.5, Palette.TextFaint));
+
+            }
+
+            else
+
+            {
+
+                int knownT;
+
+                long[] tt = SessionsView.TimeSplit(d.TimeRows, out knownT);
+
+                long totT = tt[0] + tt[1] + tt[2] + tt[3];
+
+                string[] tn = new string[] { "等首 token", "流式解码", "llm 其他（无首 token 的 step 等）", "工具执行" };
+
+                IBrush[] tb = new IBrush[] { Palette.Accent, Palette.FormAcp, Palette.Idle, Palette.Warn };
+
+                ctm.Children.Add(StackedBar(tt, totT, tb));
+
+                for (int si = 0; si < 4; si++)
+
+                    ctm.Children.Add(LegendRow(tb[si], tn[si] + "　" + FmtMs(tt[si]) + "（" + PctOf(tt[si], totT) + "）"));
+
+                ctm.Children.Add(T("窗口内 " + d.TimeRows.Count + " 个会话，" + knownT + " 个计入（缺 sessionStats 的 " + (d.TimeRows.Count - knownT) + " 个不计入）", 11.5, Palette.TextFaint));
+
+                ctm.Children.Add(T(SessionsMarkers.TimeFootnote, 11, Palette.TextFaint));
+
+                ctm.Children.Add(T(SessionsMarkers.TruthFootnote, 11, Palette.TextFaint));   // C.4 ✓✓ 整会话累计 ✗ 非窗口增量 ✓
+
+            }
+
+            s.Children.Add(Card(ctm, new Thickness(0), new Thickness(18, 16)));
+
+
+
+            // —— 看板第二批 · 上下文构成 · Token 分类（dsh 启发式折算口径必标 ✓ messageTokens 一桶不拆 D3 ✓ 规格 §11.6-C2 ✓✓）——
+            StackPanel ccx = new StackPanel { Spacing = 8 };
+
+            ccx.Children.Add(T(SessionsMarkers.CtxTitle, 13, Palette.Text, FontWeight.Bold));
+
+            if (d.CtxRows.Count == 0)
+
+            {
+
+                ccx.Children.Add(T("当前数据源未提供上下文构成（旧版 CLI 没有 SESSCTX_SESSION 行）—— 不画空图，不猜。", 11.5, Palette.TextFaint));
+
+            }
+
+            else
+
+            {
+
+                int knownC;
+
+                long[] cx = SessionsView.CtxTotals(d.CtxRows, out knownC);
+
+                long totC = cx[0] + cx[1] + cx[2];
+
+                string[] cn = new string[] { "system", "tools", "message（一桶不拆）" };
+
+                IBrush[] cbr = new IBrush[] { Palette.Accent, Palette.Good, Palette.Warn };
+
+                ccx.Children.Add(StackedBar(cx, totC, cbr));
+
+                for (int si = 0; si < 3; si++)
+
+                    ccx.Children.Add(LegendRow(cbr[si], cn[si] + "　" + SessionRow.Human(cx[si]) + " tok（" + PctOf(cx[si], totC) + "）"));
+
+                ccx.Children.Add(T("窗口内 " + d.CtxRows.Count + " 个会话，" + knownC + " 个计入（缺 contextBreakdown 的 " + (d.CtxRows.Count - knownC) + " 个不计入）", 11.5, Palette.TextFaint));
+
+                ccx.Children.Add(T(SessionsMarkers.CtxFootnote, 11, Palette.TextFaint));
+
+            }
+
+            s.Children.Add(Card(ccx, new Thickness(0), new Thickness(18, 16)));
+
+
+
             // ④ **体检结论分布**（B 类：运维视角 —— 这台机器现在健康吗 ✓）
 
             DoctorSummary dsum = host.Doctor;
@@ -1356,6 +1538,119 @@ namespace Dsht.Gui.Avalonia.Shells
             outer.Children.Add(new Border { Height = 1, Background = Palette.Border, VerticalAlignment = VerticalAlignment.Bottom });
 
             return outer;
+
+        }
+
+        // —— 看板第二批绘图助手（2026-10-09 ✓✓ 规格 §11.6 ✓）——
+
+        /// <summary>水平堆叠条：各段宽度按值占比（Star ✓）；值为 0 的段不占位 ✓；全 0 → 空轨道 ✗ 不假造色块 ✓。</summary>
+        private static Control StackedBar(long[] vals, long total, IBrush[] brushes)
+
+        {
+
+            Grid g = new Grid { Height = 18 };
+
+            if (total <= 0)
+
+            {
+
+                g.Children.Add(new Border { CornerRadius = new CornerRadius(9), Background = Palette.BarTrack });
+
+                return g;
+
+            }
+
+            int nseg = 0;
+
+            for (int i = 0; i < vals.Length; i++) if (vals[i] > 0) nseg++;
+
+            int col = 0;
+
+            for (int i = 0; i < vals.Length; i++)
+
+            {
+
+                if (vals[i] <= 0) continue;
+
+                g.ColumnDefinitions.Add(new ColumnDefinition(vals[i], GridUnitType.Star));
+
+                Border seg = new Border { Background = brushes[i] };
+
+                if (nseg == 1) seg.CornerRadius = new CornerRadius(9);
+
+                else if (col == 0) seg.CornerRadius = new CornerRadius(9, 0, 0, 9);
+
+                else if (col == nseg - 1) seg.CornerRadius = new CornerRadius(0, 9, 9, 0);
+
+                Grid.SetColumn(seg, col++);
+
+                g.Children.Add(seg);
+
+            }
+
+            return g;
+
+        }
+
+        /// <summary>图例行：色块 + 说明文字。</summary>
+        private static Control LegendRow(IBrush brush, string text)
+
+        {
+
+            StackPanel r = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+
+            r.Children.Add(new Border { Width = 10, Height = 10, CornerRadius = new CornerRadius(3), Background = brush, VerticalAlignment = VerticalAlignment.Center });
+
+            r.Children.Add(T(text, 11.5, Palette.TextDim));
+
+            return r;
+
+        }
+
+        /// <summary>毫秒 → 人读时长（0 → "0 s" ✓ 真值直出 ✓）。</summary>
+        private static string FmtMs(long ms)
+
+        {
+
+            if (ms <= 0) return "0 s";
+
+            double sec = ms / 1000.0;
+
+            if (sec < 60) return sec.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " s";
+
+            double min = sec / 60.0;
+
+            if (min < 60) return min.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " min";
+
+            return (min / 60.0).ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + " h";
+
+        }
+
+        /// <summary>占比 → 百分比文字（total ≤ 0 → "0%" ✓ 不除零 ✓）。</summary>
+        private static string PctOf(long v, long total)
+
+        {
+
+            if (total <= 0) return "0%";
+
+            return (v * 100.0 / total).ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) + "%";
+
+        }
+
+        /// <summary>热力格色：0 → 空槽色（✗ 不装有色 ✓）；≥1 → 主题 Accent 的四档不透明度（1 / 2-3 / 4-7 / ≥8）。</summary>
+        private static IBrush HeatBrush(long v)
+
+        {
+
+            if (v <= 0) return Palette.BarTrack;
+
+            SolidColorBrush scb = Palette.Accent as SolidColorBrush;
+
+            Color basec = scb == null ? Colors.SteelBlue : scb.Color;
+
+            double op = v == 1 ? 0.30 : (v <= 3 ? 0.50 : (v <= 7 ? 0.75 : 1.0));
+
+            return new SolidColorBrush(basec, op);
 
         }
 

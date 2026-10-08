@@ -650,10 +650,33 @@ static class ContractTests
         Check("R5：丢弃按行不连坐（其余字段照常读到 ✓）", psStale != null && psStale.HasTokens && psStale.Title == "hello");
         Check("R5：行缺失不计数（缺失 ≠ 丢弃 ✓✓ RowDroppedTotal 只含真丢弃）", rep5.TokenUsage == 0 && rep5.Title == 0 && rep5.RowDroppedTotal == 1);
         // R5 实数对齐（2026-10-08 实测 283 个投影：contextBreakdown ver2 扁平 + tokenUsage ver1 = 51 条旧行形状 ✓）
+        // ★ 看板第二批更新（2026-10-09 ✓✓ 规格 §11.6-A ✓）：contextBreakdown 接受集合放宽为 {2,4,5} ——
+        //   ver2 扁平三桶实测与 ver4/ver5 嵌套三桶同名同义 ⇒ **ver2 不再拒** ✓；**tokenUsage ver1 仍拒** ✓（该条不变 ✓）。
         Dsht.Domain.Services.RowGateReport rep51 = new Dsht.Domain.Services.RowGateReport();
         string stale51 = proj.Replace("\"tokenUsage\":{\"ver\":2,\"val\":", "\"tokenUsage\":{\"ver\":1,\"val\":").Replace("\"contextBreakdown\":{\"ver\":5,\"val\":", "\"contextBreakdown\":{\"ver\":2,\"val\":");
         Dsht.Domain.Model.SessionStat ps51 = Dsht.Domain.Services.SessionStats.ParseSessionProjection(stale51, "abc", rep51);
-        Check("R5：旧行 tokenUsage(v1)+contextBreakdown(v2) → token/分布未知 + 各计 1", ps51 != null && !ps51.HasTokens && !ps51.HasBreakdown && rep51.TokenUsage == 1 && rep51.ContextBreakdown == 1 && rep51.RowDroppedTotal == 2);
+        Check("R5：旧行 tokenUsage(v1) 仍拒 → token 未知 + 计 1；contextBreakdown(v2) 第二批起**接受** → 分布可读 + 不再计",
+            ps51 != null && !ps51.HasTokens && ps51.HasBreakdown && ps51.SystemTokens == 10 && ps51.ToolsTokens == 20 && ps51.MessageTokens == 30
+            && rep51.TokenUsage == 1 && rep51.ContextBreakdown == 0 && rep51.RowDroppedTotal == 1);
+        // —— 看板第二批 · contextBreakdown 多版本形状门（规格 §11.6-A ✓ 2026-10-09 实测 283/283：ver2×51 扁平 / ver4×114 / ver5×118 嵌套 ✓）——
+        string cbFlat5 = "\"contextBreakdown\":{\"ver\":5,\"val\":{\"systemTokens\":10,\"toolsTokens\":20,\"messageTokens\":30}}";
+        // ver4 实测形状：**嵌套** val.breakdown.{同名三桶} + nodes[]（本工具不读 ✓）⇒ 三桶照读 ✓
+        string nest4 = proj.Replace(cbFlat5, "\"contextBreakdown\":{\"ver\":4,\"val\":{\"breakdown\":{\"systemTokens\":11,\"toolsTokens\":21,\"messageTokens\":31},\"nodes\":[]}}");
+        Dsht.Domain.Model.SessionStat pn4 = Dsht.Domain.Services.SessionStats.ParseSessionProjection(nest4, "n4");
+        Check("R5：contextBreakdown ver4 **嵌套** → 三桶从 val.breakdown 读出（11/21/31）", pn4 != null && pn4.HasBreakdown && pn4.SystemTokens == 11 && pn4.ToolsTokens == 21 && pn4.MessageTokens == 31);
+        // ver5 实测形状：同为嵌套（线上 118 条 ✓ 与 ver4 三桶形状一致 ✓）
+        string nest5 = proj.Replace(cbFlat5, "\"contextBreakdown\":{\"ver\":5,\"val\":{\"breakdown\":{\"systemTokens\":7,\"toolsTokens\":8,\"messageTokens\":9},\"nodes\":[]}}");
+        Dsht.Domain.Model.SessionStat pn5 = Dsht.Domain.Services.SessionStats.ParseSessionProjection(nest5, "n5");
+        Check("R5：contextBreakdown ver5 **嵌套** → 三桶从 val.breakdown 读出（7/8/9）", pn5 != null && pn5.HasBreakdown && pn5.SystemTokens == 7 && pn5.ToolsTokens == 8 && pn5.MessageTokens == 9);
+        // ver3（实测不存在 ✓ 语义未验证 ✗）与 ver6（未来）→ 照拒 + 计数 ✓ 绝不猜 ✓
+        Dsht.Domain.Services.RowGateReport repN3 = new Dsht.Domain.Services.RowGateReport();
+        string nest3 = proj.Replace(cbFlat5, "\"contextBreakdown\":{\"ver\":3,\"val\":{\"breakdown\":{\"systemTokens\":1,\"toolsTokens\":2,\"messageTokens\":3}}}");
+        Dsht.Domain.Model.SessionStat pn3 = Dsht.Domain.Services.SessionStats.ParseSessionProjection(nest3, "n3", repN3);
+        Check("R5：contextBreakdown ver3 ∉{2,4,5} → 拒 + 计 1（不猜语义）", pn3 != null && !pn3.HasBreakdown && repN3.ContextBreakdown == 1);
+        Dsht.Domain.Services.RowGateReport repN6 = new Dsht.Domain.Services.RowGateReport();
+        string nest6 = proj.Replace(cbFlat5, "\"contextBreakdown\":{\"ver\":6,\"val\":{\"breakdown\":{\"systemTokens\":1,\"toolsTokens\":2,\"messageTokens\":3}}}");
+        Dsht.Domain.Model.SessionStat pn6 = Dsht.Domain.Services.SessionStats.ParseSessionProjection(nest6, "n6", repN6);
+        Check("R5：contextBreakdown ver6 ∉{2,4,5} → 拒 + 计 1（版本演进继续按证据放行）", pn6 != null && !pn6.HasBreakdown && repN6.ContextBreakdown == 1);
         // R5 对总表同样生效 ✓（总表每会话条目**无 doc version** → R6 N/A ✓ 规格 §11.4 ✓）
         Dsht.Domain.Services.RowGateReport repAgg = new Dsht.Domain.Services.RowGateReport();
         Dsht.Domain.Model.SessionStat[] agStale = Dsht.Domain.Services.SessionStats.ParseAggregate(agg.Replace("\"tokenUsage\":{\"ver\":2,\"val\":", "\"tokenUsage\":{\"ver\":1,\"val\":"), repAgg);

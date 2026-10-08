@@ -189,6 +189,29 @@ namespace Dsht.Gui.Avalonia.Markers
         public long In { get { return Uncached + CacheRead; } }
     }
 
+    /// <summary>SESSTIME_SESSION 行（看板第二批 · 2026-10-09 ✓✓ 规格 §11.6-B：逐会话计时四件 ✓
+    /// 任一位 unknown → Has=false ✗ 绝不假装 0（零值是真实值 ✓ 照常进图 ✓））。</summary>
+    public sealed class SessTimeRow
+    {
+        public string Id = "";
+        public long LlmMs;
+        public long ToolMs;
+        public long TtftMs;
+        public long DecodeMs;
+        public bool Has;    // 四位任一 unknown → false ✓
+    }
+
+    /// <summary>SESSCTX_SESSION 行（看板第二批 · 2026-10-09 ✓✓ 规格 §11.6-B：上下文构成三桶 ✓
+    /// messageTokens **一桶不拆**（决策 D3 ✗✓）；任一位 unknown → Has=false ✗ 绝不假装 0 ✓）。</summary>
+    public sealed class SessCtxRow
+    {
+        public string Id = "";
+        public long System;
+        public long Tools;
+        public long Message;
+        public bool Has;    // 三位任一 unknown → false ✓
+    }
+
     /// <summary>`sessions` 命令的完整结果（含汇总与数据来源）。</summary>
     public sealed class SessionsSnapshot
     {
@@ -232,6 +255,12 @@ namespace Dsht.Gui.Avalonia.Markers
         public bool HasAggTotal;
         // SESSAGG_SESSION（bucket=own ✓ 只含 eligible ✓ 窗口卡数据源 + KPI/图表过滤基准 ✓）
         public List<SessAggRow> AggRows = new List<SessAggRow>();
+        // —— 看板第二批（2026-10-09 ✓✓ 规格 §11.6-B ✓）：与 SESSAGG_SESSION 同一 eligible 集 ✓
+        //   旧 CLI 没有这两行 → 列表为空 → 对应卡片如实显示「当前数据源未提供」✗ 不画空图 ✗ 不猜 ✓ ——
+        /// <summary>SESSTIME_SESSION 行集（耗时分解卡数据源）。</summary>
+        public List<SessTimeRow> TimeRows = new List<SessTimeRow>();
+        /// <summary>SESSCTX_SESSION 行集（Token 分类卡数据源）。</summary>
+        public List<SessCtxRow> CtxRows = new List<SessCtxRow>();
 
         /// <summary>窗口内会话 id 集（SESSAGG_SESSION 行就是 eligible 集合 ✓ 规格 §4.1 ✓）。
         /// HasWinMeta=false（老 CLI）→ 返回 null → 调用方走「不过滤」回退 ✓✓</summary>
@@ -327,6 +356,60 @@ namespace Dsht.Gui.Avalonia.Markers
                 if (s.TokenBar < 2 && s.In > 0) s.TokenBar = 2;
             }
         }
+
+        // —— 看板第二批（2026-10-09 ✓✓ 规格 §11.6 ✓ 纯函数 ✓ LogicTests 可断言 ✓✓）——
+
+        /// <summary>耗时分解四桶合计（等首 token / 流式解码 / llm 其他 / 工具执行；只计入 Has 行 ✓）。
+        /// llm 其他 = llmMs − ttftMs − decodeMs（dsh 源码恒等式：ttft/decode 是 llmMs 的子集 ⇒ ≥ 0 ✓ 勘察 §5 ✓；
+        /// 防御性钳 0 —— 真出现负数说明口径被上游改了，钳 0 并把该行按原值计前三桶，✗ 不反向伪造 ✓）。
+        /// 返回 long[4]；known = 计入的会话数。</summary>
+        public static long[] TimeSplit(List<SessTimeRow> rows, out int known)
+        {
+            long[] t = new long[4];
+            known = 0;
+            if (rows == null) return t;
+            for (int i = 0; i < rows.Count; i++)
+            {
+                SessTimeRow r = rows[i];
+                if (r == null || !r.Has) continue;
+                known++;
+                t[0] += r.TtftMs;
+                t[1] += r.DecodeMs;
+                long other = r.LlmMs - r.TtftMs - r.DecodeMs;
+                t[2] += other > 0 ? other : 0;
+                t[3] += r.ToolMs;
+            }
+            return t;
+        }
+
+        /// <summary>上下文构成三桶合计（system / tools / message **一桶不拆** D3 ✓；只计入 Has 行 ✓）。
+        /// 返回 long[3]；known = 计入的会话数。</summary>
+        public static long[] CtxTotals(List<SessCtxRow> rows, out int known)
+        {
+            long[] t = new long[3];
+            known = 0;
+            if (rows == null) return t;
+            for (int i = 0; i < rows.Count; i++)
+            {
+                SessCtxRow r = rows[i];
+                if (r == null || !r.Has) continue;
+                known++;
+                t[0] += r.System;
+                t[1] += r.Tools;
+                t[2] += r.Message;
+            }
+            return t;
+        }
+
+        /// <summary>ISO 时间戳 → **本地日** yyyy-MM-dd（空/解析失败 → null ✗ 不猜日期 ✓ 与图 3 同一归日口径 ✓）。</summary>
+        public static string LocalDayOfIso(string iso)
+        {
+            if (string.IsNullOrEmpty(iso)) return null;
+            System.DateTime dt;
+            if (!System.DateTime.TryParse(iso, System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal, out dt)) return null;
+            return dt.ToLocalTime().ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+        }
     }
 
     /// <summary>解析 CLI `sessions` 的标记行（纯函数，**绝不抛**：无法解析的行跳过）。
@@ -336,6 +419,20 @@ namespace Dsht.Gui.Avalonia.Markers
         /// <summary>C.4 脚注（规格 §4.2 :342 ✓ **一字不许改** ✓ LogicTests 逐字符断言 ✓）——
         /// truth=0 期间：筛选条下方 + 窗口总计卡内**两处常显** ✓✓ 此文本是唯一能改它的地方。</summary>
         public const string TruthFootnote = "本口径按会话最后活动时间筛选，用量为整会话累计，非窗口内增量。";
+
+        // —— 看板第二批（2026-10-09 ✓✓ 规格 §11.6-C ✓ **一字不许改** ✓ LogicTests 逐字符断言 ✓✓）——
+        /// <summary>耗时分解卡：标题。</summary>
+        public const string TimeTitle = "耗时分解（窗口内会话 · 整会话累计）";
+        /// <summary>耗时分解卡：口径脚注（C.4 之外**追加**的口径说明 ✓ 不是替代 ✓）。</summary>
+        public const string TimeFootnote = "llmMs = 等首 token + 流式解码 + llm 其他（dsh 源码口径：ttft/decode 是 llmMs 的子集）；工具执行与 llmMs 不相交。缺 sessionStats 的会话不计入，不猜。";
+        /// <summary>Token 分类卡：标题。</summary>
+        public const string CtxTitle = "上下文构成 · Token 分类（窗口内会话 · 当前快照合计）";
+        /// <summary>Token 分类卡：口径脚注（启发式折算必标「估算」✓ D3 不拆 ✓）。</summary>
+        public const string CtxFootnote = "上下文构成是 dsh 启发式折算（估算）口径（4 字符 ≈ 1 token），取各会话当前上下文快照，非提供方计费数字，也非整会话累计；messageTokens 一桶不拆（决策 D3）。缺 contextBreakdown 的会话不计入，不猜。";
+        /// <summary>热力图：标题固定模板（{0} = ChartDays）。</summary>
+        public const string HeatTitle = "近 {0} 天会话最后活动日 · 会话数（本地日）";
+        /// <summary>热力图：脚注固定模板（{0} = 缺 lastPromptAt 的会话数）。</summary>
+        public const string HeatFootnote = "按会话最后活动时间归本地日；投影只含最后活动时间，这不是逐日活跃轨迹（逐日真值须读原始日志 → 第三批）；缺失 {0} 个不计入，不猜。";
 
         public static SessionsSnapshot Parse(string output)
         {
@@ -422,6 +519,45 @@ namespace Dsht.Gui.Avalonia.Markers
                             && !string.IsNullOrEmpty(op) && op != "unknown";
                         if (ar.HasTokens) { ar.Uncached = Num(un, 0); ar.CacheRead = Num(cr, 0); ar.CacheWrite = Num(cw, 0); ar.Output = Num(op, 0); }
                         s.AggRows.Add(ar);
+                        continue;
+                    }
+                    // —— 看板第二批（2026-10-09 ✓✓ 规格 §11.6-B ✓ 与 SESSAGG_SESSION 同模式：id 在前、键=值在后、unknown → Has=false ✓）——
+                    if (line.StartsWith("SESSTIME_SESSION ", StringComparison.Ordinal))
+                    {
+                        string rest = Tail(line, "SESSTIME_SESSION").Trim();
+                        int sp = rest.IndexOf(' ');
+                        SessTimeRow tr = new SessTimeRow();
+                        if (sp < 0) { tr.Id = rest; s.TimeRows.Add(tr); continue; }
+                        tr.Id = rest.Substring(0, sp);
+                        Dictionary<string, string> kv = Pairs(rest.Substring(sp + 1));
+                        string llm = Get(kv, "llmMs");
+                        string tool = Get(kv, "toolMs");
+                        string ttft = Get(kv, "ttftMs");
+                        string dec = Get(kv, "decodeMs");
+                        tr.Has = !string.IsNullOrEmpty(llm) && llm != "unknown"
+                            && !string.IsNullOrEmpty(tool) && tool != "unknown"
+                            && !string.IsNullOrEmpty(ttft) && ttft != "unknown"
+                            && !string.IsNullOrEmpty(dec) && dec != "unknown";
+                        if (tr.Has) { tr.LlmMs = Num(llm, 0); tr.ToolMs = Num(tool, 0); tr.TtftMs = Num(ttft, 0); tr.DecodeMs = Num(dec, 0); }
+                        s.TimeRows.Add(tr);
+                        continue;
+                    }
+                    if (line.StartsWith("SESSCTX_SESSION ", StringComparison.Ordinal))
+                    {
+                        string rest = Tail(line, "SESSCTX_SESSION").Trim();
+                        int sp = rest.IndexOf(' ');
+                        SessCtxRow cr = new SessCtxRow();
+                        if (sp < 0) { cr.Id = rest; s.CtxRows.Add(cr); continue; }
+                        cr.Id = rest.Substring(0, sp);
+                        Dictionary<string, string> kv = Pairs(rest.Substring(sp + 1));
+                        string sys = Get(kv, "system");
+                        string tls = Get(kv, "tools");
+                        string msg = Get(kv, "message");
+                        cr.Has = !string.IsNullOrEmpty(sys) && sys != "unknown"
+                            && !string.IsNullOrEmpty(tls) && tls != "unknown"
+                            && !string.IsNullOrEmpty(msg) && msg != "unknown";
+                        if (cr.Has) { cr.System = Num(sys, 0); cr.Tools = Num(tls, 0); cr.Message = Num(msg, 0); }
+                        s.CtxRows.Add(cr);
                         continue;
                     }
                     if (line.StartsWith("SESSION ", StringComparison.Ordinal)) s.Rows.Add(ParseRow(line));

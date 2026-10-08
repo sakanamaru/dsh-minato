@@ -165,6 +165,51 @@ namespace Dsht.Gui.LogicTests
             Check("看板：C.4 脚注逐字符 == 规格 §4.2 :342（一字不许改 ✓✓ LogicTests 是唯一能拦住改字的地方 ✓）",
                 SessionsMarkers.TruthFootnote == "本口径按会话最后活动时间筛选，用量为整会话累计，非窗口内增量。");
 
+            // —— 看板第二批（2026-10-09 ✓✓ 规格 §11.6 ✓✓）——
+            string b2 = b1 +
+                "SESSTIME_SESSION aaa111 llmMs=1000 toolMs=500 ttftMs=300 decodeMs=200\n" +
+                "SESSTIME_SESSION bbb222 llmMs=unknown toolMs=unknown ttftMs=unknown decodeMs=unknown\n" +
+                "SESSCTX_SESSION aaa111 system=1000 tools=2000 message=3000\n" +
+                "SESSCTX_SESSION bbb222 system=unknown tools=unknown message=unknown\n";
+            SessionsSnapshot w2 = SessionsMarkers.Parse(b2);
+            Check("看板2：SESSTIME_SESSION 已知行（四件全读出 ✓ Has ✓）",
+                w2.TimeRows.Count == 2 && w2.TimeRows[0].Id == "aaa111" && w2.TimeRows[0].Has
+                && w2.TimeRows[0].LlmMs == 1000 && w2.TimeRows[0].ToolMs == 500 && w2.TimeRows[0].TtftMs == 300 && w2.TimeRows[0].DecodeMs == 200);
+            Check("看板2：SESSTIME_SESSION unknown → Has=false ✗ 绝不假装 0 ✓✓",
+                !w2.TimeRows[1].Has && w2.TimeRows[1].LlmMs == 0);
+            Check("看板2：SESSCTX_SESSION 已知行（三桶 ✓ message 一桶不拆 D3 ✓）",
+                w2.CtxRows.Count == 2 && w2.CtxRows[0].Has && w2.CtxRows[0].System == 1000 && w2.CtxRows[0].Tools == 2000 && w2.CtxRows[0].Message == 3000);
+            Check("看板2：SESSCTX_SESSION unknown → Has=false ✓", !w2.CtxRows[1].Has && w2.CtxRows[1].System == 0);
+            Check("看板2：老 CLI（无新行）→ TimeRows/CtxRows 为空 → 卡片如实显示「未提供」✗ 不画空图 ✓",
+                SessionsMarkers.Parse("SESSIONS_OK 1\nSESSAGG_SESSION z9 bucket=own turns=1 steps=1 uncached=1 cacheRead=1 cacheWrite=1 output=1 children=unknown depth=unknown").TimeRows.Count == 0
+                && SessionsMarkers.Parse("SESSIONS_OK 1").CtxRows.Count == 0);
+            // 耗时分解纯函数（llm 其他 = llmMs−ttft−decode ≥0 ✓ 勘察 §5 恒等式 ✓；unknown 行不计入 ✓）
+            int kn;
+            long[] ts = SessionsView.TimeSplit(w2.TimeRows, out kn);
+            Check("看板2：TimeSplit 四桶（ttft=300 / decode=200 / 其他=1000−300−200=500 / tool=500）+ known=1（unknown 行不计 ✓）",
+                kn == 1 && ts[0] == 300 && ts[1] == 200 && ts[2] == 500 && ts[3] == 500);
+            List<SessTimeRow> neg = new List<SessTimeRow>();
+            neg.Add(new SessTimeRow { Id = "x", Has = true, LlmMs = 100, TtftMs = 80, DecodeMs = 60, ToolMs = 7 });
+            long[] tn = SessionsView.TimeSplit(neg, out kn);
+            Check("看板2：TimeSplit 防御钳（其他 = max(0, −40) = 0 ✗ 不反向伪造 ✓）", kn == 1 && tn[2] == 0 && tn[0] == 80 && tn[1] == 60 && tn[3] == 7);
+            long[] cx = SessionsView.CtxTotals(w2.CtxRows, out kn);
+            Check("看板2：CtxTotals 三桶（1000/2000/3000）+ known=1", kn == 1 && cx[0] == 1000 && cx[1] == 2000 && cx[2] == 3000);
+            // 本地日归桶纯函数：本地时间 → UTC ISO → 回到同一本地日 ✓（时区无关的确定性断言 ✓）；垃圾 → null ✓
+            System.DateTime loc = new System.DateTime(2026, 3, 5, 8, 30, 0, System.DateTimeKind.Local);
+            string iso = loc.ToUniversalTime().ToString("yyyy-MM-ddTHH:mm:ss.fffffffK", System.Globalization.CultureInfo.InvariantCulture);
+            Check("看板2：LocalDayOfIso 本地往返 == 2026-03-05（图1/图3/热力图同一归日口径 ✓）", SessionsView.LocalDayOfIso(iso) == "2026-03-05");
+            Check("看板2：LocalDayOfIso 垃圾/空 → null（不猜日期 ✓）", SessionsView.LocalDayOfIso("not-a-date") == null && SessionsView.LocalDayOfIso("") == null && SessionsView.LocalDayOfIso(null) == null);
+            // 口径文案逐字钉死（规格 §11.6-C ✓✓ 一字不许改 ✓✓）
+            Check("看板2：耗时分解标题逐字", SessionsMarkers.TimeTitle == "耗时分解（窗口内会话 · 整会话累计）");
+            Check("看板2：耗时分解脚注逐字（ttft/decode 是 llmMs 子集 + tool 不相交 + 缺不计 ✓）",
+                SessionsMarkers.TimeFootnote == "llmMs = 等首 token + 流式解码 + llm 其他（dsh 源码口径：ttft/decode 是 llmMs 的子集）；工具执行与 llmMs 不相交。缺 sessionStats 的会话不计入，不猜。");
+            Check("看板2：Token 分类标题逐字（当前快照合计 ✓）", SessionsMarkers.CtxTitle == "上下文构成 · Token 分类（窗口内会话 · 当前快照合计）");
+            Check("看板2：Token 分类脚注逐字（启发式折算必标「估算」✓ 非计费 ✓ D3 不拆 ✓）",
+                SessionsMarkers.CtxFootnote == "上下文构成是 dsh 启发式折算（估算）口径（4 字符 ≈ 1 token），取各会话当前上下文快照，非提供方计费数字，也非整会话累计；messageTokens 一桶不拆（决策 D3）。缺 contextBreakdown 的会话不计入，不猜。");
+            Check("看板2：热力图标题模板逐字", SessionsMarkers.HeatTitle == "近 {0} 天会话最后活动日 · 会话数（本地日）");
+            Check("看板2：热力图脚注模板逐字（最后活动日 ≠ 逐日活跃轨迹 ✓ 逐日真值 → 第三批 ✓）",
+                SessionsMarkers.HeatFootnote == "按会话最后活动时间归本地日；投影只含最后活动时间，这不是逐日活跃轨迹（逐日真值须读原始日志 → 第三批）；缺失 {0} 个不计入，不猜。");
+
             Console.WriteLine("== " + _pass + "/" + (_pass + _fail) + " passed, " + _fail + " failed ==");
             return _fail == 0 ? 0 : 1;
         }

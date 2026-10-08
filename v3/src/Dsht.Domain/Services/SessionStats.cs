@@ -59,6 +59,11 @@ namespace Dsht.Domain.Services
         public const long RowVerContextPressure = 5;
         /// <summary>R5：contextBreakdown 行的当前写入器版本。</summary>
         public const long RowVerContextBreakdown = 5;
+        /// <summary>R5：contextBreakdown 行的**接受集合**（看板第二批 · 2026-10-09 实测 283/283 ✓ 规格 §11.6-A）：
+        /// ver2 ×51 = **扁平** `val.{systemTokens,toolsTokens,messageTokens}`；ver4 ×114 / ver5 ×118 = **嵌套** `val.breakdown.{同名三桶}`。
+        /// 三桶键名/语义三个版本一致（同为 dsh 启发式折算输出；ver4/5 的 `nodes[]` 明细本工具不读）⇒ 按实测同义证据接纳三版；
+        /// 其余 ver（ver3、≥6、缺失/畸形）照拒 —— 语义可能已变 ✗ 绝不猜 ✓。</summary>
+        public static readonly long[] RowVerContextBreakdownAccepted = new long[] { 2, 4, 5 };
         /// <summary>R5：sessionListMetadata 行的当前写入器版本。</summary>
         public const long RowVerSessionListMetadata = 1;
         /// <summary>R5：title 行的当前写入器版本。</summary>
@@ -257,6 +262,18 @@ namespace Dsht.Domain.Services
             return v != wantVer;
         }
 
+        /// <summary>R5 行版本门（**接受集合**版 —— 看板第二批 contextBreakdown 用 ✓ 规格 §11.6-A）：
+        /// 行**存在**但 `ver` ∉ vers（ver 缺失/畸形也按不匹配算 ✓）→ true；行**不存在** → false（同单版本版语义 ✓）。</summary>
+        private static bool RowMismatchAny(JNode row, string key, long[] vers)
+        {
+            JNode entry = row == null ? null : row.Get(key);
+            if (entry == null) return false;
+            JNode ver = entry.Get("ver");
+            long v = ver == null ? -1 : (long)ver.AsNumber(-1);
+            for (int i = 0; i < vers.Length; i++) if (v == vers[i]) return false;
+            return true;
+        }
+
         private static SessionStat FromRow(JNode row, string id, RowGateReport rep)
         {
             if (row == null || !row.IsObject) return null;
@@ -297,13 +314,16 @@ namespace Dsht.Domain.Services
                 s.PressureTokens = Num(cp, "pressureTokens");
             }
             JNode cb = row.Path("contextBreakdown", "val");
-            if (RowMismatch(row, "contextBreakdown", RowVerContextBreakdown)) { if (rep != null) rep.ContextBreakdown++; cb = null; }
+            if (RowMismatchAny(row, "contextBreakdown", RowVerContextBreakdownAccepted)) { if (rep != null) rep.ContextBreakdown++; cb = null; }
             if (cb != null && cb.IsObject)
             {
                 s.HasBreakdown = true;
-                s.SystemTokens = Num(cb, "systemTokens");
-                s.ToolsTokens = Num(cb, "toolsTokens");
-                s.MessageTokens = Num(cb, "messageTokens");
+                // ★ 看板第二批（2026-10-09 实测 ✓ 规格 §11.6-A）：ver2 三桶**扁平**在 val 顶层；ver4/ver5 **嵌套**在 val.breakdown —— 双读 ✓
+                JNode bk = cb.Get("breakdown");
+                JNode buckets = (bk != null && bk.IsObject) ? bk : cb;
+                s.SystemTokens = Num(buckets, "systemTokens");
+                s.ToolsTokens = Num(buckets, "toolsTokens");
+                s.MessageTokens = Num(buckets, "messageTokens");
             }
             JNode lm = row.Path("sessionListMetadata", "val");
             if (RowMismatch(row, "sessionListMetadata", RowVerSessionListMetadata)) { if (rep != null) rep.SessionListMetadata++; lm = null; }

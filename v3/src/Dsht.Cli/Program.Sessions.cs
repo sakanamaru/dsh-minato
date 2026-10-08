@@ -308,6 +308,18 @@ namespace Dsht.Cli
                     + " cacheWrite=" + (s.HasTokens ? s.CacheWriteTokens.ToString(i0c) : "unknown")
                     + " output=" + (s.HasTokens ? s.OutputTokens.ToString(i0c) : "unknown")
                     + " children=unknown depth=unknown");
+                // —— 看板第二批（2026-10-09 ✓✓ 规格 §11.6-B ✓）：逐会话**计时四件** + **上下文构成三桶** ——
+                //   与 SESSAGG_SESSION 同一 eligible 集 ✓ 同一循环 ✓；
+                //   行缺失/被 R5 门拒 → 全位 literal unknown ✗ 绝不假装 0（零值是真实值 ✓ 照打数字 ✓）——
+                Console.WriteLine("SESSTIME_SESSION " + MarkerText.Encode(s.Id)
+                    + " llmMs=" + (s.HasStats ? s.LlmMs.ToString(i0c) : "unknown")
+                    + " toolMs=" + (s.HasStats ? s.ToolMs.ToString(i0c) : "unknown")
+                    + " ttftMs=" + (s.HasStats ? s.TtftMs.ToString(i0c) : "unknown")
+                    + " decodeMs=" + (s.HasStats ? s.DecodeMs.ToString(i0c) : "unknown"));
+                Console.WriteLine("SESSCTX_SESSION " + MarkerText.Encode(s.Id)
+                    + " system=" + (s.HasBreakdown ? s.SystemTokens.ToString(i0c) : "unknown")
+                    + " tools=" + (s.HasBreakdown ? s.ToolsTokens.ToString(i0c) : "unknown")
+                    + " message=" + (s.HasBreakdown ? s.MessageTokens.ToString(i0c) : "unknown"));
             }
             return 0;
         }
@@ -333,7 +345,7 @@ namespace Dsht.Cli
             if (rep.SessionStats > 0) Console.Error.WriteLine("SESSAGG_ROWDROP key=sessionStats ver=" + SessionStats.RowVerSessionStats + " n=" + rep.SessionStats);
             if (rep.TokenUsage > 0) Console.Error.WriteLine("SESSAGG_ROWDROP key=tokenUsage ver=" + SessionStats.RowVerTokenUsage + " n=" + rep.TokenUsage);
             if (rep.ContextPressure > 0) Console.Error.WriteLine("SESSAGG_ROWDROP key=contextPressure ver=" + SessionStats.RowVerContextPressure + " n=" + rep.ContextPressure);
-            if (rep.ContextBreakdown > 0) Console.Error.WriteLine("SESSAGG_ROWDROP key=contextBreakdown ver=" + SessionStats.RowVerContextBreakdown + " n=" + rep.ContextBreakdown);
+            if (rep.ContextBreakdown > 0) Console.Error.WriteLine("SESSAGG_ROWDROP key=contextBreakdown ver=2/4/5 n=" + rep.ContextBreakdown);   // 接受集合（第二批 §11.6-A ✓ 单版本文案已过时 ✓）
             if (rep.SessionListMetadata > 0) Console.Error.WriteLine("SESSAGG_ROWDROP key=sessionListMetadata ver=" + SessionStats.RowVerSessionListMetadata + " n=" + rep.SessionListMetadata);
             if (rep.Title > 0) Console.Error.WriteLine("SESSAGG_ROWDROP key=title ver=" + SessionStats.RowVerTitle + " n=" + rep.Title);
         }

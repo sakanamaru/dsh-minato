@@ -210,7 +210,9 @@ try {
     # ------------------------------------------------------------------
     # 1b) 看板第一批（2026-10-08 ✓✓ 规格 §11.1/§11.5 验收⑤ ✓✓）
     #   投影夹具形状 = live 写者同款（<根>\storages\session_projcache\sessions\<id>.json ✓ ver 逐键 ✓）
-    #   相对时间：near = 现在-6.5 天（进 7/14/30 天窗口 ✓）；far = 现在-40 天（只进总计档 ✓）；
+    #   相对时间：near = **今天本地正午**（曾经 = Now-6.5 天 → 凌晨/上午跑 -6.5 天落到今天-7 → 漂出 7 天窗口 eligible=0 ✗
+    #             2026-10-09 05:20 实跑抓到 ✓ → 改为本地日正中：local day == today ⇒ 进 7/14/30 天窗口**与运行时刻无关** ✓✓）；
+    #             far = 现在-40 天（只进总计档 ✓）；
     #             sessC 无 lastPromptAt → unknown_last=1 ✓ 不进窗口 ✓ 但计入 SESSAGG_TOTAL ✓
     #   断言全部是**精确整行**（数字逐个对 ✗ 不是"有标记就行" ✓✓）
     # ------------------------------------------------------------------
@@ -218,9 +220,9 @@ try {
     $f1b = New-Fixture "board"; $script:isoList.Add($f1b.iso)
     $env:DSH_HOME = $f1b.home
     $cset1b = Run-Cli $Cli @("config-set", "ws", $f1b.ws)
-    $msNear = [DateTimeOffset]::Now.AddDays(-6.5).ToUnixTimeMilliseconds()
-    $msFar  = [DateTimeOffset]::Now.AddDays(-40).ToUnixTimeMilliseconds()
     $today  = (Get-Date).Date
+    $msNear = ([DateTimeOffset]$today.AddHours(12)).ToUnixTimeMilliseconds()
+    $msFar  = [DateTimeOffset]::Now.AddDays(-40).ToUnixTimeMilliseconds()
     $from7  = $today.AddDays(-6).ToString('yyyy-MM-dd')
     $toDay  = $today.ToString('yyyy-MM-dd')
     $firstDay = [DateTimeOffset]::FromUnixTimeMilliseconds($msFar).LocalDateTime.ToString('yyyy-MM-dd')
@@ -235,8 +237,10 @@ try {
             '"title":{"ver":1,"val":"t-' + $id + '"}}}}'
         [System.IO.File]::WriteAllText((Join-Path $dir ($id + ".json")), $json, [System.Text.Encoding]::UTF8)
     }
-    $metaNear = '"sessionListMetadata":{"ver":1,"val":{"blank":false,"lastPromptAt":' + $msNear + '}},'
-    $metaFar  = '"sessionListMetadata":{"ver":1,"val":{"blank":false,"lastPromptAt":' + $msFar + '}},'
+    $metaNear = '"sessionListMetadata":{"ver":1,"val":{"blank":false,"lastPromptAt":' + $msNear + '}},' +
+        '"contextBreakdown":{"ver":4,"val":{"breakdown":{"systemTokens":11,"toolsTokens":22,"messageTokens":33},"nodes":[]}},'   # ★ 第二批：ver4 实测嵌套形状 ✓ §11.6-A ✓
+    $metaFar  = '"sessionListMetadata":{"ver":1,"val":{"blank":false,"lastPromptAt":' + $msFar + '}},' +
+        '"contextBreakdown":{"ver":2,"val":{"systemTokens":111,"toolsTokens":222,"messageTokens":333}},'                          # ★ 第二批：ver2 实测扁平形状 ✓（51 条旧行同款 ✓）
     $metaNone = '"sessionListMetadata":{"ver":1,"val":{"blank":false}},'
     Write-BoardProj $f1b.home "aaaa0001" $msNear $metaNear 100 200 30 40 3 9
     Write-BoardProj $f1b.home "bbbb0002" $msFar  $metaFar  500 600 70 80 5 11
@@ -264,6 +268,13 @@ try {
     Check "1b --days 7 SESSAGG_SESSION 恰 1 行且内容精确（只有近窗口会话 ✓ children/depth=unknown ✓）" `
         ($aggRows7.Count -eq 1 -and $aggRows7[0] -eq 'SESSAGG_SESSION aaaa0001 bucket=own turns=3 steps=9 uncached=100 cacheRead=200 cacheWrite=30 output=40 children=unknown depth=unknown')
     Check "1b --days 7 SESSION 明细行仍 4 条（KPI 用 ✓ 不被窗口吃掉 ✓）" (@(MarkLines $s7.out '^SESSION ').Count -eq 4)
+    # ★ 看板第二批（2026-10-09 ✓✓ 规格 §11.6-B ✓）：SESSTIME_SESSION / SESSCTX_SESSION 与 SESSAGG_SESSION **同一 eligible 集** ✓
+    $timeRows7 = @(MarkLines $s7.out '^SESSTIME_SESSION ')
+    Check "1b --days 7 SESSTIME_SESSION 恰 1 行且内容精确（sessionStats ver=1 四件 ✓ 零值照打数字 ✓）" `
+        ($timeRows7.Count -eq 1 -and $timeRows7[0] -eq 'SESSTIME_SESSION aaaa0001 llmMs=100 toolMs=0 ttftMs=10 decodeMs=100')
+    $ctxRows7 = @(MarkLines $s7.out '^SESSCTX_SESSION ')
+    Check "1b --days 7 SESSCTX_SESSION 恰 1 行且内容精确（ver=4 **嵌套** val.breakdown 三桶 11/22/33 ✓ §11.6-A ✓）" `
+        ($ctxRows7.Count -eq 1 -and $ctxRows7[0] -eq 'SESSCTX_SESSION aaaa0001 system=11 tools=22 message=33')
 
     # -- 不带 --days（总计档）：days=unknown · eligible=全部 · SESSAGG_SESSION 全量（窗口卡==总计卡 ✓ 硬要求 ✓）--
     #    用合并 stderr 的入口 ✓（SESSAGG_ROWDROP 是 stderr 诚实行 ✗ 不污染 stdout 标记面 ✓ → 断言它必须合并流才看得到 ✓）
@@ -276,6 +287,18 @@ try {
         (@($aggRowsAll | Where-Object { $_ -eq 'SESSAGG_SESSION dddd0004 bucket=own turns=2 steps=3 uncached=unknown cacheRead=unknown cacheWrite=unknown output=unknown children=unknown depth=unknown' }).Count -eq 1)
     Check "1b 验收③ 端到端：stderr SESSAGG_ROWDROP key=tokenUsage ver=2 n=1（行门丢弃**可见** ✓ ver=期望版本 ✓ 规格 §11.1 ✓）" `
         (HasMarker $sAll.out '^SESSAGG_ROWDROP key=tokenUsage ver=2 n=1$')
+    # ★ 看板第二批（总计档 ✓ 与 SESSAGG_SESSION 一一对应 ✓ 缺行 → literal unknown ✗ 不猜 ✓✓）
+    $timeRowsAll = @(MarkLines $sAll.out '^SESSTIME_SESSION ')
+    $ctxRowsAll = @(MarkLines $sAll.out '^SESSCTX_SESSION ')
+    Check "1b 总计档 SESSTIME_SESSION 全量 4 行（== SESSAGG_SESSION 数 ✓ 同一 eligible 集 ✓）" ($timeRowsAll.Count -eq 4)
+    Check "1b 总计档 SESSCTX_SESSION 全量 4 行（== SESSAGG_SESSION 数 ✓）" ($ctxRowsAll.Count -eq 4)
+    Check "1b 总计档 SESSCTX ver=2 **扁平**形状端到端（bbbb0002 → 111/222/333 ✓ 与线上 51 条旧行同款 ✓ §11.6-A ✓）" `
+        (@($ctxRowsAll | Where-Object { $_ -eq 'SESSCTX_SESSION bbbb0002 system=111 tools=222 message=333' }).Count -eq 1)
+    Check "1b 总计档 SESSCTX 缺 contextBreakdown → literal unknown（cccc0003/dddd0004 ✗ 不假装 0 ✓✓）" `
+        (@($ctxRowsAll | Where-Object { $_ -eq 'SESSCTX_SESSION cccc0003 system=unknown tools=unknown message=unknown' }).Count -eq 1 -and
+         @($ctxRowsAll | Where-Object { $_ -eq 'SESSCTX_SESSION dddd0004 system=unknown tools=unknown message=unknown' }).Count -eq 1)
+    Check "1b 总计档 SESSTIME 四件照打（dddd0004 有 sessionStats ver=1 → 数字 ✓ 门不连坐 ✓）" `
+        (@($timeRowsAll | Where-Object { $_ -eq 'SESSTIME_SESSION dddd0004 llmMs=100 toolMs=0 ttftMs=10 decodeMs=100' }).Count -eq 1)
 
     # -- --days 14：-6.5 天仍在窗内 → eligible=1 --
     $s14 = Run-Cli $Cli @("sessions", "--days", "14")

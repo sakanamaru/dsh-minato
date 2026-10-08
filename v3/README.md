@@ -77,9 +77,9 @@ powershell -ExecutionPolicy Bypass -File v3\tests\verify_restore_apply.ps1 -Repo
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File v3\tests\verify_switchover.ps1 -Repo .
-# gate1 标记行契约 21/21（含受控备份模式）  gate2 契约测试 334/334
+# gate1 标记行契约 21/21（含受控备份模式）  gate2 契约测试 409/409
 # gate3 Win/Linux 双跑：已在 CI 真跑通过（run 36385480118）  gate4 发布物校验（含篡改自证）
-# gate5 真实写操作可验证 25/25（隔离根真实写盘 + 零越界）
+# gate5 真实写操作可验证 41/41（隔离根真实写盘 + 零越界）
 # 不变量：发布链未动（v2/verify.ps1 按内容比对 / 16 项清单 / csc 步骤）· v2.x 发布构建可编译 · 含非 ASCII 的 .ps1 都带 BOM · 领域层纯净度
 ```
 
