@@ -44,6 +44,54 @@ namespace Dsht.Gui.Avalonia.Shells
 
             if (d == null) return a;
 
+            // —— 看板第一批（2026-10-08 ✓✓ 规格 §4.1 ✓）：窗口档生效 → KPI 按 **SESSION 行 ∩ eligible id 集**重算 ✓
+            //   eligible = SESSAGG_SESSION 行 id（CLI 已按会话最后活动时间过滤 ✓ truth=0 ✓）
+            //   老 CLI（没有 SESSWIN_META 行 → AggIdSet() 返回 null ✓）或 总计档（WinDays<0 → 全体 ✓）
+            //   → 走下面原路径（CLI 精确合计 ✓ 口径不变 ✓✓）
+            HashSet<string> elig = d.AggIdSet();
+
+            if (!a.Filtered && elig != null && d.WinDays > 0)
+
+            {
+
+                a.WinDays = d.WinDays;
+
+                double hitNumW = 0, hitDenW = 0, tpsNumW = 0, tpsDenW = 0;
+
+                for (int wi = 0; wi < d.Rows.Count; wi++)
+
+                {
+
+                    SessionRow r = d.Rows[wi];
+
+                    if (r == null) continue;
+
+                    if (r.Id == null || !elig.Contains(r.Id)) continue;
+
+                    a.Count++;
+
+                    if (!r.Blank) a.NonBlank++;
+
+                    if (r.Live) a.Live++;
+
+                    if (r.IsSubAgent) a.Subs++;
+
+                    a.In += r.In; a.Out += r.Out; a.Cache += r.CacheRead;
+
+                    if (r.HitPercent >= 0 && r.In > 0) { hitNumW += r.HitPercent * r.In; hitDenW += r.In; }
+
+                    if (r.DecodeTps >= 0 && r.Out > 0) { tpsNumW += r.DecodeTps * r.Out; tpsDenW += r.Out; }
+
+                }
+
+                a.HitPct = hitDenW > 0 ? hitNumW / hitDenW : -1;
+
+                a.Tps = tpsDenW > 0 ? tpsNumW / tpsDenW : -1;
+
+                return a;
+
+            }
+
             if (!a.Filtered)
 
             {
@@ -388,6 +436,15 @@ namespace Dsht.Gui.Avalonia.Shells
         {
             StackPanel s = new StackPanel { Margin = PageMargin, Spacing = 14 };
             s.Children.Add(KpiStrip(host));
+            // —— 看板第一批（2026-10-08 ✓✓ 规格 §4.1/§4.2 ✓ truth=0 ✓✓）——
+            // 筛选条：总计 / 近 7 / 近 14 / 近 30 ✓ + 口径选择器（只有「全局」可用 ✓ 血缘两档灰显「第二批」✓ §B 缩圈 ✓）
+            //   + C.4 固定脚注（truth=0 期间常显 ✓ 一字不许改 ✓ 文案唯一出处 = SessionsMarkers.TruthFootnote ✓）
+            s.Children.Add(BoardFilterBar(host));
+            SessionsSnapshot bd = host.Data;
+            if (bd != null && bd.Ok && bd.HasAggTotal)
+                s.Children.Add(BoardTotalCard(bd));                      // ③ 固定总计卡：无视窗口过滤 ✓ scope=store ✓
+            if (bd != null && bd.Ok && bd.HasWinMeta && bd.WinDays > 0)
+                s.Children.Add(BoardWindowCard(bd));                     // 窗口总计卡：eligible 集 GUI 侧求和 ✓ 卡内再印 C.4 ✓
             // 操作回执：最近一条动作的结果（细节在右下角 toast）
             if (!string.IsNullOrEmpty(host.ActionLog))
                 s.Children.Add(Card(T(host.ActionLog, 12, Palette.TextDim), new Thickness(0), new Thickness(14, 10)));
@@ -395,6 +452,106 @@ namespace Dsht.Gui.Avalonia.Shells
                 s.Children.Add(Card(T("还没有操作 —— 侧栏底部可以一键启动 / 停止 dsh；结果会显示在这里并弹 toast。", 11.5, Palette.TextFaint), new Thickness(0), new Thickness(14, 10)));
             s.Children.Add(ChartsBody(host));
             return s;
+        }
+
+        /// <summary>看板筛选条（看板第一批 · 规格 §4.1 ✓✓）：窗口档按钮 + 口径 chips（全局唯一可用 ✓）+ C.4 脚注 ✓。</summary>
+        private static Control BoardFilterBar(MainWindow host)
+        {
+            StackPanel col = new StackPanel { Spacing = 8 };
+            StackPanel row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+            int[] opts = new int[] { 0, 7, 14, 30 };
+            string[] names = new string[] { "总计", "近 7 天", "近 14 天", "近 30 天" };
+            for (int oi = 0; oi < opts.Length; oi++)
+            {
+                int dd = opts[oi];
+                bool on = host.BoardDays == dd;
+                Button rb = new Button
+                {
+                    Content = T(names[oi], 11.5, on ? Palette.OnAccent : Palette.TextDim),
+                    Background = on ? Palette.Accent : Palette.CardHover,
+                    BorderThickness = new Thickness(0),
+                    CornerRadius = new CornerRadius(6),
+                    Padding = new Thickness(12, 5)
+                };
+                rb.Click += delegate { host.BoardDays = dd; host.Refresh(); };
+                // UIA/无障碍名（截图脚本按名字找按钮 ✓ 读屏也能念出来 ✓ 与可见文案一致 ✓）
+                global::Avalonia.Automation.AutomationProperties.SetName(rb, names[oi]);
+                row.Children.Add(rb);
+            }
+            // 口径选择器（§B 缩圈 ✓✓：血缘两档在纯投影下必缺边 → 后移第二批 ✓ 这里灰显且**明说原因** ✓ 不许假装可用 ✗）
+            row.Children.Add(new Border { Width = 1, Height = 18, Background = Palette.TextFaint, Opacity = 0.4, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0) });
+            row.Children.Add(T("口径：", 11.5, Palette.TextDim));
+            row.Children.Add(BoardScopeChip("全局", true));
+            row.Children.Add(BoardScopeChip("仅父会话（第二批）", false));
+            row.Children.Add(BoardScopeChip("父会话+子代理（第二批）", false));
+            col.Children.Add(row);
+            SessionsSnapshot d = host.Data;
+            if (d != null && d.HasWinMeta && d.WinTruth0)
+                col.Children.Add(T(SessionsMarkers.TruthFootnote, 11, Palette.TextFaint));
+            return Card(col, new Thickness(0), new Thickness(14, 10));
+        }
+
+        /// <summary>口径 chip（静态标签 ✗ 不是按钮 ✓ 血缘两档永远点不了 —— 用不可点的形态，不做「灰按钮」假象 ✓）。</summary>
+        private static Control BoardScopeChip(string text, bool active)
+        {
+            return new Border
+            {
+                Background = active ? Palette.Accent : Palette.CardHover,
+                CornerRadius = new CornerRadius(6),
+                Padding = new Thickness(12, 5),
+                VerticalAlignment = VerticalAlignment.Center,
+                Child = T(text, 11.5, active ? Palette.OnAccent : Palette.TextFaint)
+            };
+        }
+
+        /// <summary>③ 固定总计卡（规格 §4.2 ✓✓）：SESSAGG_TOTAL scope=store —— **无视窗口过滤** ✓
+        /// 窗口怎么切它都不变 ✓ 数据面 = 全部会话的已知字段之和（unknown 的按缺失处理 ✗ 不假装 0 ✓）。</summary>
+        private static Control BoardTotalCard(SessionsSnapshot d)
+        {
+            StackPanel c = new StackPanel { Spacing = 8 };
+            c.Children.Add(T("总计（全部 " + d.AggSessions + " 个会话 · 不随上方筛选变化）", 13, Palette.Text, FontWeight.Bold));
+            c.Children.Add(T("输入 " + SessionRow.Human(d.AggUncached + d.AggCacheRead)
+                + " token（其中缓存读 " + SessionRow.Human(d.AggCacheRead) + " · 缓存写 " + SessionRow.Human(d.AggCacheWrite) + "）"
+                + "　输出 " + SessionRow.Human(d.AggOutput) + " token", 12, Palette.TextDim));
+            string span = (d.AggFirstDay.Length > 0 && d.AggFirstDay != "unknown" && d.AggLastDay.Length > 0 && d.AggLastDay != "unknown")
+                ? d.AggFirstDay + " ~ " + d.AggLastDay : "未知（不猜）";
+            c.Children.Add(T("非空会话 " + d.AggNonBlank + " 个 · 活动跨度（本地日期）" + span
+                + " · token 未知的会话未计入求和（不假装 0）", 11.5, Palette.TextFaint));
+            return Card(c, new Thickness(0), new Thickness(18, 16));
+        }
+
+        /// <summary>窗口总计卡（规格 §4.1 ✓✓）：SESSAGG_SESSION 行（= eligible 集合 ✓）GUI 侧求和 ✓
+        /// 与固定总计卡并排对照 ✓ 卡内必须再印 C.4（truth=0 ✓ 一字不许改 ✓）。</summary>
+        private static Control BoardWindowCard(SessionsSnapshot d)
+        {
+            long uncached = 0, cacheRead = 0, cacheWrite = 0, output = 0, turns = 0, tokKnown = 0, tokUnknown = 0;
+            for (int i = 0; i < d.AggRows.Count; i++)
+            {
+                SessAggRow r = d.AggRows[i];
+                if (r == null) continue;
+                if (r.HasTokens)
+                {
+                    tokKnown++;
+                    uncached += r.Uncached; cacheRead += r.CacheRead; cacheWrite += r.CacheWrite; output += r.Output;
+                }
+                else tokUnknown++;
+                if (r.HasStats) turns += r.Turns;
+            }
+            StackPanel c = new StackPanel { Spacing = 8 };
+            c.Children.Add(T("近 " + d.WinDays + " 天窗口总计（" + d.WinEligible + " 个会话有活动）", 13, Palette.Text, FontWeight.Bold));
+            c.Children.Add(T("输入 " + SessionRow.Human(uncached + cacheRead)
+                + " token（其中缓存读 " + SessionRow.Human(cacheRead) + " · 缓存写 " + SessionRow.Human(cacheWrite) + "）"
+                + "　输出 " + SessionRow.Human(output) + " token　轮次 " + turns, 12, Palette.TextDim));
+            string range = (d.WinFrom != "-" && d.WinTo != "-") ? d.WinFrom + " ~ " + d.WinTo + "（右端不含 · 时区 " + (d.WinTz.Length > 0 ? d.WinTz : "未知") + "）" : "窗口范围未知";
+            string miss = d.WinUnknownLast > 0
+                ? " · 另有 " + d.WinUnknownLast + " 个会话没有最后活动时间 → 不进窗口（不猜日期 ✓ 已计入上方总计卡 ✓）"
+                : "";
+            string unk = tokUnknown > 0
+                ? " · " + tokUnknown + " 个会话 token 未知（未计入求和 ✓ 不假装 0 ✓）"
+                : "";
+            c.Children.Add(T("窗口：" + range + miss + unk, 11.5, Palette.TextFaint));
+            c.Children.Add(T(SessionsMarkers.TruthFootnote, 11, Palette.TextFaint));
+            return Card(c, new Thickness(0), new Thickness(18, 16));
         }
 
         private static Control StatusDetail(MainWindow host)
@@ -846,6 +1003,14 @@ namespace Dsht.Gui.Avalonia.Shells
 
 
 
+            // —— 看板第一批（2026-10-08 ✓✓ 规格 §4.1 ✓）：窗口档生效 → 图 1/2/3 只看 eligible 集（SESSAGG_SESSION id ✓）——
+            //   老 CLI（无 SESSWIN_META → AggIdSet()=null ✓）或 总计档（WinDays<0 ✓）→ 不过滤 ✓ 行为与旧版一致 ✓✓
+            HashSet<string> elig = d.AggIdSet();
+
+            bool winFilter = elig != null && d.WinDays > 0;
+
+
+
             // ① 近 N 天新增会话（N = 7/14/30 可切）
 
             // 日期范围切换 ✓（用户要求 ✓）
@@ -922,6 +1087,8 @@ namespace Dsht.Gui.Avalonia.Shells
 
             {
 
+                if (winFilter && (d.Rows[i] == null || d.Rows[i].Id == null || !elig.Contains(d.Rows[i].Id))) continue;   // ★ 窗口档过滤（看板第一批 ✓）
+
                 string created = d.Rows[i].Created;
 
                 if (string.IsNullOrEmpty(created) || created.Length < 10) continue;
@@ -946,6 +1113,8 @@ namespace Dsht.Gui.Avalonia.Shells
 
             c1.Children.Add(T("最高 " + max + " 个/天　合计 " + Sum(counts) + " 个（创建时间缺失的会话不计入，不猜）", 11.5, Palette.TextFaint));
 
+            c1.Children.Add(T("按会话创建日（UTC）分桶" + (winFilter ? "；只统计上方窗口内有活动的会话" : ""), 11, Palette.TextFaint));   // 规格 §5.5/D-5 ✓ 图 1 保留但明说分桶键 ✓
+
             s.Children.Add(Card(c1, new Thickness(0), new Thickness(18, 16)));
 
 
@@ -957,6 +1126,8 @@ namespace Dsht.Gui.Avalonia.Shells
             for (int i = 0; i < d.Rows.Count; i++)
 
             {
+
+                if (winFilter && (d.Rows[i] == null || d.Rows[i].Id == null || !elig.Contains(d.Rows[i].Id))) continue;   // ★ 窗口档过滤（看板第一批 ✓）
 
                 double h = d.Rows[i].HitPercent;
 
@@ -986,27 +1157,59 @@ namespace Dsht.Gui.Avalonia.Shells
 
 
 
-            // ③ 近 N 天 **token 消耗趋势**（N = 7/14/30 可切）（A 类：会话视角，但看的是"花了多少"而不是"开了几个" ✓）
+            // ③ 近 N 天**有活动的会话 · 整会话累计**（看板第一批 · 2026-10-08 ✓✓ 规格 §4.3/§5.5 D-5 ✓✓）
+            //   ✗ 旧版按 **Created 的 UTC 日**把整会话累计塞进创建日 → 与"近 N 天用量"观感打架 ✗
+            //   ✓ 现在：分桶键 = 各会话 **lastPromptAt 的本地日** ✓（GUI 侧分桶先例 ✓ 规格 :812 ✓）
+            //     · 缺 lastPromptAt 的会话**不进图**（不猜日期 ✓）并在脚注如实计数 ✓
+            //     · 数字是**整会话累计**（truth=0 ✗ 非窗口内增量 ✓ C.4 脚注必须跟着 ✓✓）
+            string[] labelsLoc = new string[days];
+
+            string[] labelsLocFull = new string[days];
+
+            System.DateTime todayLoc = System.DateTime.Now.Date;
+
+            for (int i = 0; i < days; i++)
+
+            {
+
+                System.DateTime dday = todayLoc.AddDays(i - (days - 1));
+
+                labelsLoc[i] = dday.ToString("MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+
+                labelsLocFull[i] = dday.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+
+            }
 
             long[] dayTok = new long[days];
 
             long maxTok = 0;
 
+            long missingLast3 = 0;
+
             for (int i = 0; i < d.Rows.Count; i++)
 
             {
 
-                string cr = d.Rows[i].Created;
+                SessionRow r3 = d.Rows[i];
 
-                if (string.IsNullOrEmpty(cr) || cr.Length < 10) continue;
+                if (winFilter && (r3 == null || r3.Id == null || !elig.Contains(r3.Id))) continue;   // ★ 窗口档过滤 ✓
 
-                string dy = cr.Substring(0, 10);
+                string lp = r3 == null ? null : r3.Last;
+
+                if (string.IsNullOrEmpty(lp)) { missingLast3++; continue; }
+
+                System.DateTime lpdt;
+
+                if (!System.DateTime.TryParse(lp, System.Globalization.CultureInfo.InvariantCulture,
+                        System.Globalization.DateTimeStyles.AssumeUniversal | System.Globalization.DateTimeStyles.AdjustToUniversal, out lpdt)) { missingLast3++; continue; }
+
+                string lday = lpdt.ToLocalTime().ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
 
                 for (int k = 0; k < days; k++)
 
                 {
 
-                    if (labelsFull[k].Length == 10 && dy.Length >= 10 && string.Equals(dy.Substring(0, 10), labelsFull[k], StringComparison.Ordinal)) dayTok[k] += d.Rows[i].In;   // MAJOR FIX
+                    if (labelsLocFull[k].Length == 10 && string.Equals(lday, labelsLocFull[k], StringComparison.Ordinal)) dayTok[k] += r3.In;   // 整会话累计 ✓ 不是窗口增量 ✓
 
                 }
 
@@ -1022,15 +1225,13 @@ namespace Dsht.Gui.Avalonia.Shells
 
             StackPanel c3 = new StackPanel { Spacing = 8 };
 
-            // N11 FIX: the bar unit follows the data, so the title must too (it said "k token" even
+            c3.Children.Add(T("近 " + days + " 天有活动的会话 · 整会话累计（输入侧合计，" + (tokDiv >= 1000 ? "k token" : "token") + "）", 13, Palette.Text, FontWeight.Bold));   // 口径名一字不改 ✓ 规格 §4.3 :119 ✓
 
-            // when the chart was drawing plain tokens)
+            c3.Children.Add(BarChart(labelsLoc, dayTokK, maxTok / tokDiv, Palette.Warn, maxTok >= 1000 ? "k tok" : "tok"));   // F11 FIX: unit follows the data
 
-            c3.Children.Add(T("近 " + days + " 天 token 消耗（输入侧合计，" + (tokDiv >= 1000 ? "k token" : "token") + "；按 dsh 记录的创建时间归日）", 13, Palette.Text, FontWeight.Bold));
+            c3.Children.Add(T("合计 " + SessionRow.Human(Sum(dayTok)) + " token　最高 " + SessionRow.Human(maxTok) + "/天（按最后活动时间归**本地日**；缺失 " + missingLast3 + " 个不计入，不猜）", 11.5, Palette.TextFaint));
 
-            c3.Children.Add(BarChart(labels, dayTokK, maxTok / tokDiv, Palette.Warn, maxTok >= 1000 ? "k tok" : "tok"));   // F11 FIX: unit follows the data
-
-            c3.Children.Add(T("合计 " + SessionRow.Human(Sum(dayTok)) + " token　最高 " + SessionRow.Human(maxTok) + "/天（创建时间缺失的会话不计入，不猜）", 11.5, Palette.TextFaint));
+            c3.Children.Add(T(SessionsMarkers.TruthFootnote, 11, Palette.TextFaint));   // C.4 ✓ 一字不许改 ✓ 规格 §4.3/C.4 ✓✓
 
             s.Children.Add(Card(c3, new Thickness(0), new Thickness(18, 16)));
 

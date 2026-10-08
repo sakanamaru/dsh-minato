@@ -32,6 +32,54 @@ namespace Dsht.Cli
         }
         private static int Sessions(ServiceRegistry reg)
         {
+            return Sessions(reg, new string[0]);
+        }
+        /// <summary>sessions [--days 7|14|30] [--level global]（看板第一批 · 2026-10-08 ✓✓）。
+        /// ★ --days 省略 = 总计（SESSWIN_META days=unknown、from/to=「-」✓）；值只认 7/14/30 ✗ 其它一律 SESSIONS_FAIL + stderr（rc 仍 0 ✓ 与既有 FAIL 路径一致 ✓）
+        /// ★ --level 省略 = 配置 sessions_default_level（默认 global ✓）；第一批**只实现 global** ✓✓ ——
+        ///   parents / parents_sub 如实拒绝：投影侧血缘数据不全（实测：catalog 漏 26 个真子代理 + 18 条 fork 边无投影来源 ✓ 规格 §11.2），
+        ///   含子代理统计必须读原始日志 → 随解码器决策后移第二批（决策 D2/D6 ✓）
+        /// ★ 窗口口径（规格 §4.2 / C.4）：按会话**最后活动时间**筛选 ✓；用量为**整会话累计** ✗ 不是窗口内增量 ✓（GUI 随 truth=0 常显 C.4 脚注 ✓）
+        /// ★ 时区纪律：本地日 00:00 边界的换算**在这里**做（TimeZoneInfo 逐日取偏移 = 夏令时正确 ✓）——Domain 只做毫秒区间比较 ✓（领域层不碰时钟/时区 ✓✓）</summary>
+        private static int Sessions(ServiceRegistry reg, string[] args)
+        {
+            // —— 参数（先于任何 IO ✓；无效参数 = SESSWIN_META(source=unknown 计数全 0) + SESSIONS_FAIL + stderr，rc=0 ✓ 规格 §11.1 ✓）——
+            int days = 0;   // 0 = 总计（marker 里写 unknown ✓ 窗口不过滤 → 窗口卡 == 总计卡 ✓ 硬要求 ✓）
+            string daysRaw = FlagOf(args, "--days");
+            if (daysRaw.Length > 0 && daysRaw != "7" && daysRaw != "14" && daysRaw != "30")
+            {
+                PrintWinMeta(0, "-", "-", "unknown", 0, 0, 0);
+                Console.Error.WriteLine("SESSAGG_ARG --days 只认 7 / 14 / 30（收到：" + daysRaw + "）");
+                Console.WriteLine("SESSIONS_FAIL " + T("--days 只认 7 / 14 / 30（收到：" + daysRaw + "）",
+                    "--days accepts only 7 / 14 / 30 (got: " + daysRaw + ")"));
+                return 0;
+            }
+            if (daysRaw.Length > 0) days = int.Parse(daysRaw, System.Globalization.CultureInfo.InvariantCulture);
+            // —— 窗口阈值：本地日 00:00 → 次日 00:00，**左闭右开** ✓（夏令时逐日正确 ✓）；days=0 → 不过滤 ✓ ——
+            long fromMs = 0;
+            long toMsEx = 0;
+            string fromText = "-";
+            string toText = "-";
+            if (days > 0)
+            {
+                DateTime today = DateTime.Now.Date;
+                DateTime fromDate = today.AddDays(-(days - 1));
+                fromMs = LocalMidnightUtcMs(fromDate);
+                toMsEx = LocalMidnightUtcMs(today.AddDays(1));
+                fromText = fromDate.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+                toText = today.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+            }
+            string level = FlagOf(args, "--level");
+            if (level.Length == 0) level = (_cfg != null && _cfg.SessionsDefaultLevel != null) ? _cfg.SessionsDefaultLevel : "global";
+            level = level.Trim().ToLowerInvariant();
+            if (level != "global")
+            {
+                PrintWinMeta(days, fromText, toText, "unknown", 0, 0, 0);
+                Console.Error.WriteLine("SESSAGG_LEVEL 第一批只实现 global 口径；" + level + " 需要血缘闭包，而投影侧数据不全（catalog 漏 26 个真子代理 + 18 条 fork 边无投影来源 ✓ 实测）→ 含子代理统计须读原始日志，随解码器决策后移第二批");
+                Console.WriteLine("SESSIONS_FAIL " + T("口径暂未实现：" + level + "（第一批只实现 global；含子代理统计须读原始日志 → 第二批）",
+                    "scope not implemented in batch 1: " + level + " (only global; subagent-aware stats need raw logs -> batch 2)"));
+                return 0;
+            }
             ISessionStatsSource src = reg.Get<ISessionStatsSource>();
             List<SessionStat> list = new List<SessionStat>();
             string source = "disk";
@@ -92,6 +140,7 @@ namespace Dsht.Cli
                 }
             }
             // 磁盘投影：**总是扫** ✓ 只补快照里没有的 id ✓（有快照的那条用快照的数字 ✓ 更实时 ✓）
+            RowGateReport rep = new RowGateReport();   // ★ R5/R6 丢弃计数 → stderr SESSAGG_ROWDROP ✓（2026-10-08 ✓ 只进 stderr ✗ 不污染 stdout 标记面 ✓）
             int fromDisk = 0;
             string[] files = src.ListSessionFiles();
             // ★★ 第 2 轮审查抓到：下面那段 childId 扫描**又把每个文件读了一遍** ✗✗
@@ -105,7 +154,7 @@ namespace Dsht.Cli
                 if (id != null && have.Contains(id)) continue;
                 string txt1 = src.ReadText(files[i]);
                 if (!string.IsNullOrEmpty(txt1)) textCache[files[i]] = txt1;
-                SessionStat s = SessionStats.ParseSessionProjection(txt1, id);
+                SessionStat s = SessionStats.ParseSessionProjection(txt1, id, rep);
                 if (s != null) { list.Add(s); if (id != null) have.Add(id); fromDisk++; }
             }
             if (fromDisk > 0) source = (source == "snapshot") ? "snapshot+disk" : "disk";
@@ -114,12 +163,14 @@ namespace Dsht.Cli
                 string agg = src.ReadText(src.AggregatePath);
                 if (agg != null)
                 {
-                    SessionStat[] a = SessionStats.ParseAggregate(agg);
+                    SessionStat[] a = SessionStats.ParseAggregate(agg, rep);
                     if (a.Length > 0) { list.AddRange(a); source = "aggregate"; }
                 }
             }
             if (list.Count == 0)
             {
+                // ★ 规格 §11.1：FAIL 路径也照打 SESSWIN_META（source=unknown、计数全 0 ✓ 在 SESSIONS_FAIL **之前** ✓）但不打 SESSAGG_TOTAL ✓
+                PrintWinMeta(days, fromText, toText, "unknown", 0, 0, 0);
                 Console.WriteLine("SESSIONS_FAIL " + T("没有可读的会话投影（dsh 未初始化，或该 dsh 版本的投影格式不认）",
                     "no readable session projection (dsh not initialized, or an unrecognized projection format)"));
                 return 0;
@@ -162,6 +213,50 @@ namespace Dsht.Cli
             Console.WriteLine("SESSIONS_LIVE " + liveCount);   // 只在有插件快照时可能 > 0（磁盘投影没有"在跑"这个事实）
             Console.WriteLine("SESSIONS_SOURCE " + source);
             Console.WriteLine("SESSIONS_ROOT " + src.SessionsDir);
+            // —— 看板第一批（2026-10-08 ✓✓）：窗口元信息 + 固定总计卡 + 窗口内逐会话聚合（规格 §11.1 ✓ truth=0 ✓✓）——
+            // eligible/unknown_last：days=0（总计）→ eligible = 全部 scanned ✓✓（窗口卡 == 总计卡 ✓ 硬要求 ✓）；unknown_last 只**报告**不排除 ✓
+            int unknownLast = 0;
+            int eligibleCount = 0;
+            for (int i = 0; i < list.Count; i++)
+            {
+                long lp = SessionWindow.EffectiveLastPromptMs(list[i]);
+                if (lp <= 0) unknownLast++;
+                if (days <= 0 || SessionWindow.Accept(lp, fromMs, toMsEx)) eligibleCount++;
+            }
+            PrintWinMeta(days, fromText, toText, source, list.Count, eligibleCount, unknownLast);
+            // 固定总计卡：**无视窗口过滤** ✓（scope=store ✓）；first_day = min(createdAt) 本地日，last_day = max(lastPromptAt) 本地日（全无 → unknown ✗ 不猜 ✓）
+            long aggUncached = 0;
+            long aggCacheRead = 0;
+            long aggCacheWrite = 0;
+            long aggOutput = 0;
+            long firstDayMs = -1;
+            long lastDayMs = -1;
+            for (int i = 0; i < list.Count; i++)
+            {
+                SessionStat s = list[i];
+                if (s.HasTokens)
+                {
+                    aggUncached += s.UncachedInputTokens;
+                    aggCacheRead += s.CacheReadTokens;
+                    aggCacheWrite += s.CacheWriteTokens;
+                    aggOutput += s.OutputTokens;
+                }
+                if (s.CreatedAtEpochMs > 0 && (firstDayMs < 0 || s.CreatedAtEpochMs < firstDayMs)) firstDayMs = s.CreatedAtEpochMs;
+                long lp = SessionWindow.EffectiveLastPromptMs(s);
+                if (lp > lastDayMs) lastDayMs = lp;
+            }
+            Console.WriteLine("SESSAGG_TOTAL scope=store sessions=" + list.Count
+                + " nonblank=" + tot.NonBlankCount
+                + " uncached=" + aggUncached
+                + " cacheRead=" + aggCacheRead
+                + " cacheWrite=" + aggCacheWrite
+                + " output=" + aggOutput
+                + " first_day=" + (firstDayMs > 0 ? LocalDayOfEpochMs(firstDayMs) : "unknown")
+                + " last_day=" + (lastDayMs > 0 ? LocalDayOfEpochMs(lastDayMs) : "unknown")
+                + " truth=0");
+            // —— 诚实行（只进 stderr ✓✓ stdout 标记面保持干净 ✓ verify_command_matrix 抓不到 stderr → 用 stdout 标记验证主体 ✓）——
+            if (unknownLast > 0) Console.Error.WriteLine("SESSAGG_UNKNOWN_LAST n=" + unknownLast);
+            EmitRowDrop(rep);
             for (int i = 0; i < list.Count; i++)
             {
                 SessionStat s = list[i];
@@ -197,7 +292,69 @@ namespace Dsht.Cli
                 + " uncached=" + tot.UncachedInputTokens   // ★ 口径拆开：in = uncached + cacheRead（用户反馈"400 亿太恐怖"→ 让数字自我解释 ✓）
                 + " hit=" + Num1(tot.CacheHitPercent)
                 + " decode=" + Num1(tot.DecodeTokensPerSec));
+            // —— 窗口内逐会话聚合（第一批：**只 bucket=own** ✓ 只打 eligible ✓ 未知 → literal unknown ✗ 不假装 0 ✓✓；
+            //   children/depth 固定 unknown —— 血缘口径连同解码器决策后移第二批 ✓ 决策 D2/D6 ✓）——
+            for (int i = 0; i < list.Count; i++)
+            {
+                SessionStat s = list[i];
+                if (days > 0 && !SessionWindow.Accept(SessionWindow.EffectiveLastPromptMs(s), fromMs, toMsEx)) continue;
+                System.Globalization.CultureInfo i0c = System.Globalization.CultureInfo.InvariantCulture;
+                Console.WriteLine("SESSAGG_SESSION " + MarkerText.Encode(s.Id)
+                    + " bucket=own"
+                    + " turns=" + (s.HasStats ? s.Turns.ToString(i0c) : "unknown")
+                    + " steps=" + (s.HasStats ? s.Steps.ToString(i0c) : "unknown")
+                    + " uncached=" + (s.HasTokens ? s.UncachedInputTokens.ToString(i0c) : "unknown")
+                    + " cacheRead=" + (s.HasTokens ? s.CacheReadTokens.ToString(i0c) : "unknown")
+                    + " cacheWrite=" + (s.HasTokens ? s.CacheWriteTokens.ToString(i0c) : "unknown")
+                    + " output=" + (s.HasTokens ? s.OutputTokens.ToString(i0c) : "unknown")
+                    + " children=unknown depth=unknown");
+            }
             return 0;
+        }
+        /// <summary>SESSWIN_META 发射（OK 与 FAIL 路径共用 ✓ 规格 §11.1 ✓）。
+        /// days=0 → days=unknown 且 from/to=「-」✓（总计 ✓）。
+        /// tz：TimeZoneInfo.Local.Id —— Linux 上是 IANA 名，Windows 上是 Windows 时区 ID（.NET 4.x 无 IANA 映射 API ✓ 如实上报平台名 ✗ 不维护对照表 ✗ 规格 §11.1 偏差登记 ✓）。</summary>
+        private static void PrintWinMeta(int days, string fromText, string toText, string source, int scanned, int eligible, int unknownLast)
+        {
+            Console.WriteLine("SESSWIN_META days=" + (days > 0 ? days.ToString(System.Globalization.CultureInfo.InvariantCulture) : "unknown")
+                + " from=" + fromText
+                + " to=" + toText
+                + " tz=" + MarkerText.Encode(TimeZoneInfo.Local.Id)
+                + " truth=0 level=global source=" + source
+                + " scanned=" + scanned
+                + " eligible=" + eligible
+                + " unknown_last=" + unknownLast);
+        }
+        /// <summary>R5/R6 丢弃计数 → stderr SESSAGG_ROWDROP（每条非零桶一行 ✓ key=<名> ver=<期望版本> n=<条数> ✓）。</summary>
+        private static void EmitRowDrop(RowGateReport rep)
+        {
+            if (rep == null) return;
+            if (rep.DocRejected > 0) Console.Error.WriteLine("SESSAGG_ROWDROP key=document ver=" + SessionStats.ProjectionDocCompatMin + "-" + SessionStats.ProjectionDocVersion + " n=" + rep.DocRejected);
+            if (rep.SessionStats > 0) Console.Error.WriteLine("SESSAGG_ROWDROP key=sessionStats ver=" + SessionStats.RowVerSessionStats + " n=" + rep.SessionStats);
+            if (rep.TokenUsage > 0) Console.Error.WriteLine("SESSAGG_ROWDROP key=tokenUsage ver=" + SessionStats.RowVerTokenUsage + " n=" + rep.TokenUsage);
+            if (rep.ContextPressure > 0) Console.Error.WriteLine("SESSAGG_ROWDROP key=contextPressure ver=" + SessionStats.RowVerContextPressure + " n=" + rep.ContextPressure);
+            if (rep.ContextBreakdown > 0) Console.Error.WriteLine("SESSAGG_ROWDROP key=contextBreakdown ver=" + SessionStats.RowVerContextBreakdown + " n=" + rep.ContextBreakdown);
+            if (rep.SessionListMetadata > 0) Console.Error.WriteLine("SESSAGG_ROWDROP key=sessionListMetadata ver=" + SessionStats.RowVerSessionListMetadata + " n=" + rep.SessionListMetadata);
+            if (rep.Title > 0) Console.Error.WriteLine("SESSAGG_ROWDROP key=title ver=" + SessionStats.RowVerTitle + " n=" + rep.Title);
+        }
+        /// <summary>本地日 00:00 → UTC 毫秒（窗口边界 ✓ 左闭右开 ✓ 逐日取偏移 = 夏令时正确 ✓）。</summary>
+        private static long LocalMidnightUtcMs(DateTime localDate)
+        {
+            TimeSpan off = TimeZoneInfo.Local.GetUtcOffset(localDate);
+            DateTime utcTicks = new DateTime(localDate.Ticks, DateTimeKind.Unspecified).Subtract(off);
+            return (long)(utcTicks - new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc)).TotalMilliseconds;
+        }
+        /// <summary>epoch 毫秒 → **本地日** yyyy-MM-dd（CLI 层 ✓ 时区在这里碰 ✓ 逐时刻取偏移 = 夏令时正确 ✓）。≤0/异常 → "unknown" ✗ 不猜 ✓。</summary>
+        private static string LocalDayOfEpochMs(long ms)
+        {
+            if (ms <= 0) return "unknown";
+            try
+            {
+                DateTime utc = new DateTime(1970, 1, 1, 0, 0, 0, DateTimeKind.Utc).AddMilliseconds(ms);
+                DateTime local = utc + TimeZoneInfo.Local.GetUtcOffset(utc);
+                return local.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
+            }
+            catch { return "unknown"; }
         }
     }
 }

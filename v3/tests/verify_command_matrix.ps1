@@ -76,6 +76,12 @@ function Run-Cli([string]$exe, [string[]]$cmdArgs) {
     $raw = (Invoke-External { & $exe @cmdArgs }) | Out-String
     return @{ rc = $LASTEXITCODE; raw = $raw; out = (Clean $raw) }
 }
+# 合并 stderr 的变体：只给"需要断言 stderr 诚实行（SESSAGG_ROWDROP 等）"的用例用 ✓
+# （Clean 已剔 ErrorRecord 包装噪声 ✓；其余用例照旧不合并 → stdout 标记面不被 stderr 稀释 ✓）
+function Run-CliMerged([string]$exe, [string[]]$cmdArgs) {
+    $raw = (Invoke-External { & $exe @cmdArgs 2>&1 }) | Out-String
+    return @{ rc = $LASTEXITCODE; raw = $raw; out = (Clean $raw) }
+}
 function MarkLines([string]$clean, [string]$prefix) {
     return @(($clean -split "`n") | Where-Object { $_ -match ('^' + $prefix) })
 }
@@ -200,6 +206,102 @@ try {
         if ($c[3] -ne '') { Check ($c[0] + " 不该出现 /" + $c[3] + "/") (-not (HasMarker $r.out $c[3])) }
         if ($null -ne $c[4]) { Check ($c[0] + " 退出码 = " + $c[4]) ($r.rc -eq $c[4]) }
     }
+
+    # ------------------------------------------------------------------
+    # 1b) 看板第一批（2026-10-08 ✓✓ 规格 §11.1/§11.5 验收⑤ ✓✓）
+    #   投影夹具形状 = live 写者同款（<根>\storages\session_projcache\sessions\<id>.json ✓ ver 逐键 ✓）
+    #   相对时间：near = 现在-6.5 天（进 7/14/30 天窗口 ✓）；far = 现在-40 天（只进总计档 ✓）；
+    #             sessC 无 lastPromptAt → unknown_last=1 ✓ 不进窗口 ✓ 但计入 SESSAGG_TOTAL ✓
+    #   断言全部是**精确整行**（数字逐个对 ✗ 不是"有标记就行" ✓✓）
+    # ------------------------------------------------------------------
+    Section "1b. 看板第一批：sessions --days/--level（隔离数据根 + 投影夹具）"
+    $f1b = New-Fixture "board"; $script:isoList.Add($f1b.iso)
+    $env:DSH_HOME = $f1b.home
+    $cset1b = Run-Cli $Cli @("config-set", "ws", $f1b.ws)
+    $msNear = [DateTimeOffset]::Now.AddDays(-6.5).ToUnixTimeMilliseconds()
+    $msFar  = [DateTimeOffset]::Now.AddDays(-40).ToUnixTimeMilliseconds()
+    $today  = (Get-Date).Date
+    $from7  = $today.AddDays(-6).ToString('yyyy-MM-dd')
+    $toDay  = $today.ToString('yyyy-MM-dd')
+    $firstDay = [DateTimeOffset]::FromUnixTimeMilliseconds($msFar).LocalDateTime.ToString('yyyy-MM-dd')
+    $lastDay  = [DateTimeOffset]::FromUnixTimeMilliseconds($msNear).LocalDateTime.ToString('yyyy-MM-dd')
+    function Write-BoardProj([string]$root, [string]$id, [long]$createdMs, [string]$metaRows, [int]$un, [int]$cr, [int]$cw, [int]$ou, [int]$tu, [int]$st) {
+        $dir = Join-Path (Join-Path (Join-Path $root "storages") "session_projcache") "sessions"
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        $json = '{"version":7,"record":{"identity":{"createdAt":' + $createdMs + ',"cwd":"D:\\w"},' +
+            '"rows":{"sessionStats":{"ver":1,"seq":1,"val":{"turns":' + $tu + ',"steps":' + $st + ',"llmMs":100,"toolMs":0,"ttftMs":10,"decodeMs":100,"decodeTokens":50}},' +
+            '"tokenUsage":{"ver":2,"val":{"totals":{"uncachedInputTokens":' + $un + ',"outputTokens":' + $ou + ',"cacheReadTokens":' + $cr + ',"cacheWriteTokens":' + $cw + '}}},' +
+            $metaRows +
+            '"title":{"ver":1,"val":"t-' + $id + '"}}}}'
+        [System.IO.File]::WriteAllText((Join-Path $dir ($id + ".json")), $json, [System.Text.Encoding]::UTF8)
+    }
+    $metaNear = '"sessionListMetadata":{"ver":1,"val":{"blank":false,"lastPromptAt":' + $msNear + '}},'
+    $metaFar  = '"sessionListMetadata":{"ver":1,"val":{"blank":false,"lastPromptAt":' + $msFar + '}},'
+    $metaNone = '"sessionListMetadata":{"ver":1,"val":{"blank":false}},'
+    Write-BoardProj $f1b.home "aaaa0001" $msNear $metaNear 100 200 30 40 3 9
+    Write-BoardProj $f1b.home "bbbb0002" $msFar  $metaFar  500 600 70 80 5 11
+    Write-BoardProj $f1b.home "cccc0003" $msNear $metaNone 7 0 0 0 1 1
+    # sessD：tokenUsage ver=1（与真实库 51 条旧投影同款 ✓ 验收③ 端到端 ✓）→ R5 行门丢弃 → 四桶 literal unknown
+    #   + stderr SESSAGG_ROWDROP key=tokenUsage ver=1 n=1 ✓✓（turns/steps 不受影响 ✓ 门是**逐键**的 ✓）
+    $jsonD = '{"version":7,"record":{"identity":{"createdAt":' + $msFar + ',"cwd":"D:\\w"},' +
+        '"rows":{"sessionStats":{"ver":1,"seq":1,"val":{"turns":2,"steps":3,"llmMs":100,"toolMs":0,"ttftMs":10,"decodeMs":100,"decodeTokens":50}},' +
+        '"tokenUsage":{"ver":1,"val":{"totals":{"uncachedInputTokens":9,"outputTokens":9,"cacheReadTokens":9,"cacheWriteTokens":9}}},' +
+        '"sessionListMetadata":{"ver":1,"val":{"blank":false,"lastPromptAt":' + $msFar + '}},' +
+        '"title":{"ver":1,"val":"t-dddd0004"}}}}'
+    [System.IO.File]::WriteAllText((Join-Path (Join-Path (Join-Path (Join-Path $f1b.home "storages") "session_projcache") "sessions") "dddd0004.json"), $jsonD, [System.Text.Encoding]::UTF8)
+
+    # -- --days 7：窗口 [今天-6, 明天) 左闭右开 → 只有 aaaa0001 eligible --
+    $s7 = Run-Cli $Cli @("sessions", "--days", "7")
+    Write-Host ("  -- sessions --days 7   rc=" + $s7.rc)
+    foreach ($l in (MarkLines $s7.out 'SESSWIN_META|SESSAGG_' | Select-Object -First 4)) { Write-Host ("       " + $l) }
+    Check "1b --days 7 退出码 = 0" ($s7.rc -eq 0)
+    Check "1b --days 7 SESSIONS_OK 4（列表不过滤 ✓ 含待拒的 sessD ✓）" (HasMarker $s7.out '^SESSIONS_OK 4$')
+    Check "1b --days 7 SESSWIN_META 精确整行（eligible=1 · unknown_last=1 · truth=0 ✓）" `
+        (HasMarker $s7.out ('^SESSWIN_META days=7 from=' + $from7 + ' to=' + $toDay + ' tz=.+ truth=0 level=global source=disk scanned=4 eligible=1 unknown_last=1$'))
+    Check "1b --days 7 SESSAGG_TOTAL 精确整行（无视窗口 ✓ 三**有效**会话求和 607/800/100/120 ✓ sessD 四桶被门拒 → 不进求和 ✗ 不假装 0 ✓）" `
+        (HasMarker $s7.out ('^SESSAGG_TOTAL scope=store sessions=4 nonblank=4 uncached=607 cacheRead=800 cacheWrite=100 output=120 first_day=' + $firstDay + ' last_day=' + $lastDay + ' truth=0$'))
+    $aggRows7 = @(MarkLines $s7.out '^SESSAGG_SESSION ')
+    Check "1b --days 7 SESSAGG_SESSION 恰 1 行且内容精确（只有近窗口会话 ✓ children/depth=unknown ✓）" `
+        ($aggRows7.Count -eq 1 -and $aggRows7[0] -eq 'SESSAGG_SESSION aaaa0001 bucket=own turns=3 steps=9 uncached=100 cacheRead=200 cacheWrite=30 output=40 children=unknown depth=unknown')
+    Check "1b --days 7 SESSION 明细行仍 4 条（KPI 用 ✓ 不被窗口吃掉 ✓）" (@(MarkLines $s7.out '^SESSION ').Count -eq 4)
+
+    # -- 不带 --days（总计档）：days=unknown · eligible=全部 · SESSAGG_SESSION 全量（窗口卡==总计卡 ✓ 硬要求 ✓）--
+    #    用合并 stderr 的入口 ✓（SESSAGG_ROWDROP 是 stderr 诚实行 ✗ 不污染 stdout 标记面 ✓ → 断言它必须合并流才看得到 ✓）
+    $sAll = Run-CliMerged $Cli @("sessions")
+    Check "1b 总计档 SESSWIN_META 精确整行（days=unknown · from/to=- · eligible=4 · unknown_last=1 ✓）" `
+        (HasMarker $sAll.out '^SESSWIN_META days=unknown from=- to=- tz=.+ truth=0 level=global source=disk scanned=4 eligible=4 unknown_last=1$')
+    $aggRowsAll = @(MarkLines $sAll.out '^SESSAGG_SESSION ')
+    Check "1b 总计档 SESSAGG_SESSION 全量 4 行（含无 lastPromptAt 的 sessC ✓ 只报告不排除 ✓）" ($aggRowsAll.Count -eq 4)
+    Check "1b 验收③ 端到端：sessD（tokenUsage ver=1）四桶 literal unknown · turns/steps 照读 ✓（R5 逐键行门 ✓✓）" `
+        (@($aggRowsAll | Where-Object { $_ -eq 'SESSAGG_SESSION dddd0004 bucket=own turns=2 steps=3 uncached=unknown cacheRead=unknown cacheWrite=unknown output=unknown children=unknown depth=unknown' }).Count -eq 1)
+    Check "1b 验收③ 端到端：stderr SESSAGG_ROWDROP key=tokenUsage ver=2 n=1（行门丢弃**可见** ✓ ver=期望版本 ✓ 规格 §11.1 ✓）" `
+        (HasMarker $sAll.out '^SESSAGG_ROWDROP key=tokenUsage ver=2 n=1$')
+
+    # -- --days 14：-6.5 天仍在窗内 → eligible=1 --
+    $s14 = Run-Cli $Cli @("sessions", "--days", "14")
+    Check "1b --days 14 eligible=1（近会话在 · 远会话出 ✓）" (HasMarker $s14.out '^SESSWIN_META days=14 .+ eligible=1 unknown_last=1$')
+
+    # -- 非法 --days / --level：FAIL + SESSWIN_META(source=unknown 计数全 0) 先于 SESSIONS_FAIL · rc=0（与既有 FAIL 一致 ✓）--
+    $sBad = Run-Cli $Cli @("sessions", "--days", "99")
+    $badMeta = @(MarkLines $sBad.out '^SESSWIN_META ')
+    $badFail = @(MarkLines $sBad.out '^SESSIONS_FAIL ')
+    Check "1b --days 99 → rc=0 + SESSIONS_FAIL" ($sBad.rc -eq 0 -and $badFail.Count -eq 1)
+    Check "1b --days 99 SESSWIN_META(source=unknown 计数全 0) 在 SESSIONS_FAIL **之前**（顺序敏感 ✓ 规格 §11.1 ✓）" `
+        ($badMeta.Count -eq 1 -and $badMeta[0] -match '^SESSWIN_META days=unknown from=- to=- tz=.+ truth=0 level=global source=unknown scanned=0 eligible=0 unknown_last=0$' -and $sBad.out.IndexOf($badMeta[0]) -lt $sBad.out.IndexOf($badFail[0]))
+    $sLv = Run-Cli $Cli @("sessions", "--level", "parents")
+    $lvMeta = @(MarkLines $sLv.out '^SESSWIN_META ')
+    $lvFail = @(MarkLines $sLv.out '^SESSIONS_FAIL ')
+    Check "1b --level parents → rc=0 + SESSIONS_FAIL（第一批只实现 global ✓ 血缘后移第二批 ✓ 决策 D2/D6 ✓）" ($sLv.rc -eq 0 -and $lvFail.Count -eq 1)
+    Check "1b --level parents SESSWIN_META 零计数且先于 FAIL（含子代理统计未实现 → 明说 ✗ 不编数字 ✓✓）" `
+        ($lvMeta.Count -eq 1 -and $lvMeta[0] -match 'source=unknown scanned=0 eligible=0 unknown_last=0$' -and $sLv.out.IndexOf($lvMeta[0]) -lt $sLv.out.IndexOf($lvFail[0]))
+
+    # -- 默认口径配置键接线（sessions_default_level ✓ 第一批只认 global → 配成 parents 如实 FAIL ✓）--
+    $cfg1 = Run-Cli $Cli @("config-set", "sessions_default_level", "parents")
+    $sCfg = Run-Cli $Cli @("sessions")
+    Check "1b sessions_default_level=parents 生效 → 默认档如实 FAIL（配置键真的接线 ✓）" ((HasMarker $cfg1.out '^CONFIGSET_OK') -and (HasMarker $sCfg.out '^SESSIONS_FAIL '))
+    $cfg2 = Run-Cli $Cli @("config-set", "sessions_default_level", "global")
+    $sCfg2 = Run-Cli $Cli @("sessions")
+    Check "1b 恢复 global 后默认档恢复 OK（不留脏配置 ✓）" ((HasMarker $cfg2.out '^CONFIGSET_OK') -and (HasMarker $sCfg2.out '^SESSIONS_OK 4$'))
 
     # ------------------------------------------------------------------
     # 2) 写路径：backup / backup-list --verify / backup-export / restore --dry-run

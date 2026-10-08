@@ -12,6 +12,29 @@ namespace Dsht.Domain.Services
     /// **诚实边界**：字段缺失 → Has*=false、派生指标返回 -1（未知），**绝不假装 0**；
     /// 格式/版本不认 → 返回 null / 空数组，由调用方诚实降级。
     /// **隐私边界**：只读计数、时间与元数据（id/标题/cwd）；对话正文在 zstd 压缩的 `session.jsonl.zstd` 里，本工具不读。</summary>
+    /// <summary>R5/R6 版本门的**可见丢弃计数**（看板第一批 · 验收③的证据载体 ✓✓）。
+    /// 行 `ver` 不匹配 → 该行丢弃 + 对应桶 +1；文档 `version` 不认 → 整份拒收 + DocRejected。
+    /// 纯数据容器（零逻辑 ✓）；CLI 汇总后打到 stderr（SESSAGG_ROWDROP）✓ GUI 只吃 stdout ✗ 不受影响 ✓。</summary>
+    public sealed class RowGateReport
+    {
+        /// <summary>R6：文档版本不认而整份拒收的投影数。</summary>
+        public long DocRejected;
+        /// <summary>R5：sessionStats 行版本不匹配丢弃数。</summary>
+        public long SessionStats;
+        /// <summary>R5：tokenUsage 行版本不匹配丢弃数。</summary>
+        public long TokenUsage;
+        /// <summary>R5：contextPressure 行版本不匹配丢弃数。</summary>
+        public long ContextPressure;
+        /// <summary>R5：contextBreakdown 行版本不匹配丢弃数。</summary>
+        public long ContextBreakdown;
+        /// <summary>R5：sessionListMetadata 行版本不匹配丢弃数。</summary>
+        public long SessionListMetadata;
+        /// <summary>R5：title 行版本不匹配丢弃数。</summary>
+        public long Title;
+        /// <summary>R5 行丢弃合计（不含整文档拒收）。</summary>
+        public long RowDroppedTotal { get { return SessionStats + TokenUsage + ContextPressure + ContextBreakdown + SessionListMetadata + Title; } }
+    }
+
     public static class SessionStats
     {
         /// <summary>插件快照格式版本（我们的桥接插件与 CLI 之间的约定）。</summary>
@@ -23,18 +46,56 @@ namespace Dsht.Domain.Services
         /// <summary>未知值（派生指标的分母为 0 时返回它，而不是 0）。</summary>
         public const double Unknown = -1;
 
+        // ---------------- R5/R6 版本门（看板第一批 · 施工规格 §11.4 ✓✓）----------------
+        // 版本表 = **线上写入器**（桌面端 app.asar 内 dsh-api-session-controller）的 stateVersions 实测（2026-10-08 提取 ✓）；
+        //   npm 0.1.5-rc.2 包里的同名拷贝是**旧值**（contextBreakdown=4 等）✗ 已弃用 ✗。
+        // 行 `ver` ≠ 下表 → 该行丢弃并计数（语义可能已变 ✗ 绝不猜 ✓）；**只接受精确相等**（更高的未来版本同样丢弃 ✓）。
+
+        /// <summary>R5：sessionStats 行的当前写入器版本。</summary>
+        public const long RowVerSessionStats = 1;
+        /// <summary>R5：tokenUsage 行的当前写入器版本。</summary>
+        public const long RowVerTokenUsage = 2;
+        /// <summary>R5：contextPressure 行的当前写入器版本。</summary>
+        public const long RowVerContextPressure = 5;
+        /// <summary>R5：contextBreakdown 行的当前写入器版本。</summary>
+        public const long RowVerContextBreakdown = 5;
+        /// <summary>R5：sessionListMetadata 行的当前写入器版本。</summary>
+        public const long RowVerSessionListMetadata = 1;
+        /// <summary>R5：title 行的当前写入器版本。</summary>
+        public const long RowVerTitle = 1;
+
+        /// <summary>R6：单会话投影文档的当前版本（实测 283/283 份均为 7）。</summary>
+        public const long ProjectionDocVersion = 7;
+        /// <summary>R6：写入器声明的文档兼容带下界（compatibleVersions [3..6] 实测）——接受区间 = [3..7]。</summary>
+        public const long ProjectionDocCompatMin = 3;
+
         // ---------------- 解析 ----------------
 
         /// <summary>解析单个会话投影文件 → SessionStat；格式不认 → null。</summary>
         public static SessionStat ParseSessionProjection(string json, string id)
         {
+            return ParseSessionProjection(json, id, null);
+        }
+
+        /// <summary>带 R6 文档版本门 + R5 行版本门的解析（rep 可空：不需要计数时传 null）。
+        /// R6：根 `version` 必须落在 [ProjectionDocCompatMin..ProjectionDocVersion]（= 写入器兼容带 [3..6] ∪ 当前 7 ✓ 实测）；
+        ///   缺失/畸形/越界 → **整份拒收**（null）并 rep.DocRejected++ —— 文档版本不认 = 整体语义可能已变 ✗ 绝不猜 ✓。</summary>
+        public static SessionStat ParseSessionProjection(string json, string id, RowGateReport rep)
+        {
             JNode root = JsonLite.Parse(json);
             if (root == null || !root.IsObject) return null;
+            JNode verNode = root.Get("version");
+            long docVer = verNode == null ? -1 : (long)verNode.AsNumber(-1);
+            if (docVer < ProjectionDocCompatMin || docVer > ProjectionDocVersion)
+            {
+                if (rep != null) rep.DocRejected++;
+                return null;
+            }
             JNode record = root.Get("record");
             if (record == null || !record.IsObject) return null;
             JNode row = RowOf(record.Get("rows"));
             if (row == null) return null;
-            SessionStat s = FromRow(row, id);
+            SessionStat s = FromRow(row, id, rep);
             if (s == null) return null;
             FillIdentity(s, record.Get("identity"));
             return s;
@@ -42,6 +103,14 @@ namespace Dsht.Domain.Services
 
         /// <summary>解析投影总表 → 全部会话（表键即 id，去掉 `session-` 前缀）。格式不认 → 空数组。</summary>
         public static SessionStat[] ParseAggregate(string json)
+        {
+            return ParseAggregate(json, null);
+        }
+
+        /// <summary>带 R5 行版本门的总表解析（rep 可空）。
+        /// ★ R6 文档门**不适用**于总表（§11.4 ✓）：总表的每会话条目**没有** `version` 字段（实测形状 ✓）——
+        ///   总表整体形状由 `tables.sessions` 的存在性担保，行级语义仍由 R5 行门把关 ✓。</summary>
+        public static SessionStat[] ParseAggregate(string json, RowGateReport rep)
         {
             List<SessionStat> list = new List<SessionStat>();
             JNode root = JsonLite.Parse(json);
@@ -56,7 +125,7 @@ namespace Dsht.Domain.Services
                 if (row == null) continue;
                 string id = kv.Key == null ? "" : kv.Key;
                 if (id.StartsWith("session-", StringComparison.Ordinal)) id = id.Substring("session-".Length);
-                SessionStat s = FromRow(row, id);
+                SessionStat s = FromRow(row, id, rep);
                 if (s == null) continue;
                 FillIdentity(s, entry.Get("identity"));
                 list.Add(s);
@@ -177,13 +246,25 @@ namespace Dsht.Domain.Services
             return null;
         }
 
-        private static SessionStat FromRow(JNode row, string id)
+        /// <summary>R5 行版本门：该键的行**存在**但 `ver` ≠ 当前写入器版本（ver 缺失/畸形也按不匹配算 ✓）→ true。
+        /// 行**不存在** → false：让调用方按"字段缺失"的旧逻辑走（Has*=false ✓ 缺失 ≠ 丢弃 ✓✓ 不计数 ✓）。</summary>
+        private static bool RowMismatch(JNode row, string key, long wantVer)
+        {
+            JNode entry = row == null ? null : row.Get(key);
+            if (entry == null) return false;
+            JNode ver = entry.Get("ver");
+            long v = ver == null ? -1 : (long)ver.AsNumber(-1);
+            return v != wantVer;
+        }
+
+        private static SessionStat FromRow(JNode row, string id, RowGateReport rep)
         {
             if (row == null || !row.IsObject) return null;
             SessionStat s = new SessionStat();
             s.Id = id == null ? "" : id;
 
             JNode st = row.Path("sessionStats", "val");
+            if (RowMismatch(row, "sessionStats", RowVerSessionStats)) { if (rep != null) rep.SessionStats++; st = null; }
             if (st != null && st.IsObject)
             {
                 s.HasStats = true;
@@ -197,6 +278,7 @@ namespace Dsht.Domain.Services
                 s.DecodeTokens = Num(st, "decodeTokens");
             }
             JNode tu = row.Path("tokenUsage", "val", "totals");
+            if (RowMismatch(row, "tokenUsage", RowVerTokenUsage)) { if (rep != null) rep.TokenUsage++; tu = null; }
             if (tu != null && tu.IsObject)
             {
                 s.HasTokens = true;
@@ -206,6 +288,7 @@ namespace Dsht.Domain.Services
                 s.CacheWriteTokens = Num(tu, "cacheWriteTokens");
             }
             JNode cp = row.Path("contextPressure", "val");
+            if (RowMismatch(row, "contextPressure", RowVerContextPressure)) { if (rep != null) rep.ContextPressure++; cp = null; }
             if (cp != null && cp.IsObject)
             {
                 s.HasPressure = true;
@@ -214,6 +297,7 @@ namespace Dsht.Domain.Services
                 s.PressureTokens = Num(cp, "pressureTokens");
             }
             JNode cb = row.Path("contextBreakdown", "val");
+            if (RowMismatch(row, "contextBreakdown", RowVerContextBreakdown)) { if (rep != null) rep.ContextBreakdown++; cb = null; }
             if (cb != null && cb.IsObject)
             {
                 s.HasBreakdown = true;
@@ -222,6 +306,7 @@ namespace Dsht.Domain.Services
                 s.MessageTokens = Num(cb, "messageTokens");
             }
             JNode lm = row.Path("sessionListMetadata", "val");
+            if (RowMismatch(row, "sessionListMetadata", RowVerSessionListMetadata)) { if (rep != null) rep.SessionListMetadata++; lm = null; }
             if (lm != null && lm.IsObject)
             {
                 s.Blank = lm.Get("blank") != null && lm.Get("blank").AsBool(false);
@@ -229,6 +314,7 @@ namespace Dsht.Domain.Services
                 s.LastPromptAt = s.LastPromptEpochMs > 0 ? EpochMsToIso(s.LastPromptEpochMs) : Str(lm, "lastPromptAt");
             }
             JNode title = row.Path("title", "val");
+            if (RowMismatch(row, "title", RowVerTitle)) { if (rep != null) rep.Title++; title = null; }
             if (title != null && title.IsString) s.Title = title.StringValue;
             return s;
         }

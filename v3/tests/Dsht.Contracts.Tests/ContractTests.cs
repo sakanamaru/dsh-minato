@@ -569,11 +569,11 @@ static class ContractTests
         Console.WriteLine("[24] 会话投影解析与派生指标（token / 缓存命中 / 速度 / 上下文压力）");
         string proj = "{\"version\":7,\"record\":{\"identity\":{\"createdAt\":1788517824758,\"cwd\":\"D:\\\\work\"},\"rows\":{"
             + "\"sessionStats\":{\"ver\":1,\"seq\":2,\"val\":{\"turns\":2,\"steps\":9,\"llmMs\":1000,\"toolMs\":500,\"ttftMs\":300,\"decodeMs\":2000,\"decodeTokens\":400}},"
-            + "\"tokenUsage\":{\"val\":{\"totals\":{\"uncachedInputTokens\":100,\"outputTokens\":50,\"cacheReadTokens\":900,\"cacheWriteTokens\":10}}},"
-            + "\"contextPressure\":{\"val\":{\"surfaceTokens\":500,\"contextWindow\":1000,\"pressureTokens\":250}},"
-            + "\"contextBreakdown\":{\"val\":{\"systemTokens\":10,\"toolsTokens\":20,\"messageTokens\":30}},"
-            + "\"sessionListMetadata\":{\"val\":{\"blank\":false,\"lastPromptAt\":1788517999999}},"
-            + "\"title\":{\"val\":\"hello\"}}}}";
+            + "\"tokenUsage\":{\"ver\":2,\"val\":{\"totals\":{\"uncachedInputTokens\":100,\"outputTokens\":50,\"cacheReadTokens\":900,\"cacheWriteTokens\":10}}},"
+            + "\"contextPressure\":{\"ver\":5,\"val\":{\"surfaceTokens\":500,\"contextWindow\":1000,\"pressureTokens\":250}},"
+            + "\"contextBreakdown\":{\"ver\":5,\"val\":{\"systemTokens\":10,\"toolsTokens\":20,\"messageTokens\":30}},"
+            + "\"sessionListMetadata\":{\"ver\":1,\"val\":{\"blank\":false,\"lastPromptAt\":1788517999999}},"
+            + "\"title\":{\"ver\":1,\"val\":\"hello\"}}}}";
         Dsht.Domain.Model.SessionStat ps = Dsht.Domain.Services.SessionStats.ParseSessionProjection(proj, "abc");
         Check("投影：解析成功且 id 透传", ps != null && ps.Id == "abc");
         Check("投影：会话统计（turns/steps/title/cwd）", ps.Turns == 2 && ps.Steps == 9 && ps.Title == "hello" && ps.Cwd == @"D:\work");
@@ -586,8 +586,8 @@ static class ContractTests
         Check("epoch 转换：0/负数 → 空串（不假装时间）", Dsht.Domain.Services.SessionStats.EpochMsToIso(0) == "" && Dsht.Domain.Services.SessionStats.EpochMsToIso(-5) == "");
         Check("投影：缺 rows / 格式不认 / null → null", Dsht.Domain.Services.SessionStats.ParseSessionProjection("{\"record\":{}}", "x") == null && Dsht.Domain.Services.SessionStats.ParseSessionProjection("{oops", "x") == null && Dsht.Domain.Services.SessionStats.ParseSessionProjection(null, "x") == null);
         string agg = "{\"tables\":{\"sessions\":{"
-            + "\"session-abc\":{\"identity\":{\"createdAt\":1,\"cwd\":\"C:\\\\w\"},\"rows\":{\"tokenUsage\":{\"val\":{\"totals\":{\"cacheReadTokens\":5,\"uncachedInputTokens\":5}}}}},"
-            + "\"bareid\":{\"rows\":{\"tokenUsage\":{\"val\":{\"totals\":{\"outputTokens\":7}}}}}"
+            + "\"session-abc\":{\"identity\":{\"createdAt\":1,\"cwd\":\"C:\\\\w\"},\"rows\":{\"tokenUsage\":{\"ver\":2,\"val\":{\"totals\":{\"cacheReadTokens\":5,\"uncachedInputTokens\":5}}}}},"
+            + "\"bareid\":{\"rows\":{\"tokenUsage\":{\"ver\":2,\"val\":{\"totals\":{\"outputTokens\":7}}}}}"
             + "}}}";
         Dsht.Domain.Model.SessionStat[] ag = Dsht.Domain.Services.SessionStats.ParseAggregate(agg);
         Check("总表：解析出 2 个会话且去掉 session- 前缀", ag.Length == 2 && ag[0].Id == "abc" && ag[1].Id == "bareid");
@@ -633,6 +633,50 @@ static class ContractTests
         Check("汇总：空列表 → 0 且指标为未知（-1）", te.Count == 0 && te.CacheHitPercent < 0 && te.DecodeTokensPerSec < 0);
         Dsht.Domain.Model.SessionStat zero = new Dsht.Domain.Model.SessionStat();
         Check("指标：分母为 0 → 未知（-1，不假装 0）", Dsht.Domain.Services.SessionStats.CacheHitPercent(zero) < 0 && Dsht.Domain.Services.SessionStats.DecodeTokensPerSec(zero) < 0 && Dsht.Domain.Services.SessionStats.ContextPressurePercent(zero) < 0);
+        // ★★ 看板第一批（2026-10-08 ✓✓）：R6 文档版本门 + R5 行版本门 + 窗口过滤纯函数（规格 §11.4 ✓）★★
+        // R6：doc version 越界/缺失 → **整文档拒**（null ✓）且 DocRejected++ ✓；兼容带 [3..6] 内照常读 ✓
+        Dsht.Domain.Services.RowGateReport rep6a = new Dsht.Domain.Services.RowGateReport();
+        Check("R6：version=8（比 CLI 新）→ 整文档拒 + 计数", Dsht.Domain.Services.SessionStats.ParseSessionProjection(proj.Replace("\"version\":7", "\"version\":8"), "abc", rep6a) == null && rep6a.DocRejected == 1);
+        Dsht.Domain.Services.RowGateReport rep6b = new Dsht.Domain.Services.RowGateReport();
+        Check("R6：version=2（早于兼容带）→ 整文档拒 + 计数", Dsht.Domain.Services.SessionStats.ParseSessionProjection(proj.Replace("\"version\":7", "\"version\":2"), "abc", rep6b) == null && rep6b.DocRejected == 1);
+        Dsht.Domain.Services.RowGateReport rep6c = new Dsht.Domain.Services.RowGateReport();
+        Check("R6：version 缺失 → 整文档拒 + 计数", Dsht.Domain.Services.SessionStats.ParseSessionProjection(proj.Replace("\"version\":7,", ""), "abc", rep6c) == null && rep6c.DocRejected == 1);
+        Check("R6：version=6（兼容带内）→ 正常解析 ✓", Dsht.Domain.Services.SessionStats.ParseSessionProjection(proj.Replace("\"version\":7", "\"version\":6"), "abc") != null);
+        Check("R6：JSON 解析失败 → null 但**不计数**（原有行为不变 ✓）", Dsht.Domain.Services.SessionStats.ParseSessionProjection("{oops", "abc", rep6c) == null && rep6c.DocRejected == 1);
+        // R5：行 ver ≠ 当前写入器版本 → 该字段按**缺失**处理（Has*=false ✓）且计数 ✓；行**缺失** ≠ 丢弃 ✓ 不计数 ✓✓
+        Dsht.Domain.Services.RowGateReport rep5 = new Dsht.Domain.Services.RowGateReport();
+        Dsht.Domain.Model.SessionStat psStale = Dsht.Domain.Services.SessionStats.ParseSessionProjection(proj.Replace("\"ver\":1,\"seq\":2", "\"ver\":9,\"seq\":2"), "abc", rep5);
+        Check("R5：sessionStats ver 过期 → HasStats=false + 计数 1", psStale != null && !psStale.HasStats && rep5.SessionStats == 1);
+        Check("R5：丢弃按行不连坐（其余字段照常读到 ✓）", psStale != null && psStale.HasTokens && psStale.Title == "hello");
+        Check("R5：行缺失不计数（缺失 ≠ 丢弃 ✓✓ RowDroppedTotal 只含真丢弃）", rep5.TokenUsage == 0 && rep5.Title == 0 && rep5.RowDroppedTotal == 1);
+        // R5 实数对齐（2026-10-08 实测 283 个投影：contextBreakdown ver2 扁平 + tokenUsage ver1 = 51 条旧行形状 ✓）
+        Dsht.Domain.Services.RowGateReport rep51 = new Dsht.Domain.Services.RowGateReport();
+        string stale51 = proj.Replace("\"tokenUsage\":{\"ver\":2,\"val\":", "\"tokenUsage\":{\"ver\":1,\"val\":").Replace("\"contextBreakdown\":{\"ver\":5,\"val\":", "\"contextBreakdown\":{\"ver\":2,\"val\":");
+        Dsht.Domain.Model.SessionStat ps51 = Dsht.Domain.Services.SessionStats.ParseSessionProjection(stale51, "abc", rep51);
+        Check("R5：旧行 tokenUsage(v1)+contextBreakdown(v2) → token/分布未知 + 各计 1", ps51 != null && !ps51.HasTokens && !ps51.HasBreakdown && rep51.TokenUsage == 1 && rep51.ContextBreakdown == 1 && rep51.RowDroppedTotal == 2);
+        // R5 对总表同样生效 ✓（总表每会话条目**无 doc version** → R6 N/A ✓ 规格 §11.4 ✓）
+        Dsht.Domain.Services.RowGateReport repAgg = new Dsht.Domain.Services.RowGateReport();
+        Dsht.Domain.Model.SessionStat[] agStale = Dsht.Domain.Services.SessionStats.ParseAggregate(agg.Replace("\"tokenUsage\":{\"ver\":2,\"val\":", "\"tokenUsage\":{\"ver\":1,\"val\":"), repAgg);
+        Check("R5：总表旧行同样丢弃（2 条 tokenUsage v1 ✓）且计数按条", agStale.Length == 2 && !agStale[0].HasTokens && !agStale[1].HasTokens && repAgg.TokenUsage == 2 && repAgg.DocRejected == 0);
+        Check("R5：总表正常版本 → 零丢弃", new Dsht.Domain.Services.RowGateReport().RowDroppedTotal == 0);
+        // SessionWindow 窗口过滤纯函数（**左闭右开** ✓ 未知一律排除 ✓✓）
+        Check("窗口：左闭（==from 收 ✓）", Dsht.Domain.Services.SessionWindow.Accept(1000, 1000, 2000));
+        Check("窗口：右开（==to 不收 ✓）", !Dsht.Domain.Services.SessionWindow.Accept(2000, 1000, 2000));
+        Check("窗口：窗内收 / 窗外两侧不收", Dsht.Domain.Services.SessionWindow.Accept(1500, 1000, 2000) && !Dsht.Domain.Services.SessionWindow.Accept(999, 1000, 2000) && !Dsht.Domain.Services.SessionWindow.Accept(2001, 1000, 2000));
+        Check("窗口：未知（≤0）一律排除 ✗ 不归入任何桶 ✓✓", !Dsht.Domain.Services.SessionWindow.Accept(0, 1000, 2000) && !Dsht.Domain.Services.SessionWindow.Accept(-5, 1000, 2000));
+        Check("窗口：畸形窗口（from>=to）→ 空窗", !Dsht.Domain.Services.SessionWindow.Accept(1500, 2000, 1000) && !Dsht.Domain.Services.SessionWindow.Accept(2000, 2000, 2000));
+        // EffectiveLastPromptMs：epoch > 0 优先；缺 epoch 时 ISO 字符串回退 ✓（快照行只有 ISO ✓ 规格 §11.1 ✓）；都没有 → 0（未知 ✓）
+        Dsht.Domain.Model.SessionStat w1 = new Dsht.Domain.Model.SessionStat();
+        w1.LastPromptEpochMs = 1788517999999L; w1.LastPromptAt = "2000-01-01T00:00:00Z";
+        Check("窗口：epoch 优先于 ISO 字符串", Dsht.Domain.Services.SessionWindow.EffectiveLastPromptMs(w1) == 1788517999999L);
+        Dsht.Domain.Model.SessionStat w2 = new Dsht.Domain.Model.SessionStat();
+        w2.LastPromptAt = "1970-01-02T00:00:00Z";
+        Check("窗口：ISO 回退解析 → epoch 毫秒（86400000）", Dsht.Domain.Services.SessionWindow.EffectiveLastPromptMs(w2) == 86400000L);
+        Dsht.Domain.Model.SessionStat w3 = new Dsht.Domain.Model.SessionStat();
+        Check("窗口：两者皆缺 → 0（未知 ✗ 不猜 ✓）", Dsht.Domain.Services.SessionWindow.EffectiveLastPromptMs(w3) == 0);
+        Dsht.Domain.Model.SessionStat w4 = new Dsht.Domain.Model.SessionStat();
+        w4.LastPromptAt = "not-a-date";
+        Check("窗口：ISO 畸形 → 0（未知 ✓ 不抛 ✓）", Dsht.Domain.Services.SessionWindow.EffectiveLastPromptMs(w4) == 0);
         Console.WriteLine();
         Console.WriteLine("[25] start/stop 判定（纯函数：只有可观测事实能判定成功）");
         Check("启动前：已在运行 → 不重复启动（Ready）", Dsht.Domain.Services.ServiceControlPolicy.BeforeStart("Ready", 123) == Dsht.Domain.Services.StartDecision.AlreadyRunning);

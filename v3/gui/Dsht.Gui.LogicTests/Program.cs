@@ -139,6 +139,32 @@ namespace Dsht.Gui.LogicTests
                 SummaryMarkers.ParseBackups(ov).Count == 0 &&
                 ProfilesMarkers.Parse(ov).Count == 1);
 
+            // —— 看板第一批（2026-10-08 ✓✓ 规格 §11.1/§11.5 验收⑤ ✓）——
+            string b1 = "SESSIONS_OK 3\nSESSIONS_SOURCE disk\n" +
+                "SESSWIN_META days=7 from=2026-10-02 to=2026-10-09 tz=China%20Standard%20Time truth=0 level=global source=disk scanned=283 eligible=12 unknown_last=0\n" +
+                "SESSAGG_TOTAL scope=store sessions=283 nonblank=180 uncached=1000 cacheRead=2000 cacheWrite=300 output=400 first_day=2026-09-01 last_day=2026-10-08 truth=0\n" +
+                "SESSAGG_SESSION aaa111 bucket=own turns=3 steps=9 uncached=100 cacheRead=200 cacheWrite=30 output=40 children=unknown depth=unknown\n" +
+                "SESSAGG_SESSION bbb222 bucket=own turns=unknown steps=unknown uncached=unknown cacheRead=unknown cacheWrite=unknown output=unknown children=unknown depth=unknown\n";
+            SessionsSnapshot w = SessionsMarkers.Parse(b1);
+            Check("看板：SESSWIN_META 全字段（含 tz %20 解码）", w.HasWinMeta && w.WinDays == 7 && w.WinFrom == "2026-10-02" && w.WinTo == "2026-10-09"
+                && w.WinTz == "China Standard Time" && w.WinTruth0 && w.WinScanned == 283 && w.WinEligible == 12 && w.WinUnknownLast == 0);
+            Check("看板：SESSAGG_TOTAL 全字段", w.HasAggTotal && w.AggSessions == 283 && w.AggNonBlank == 180 && w.AggUncached == 1000
+                && w.AggCacheRead == 2000 && w.AggCacheWrite == 300 && w.AggOutput == 400 && w.AggFirstDay == "2026-09-01" && w.AggLastDay == "2026-10-08");
+            Check("看板：SESSAGG_SESSION 已知行（own ✓ In=uncached+cacheRead ✓）", w.AggRows.Count == 2 && w.AggRows[0].Id == "aaa111" && w.AggRows[0].Bucket == "own"
+                && w.AggRows[0].HasStats && w.AggRows[0].HasTokens && w.AggRows[0].Turns == 3 && w.AggRows[0].Steps == 9 && w.AggRows[0].In == 300 && w.AggRows[0].Output == 40);
+            Check("看板：unknown 数值 → HasStats/HasTokens=false ✗ 绝不假装 0 ✓✓",
+                !w.AggRows[1].HasStats && !w.AggRows[1].HasTokens && w.AggRows[1].Turns == 0 && w.AggRows[1].Uncached == 0);
+            Check("看板：AggIdSet = eligible 集合（含 aaa111/bbb222）", w.AggIdSet().Contains("aaa111") && w.AggIdSet().Contains("bbb222") && w.AggIdSet().Count == 2);
+            SessionsSnapshot tot = SessionsMarkers.Parse("SESSIONS_OK 1\nSESSWIN_META days=unknown from=- to=- tz=Asia/Hong_Kong truth=0 level=global source=snapshot+disk scanned=5 eligible=5 unknown_last=2");
+            Check("看板：days=unknown → WinDays=-1（总计档内存哨兵 ✓ from/to=- ✓ unknown_last=2 ✓ tz 斜杠不转义原样过 ✓）",
+                tot.HasWinMeta && tot.WinDays == -1 && tot.WinFrom == "-" && tot.WinTo == "-" && tot.WinTz == "Asia/Hong_Kong" && tot.WinUnknownLast == 2);
+            Check("看板：老 CLI（无新标记行）→ HasWinMeta=false + AggIdSet()=null（走不过滤回退 ✓✓）",
+                !SessionsMarkers.Parse("SESSIONS_OK 1\nSESSION x1 turns=3").HasWinMeta && SessionsMarkers.Parse("SESSIONS_OK 1").AggIdSet() == null);
+            Check("看板：总计档也有 eligible id 集（days=unknown 时 CLI 全量打 SESSAGG_SESSION ✓ 窗口卡==总计卡 ✓）",
+                SessionsMarkers.Parse("SESSIONS_OK 1\nSESSWIN_META days=unknown from=- to=- tz=- truth=0 level=global source=disk scanned=1 eligible=1 unknown_last=0\nSESSAGG_SESSION z9 bucket=own turns=1 steps=1 uncached=1 cacheRead=1 cacheWrite=1 output=1 children=unknown depth=unknown").AggIdSet().Count == 1);
+            Check("看板：C.4 脚注逐字符 == 规格 §4.2 :342（一字不许改 ✓✓ LogicTests 是唯一能拦住改字的地方 ✓）",
+                SessionsMarkers.TruthFootnote == "本口径按会话最后活动时间筛选，用量为整会话累计，非窗口内增量。");
+
             Console.WriteLine("== " + _pass + "/" + (_pass + _fail) + " passed, " + _fail + " failed ==");
             return _fail == 0 ? 0 : 1;
         }

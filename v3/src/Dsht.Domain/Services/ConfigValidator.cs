@@ -69,6 +69,14 @@ namespace Dsht.Domain.Services
                 // 审查修复（安全 Low）：自由文本键不能含换行 ✗ —— 否则可往 launcher.config 注入任意配置行 ✓
                 return (v.IndexOf('\r') >= 0 || v.IndexOf('\n') >= 0) ? "bad-value" : null;
             }
+            // ★ 看板第一批（2026-10-08 ✓）：口径默认三选一 ✓（第一批只实现 global ✓ 但存 parents/parents_sub 是合法配置 ✓）
+            if (k == "sessions_default_level") return (v == "global" || v == "parents" || v == "parents_sub") ? null : "bad-value";
+            // ★ 单价键（费用显示是第三批 ✓ 现在只落存储 ✓）：≥0 的十进制 ✓ 0 = 未填 → 不显示费用 ✓ 绝不硬编码价格 ✗✓
+            if (k == "sessions_price_in_per_mtok" || k == "sessions_price_cache_read_per_mtok" || k == "sessions_price_cache_write_per_mtok" || k == "sessions_price_out_per_mtok")
+            {
+                decimal pd;
+                return (decimal.TryParse(v, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out pd) && pd >= 0m) ? null : "bad-value";
+            }
             return "unknown-key";
         }
 
@@ -107,6 +115,18 @@ namespace Dsht.Domain.Services
                 }
             }
             else if (k == "balance_key") c.BalanceKey = v;
+            else if (k == "sessions_default_level") { if (v == "global" || v == "parents" || v == "parents_sub") c.SessionsDefaultLevel = v; }   // 白名单双保险 ✓
+            else if (k == "sessions_price_in_per_mtok" || k == "sessions_price_cache_read_per_mtok" || k == "sessions_price_cache_write_per_mtok" || k == "sessions_price_out_per_mtok")
+            {
+                decimal pd;
+                if (decimal.TryParse(v, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out pd) && pd >= 0m)
+                {
+                    if (k == "sessions_price_in_per_mtok") c.SessionsPriceInPerMTok = pd;
+                    else if (k == "sessions_price_cache_read_per_mtok") c.SessionsPriceCacheReadPerMTok = pd;
+                    else if (k == "sessions_price_cache_write_per_mtok") c.SessionsPriceCacheWritePerMTok = pd;
+                    else c.SessionsPriceOutPerMTok = pd;
+                }   // 越界/畸形保持原值 ✓（Validate 已拦 ✓ 双保险 ✓）
+            }
             else if (k == "gui_shell") { int n; if (int.TryParse(v, out n) && n >= 0 && n <= 4) c.GuiShell = n; }   // 越界保持原值 ✓（Validate 已拦 ✓ 双保险 ✓）
             else if (k == "gui_style") { int n; if (int.TryParse(v, out n) && n >= 0 && n <= 3) c.GuiStyle = n; }
             return c;

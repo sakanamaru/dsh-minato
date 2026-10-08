@@ -1115,6 +1115,20 @@ namespace Dsht.Gui.Avalonia
         public bool IsSessionsSection { get { return _mainSection == 2; } }
         /// <summary>概览与看板都需要 status/profiles/sessions 这批数据。</summary>
         public bool IsOverviewLike { get { return _mainSection <= 1; } }
+        /// <summary>看板窗口档（看板第一批 · 2026-10-08 ✓✓）：0=总计（CLI 省略参数 ✓ days=unknown ✓）/ 7 / 14 / 30。
+        /// 筛选条 handler：host.BoardDays = n; host.Refresh(); ✓ RunCached 4 秒缓存按命令串分键 ✓ 档位互不踩 ✓。
+        /// ✗ 不进 config（会话内状态 ✓ 规格 §4.1 ✓）。</summary>
+        private int _boardDays;
+        public int BoardDays
+        {
+            get { return _boardDays; }
+            set { _boardDays = (value == 7 || value == 14 || value == 30) ? value : 0; }
+        }
+        /// <summary>sessions/overview 命令串的窗口后缀（>0 → " --days N"；0 → 空 ✓ CLI 省略 = 总计 ✓）。</summary>
+        private string BoardDaysSuffix()
+        {
+            return _boardDays > 0 ? " --days " + _boardDays.ToString(System.Globalization.CultureInfo.InvariantCulture) : "";
+        }
         public string RawOutput { get { return _rawOutput; } }
         /// <summary>导航表访问一律带范围保护 —— 菜单项数与表长度不一致时不允许越界（审计发现过 UI 线程越界崩溃）。</summary>
         public string[] SubTabs { get { return _mainSection >= 0 && _mainSection < NavSubs.Length && NavSubs[_mainSection] != null ? NavSubs[_mainSection] : new string[0]; } }
@@ -1698,13 +1712,13 @@ namespace Dsht.Gui.Avalonia
                 //   ui_parallel=off（排障开关）保留老的四命令路径 ✓ 开关仍然真的接线 ✓
                 if (UiParallel)
                 {
-                    _rawOutput = await System.Threading.Tasks.Task.Run(delegate { return RunCached(cli, "overview"); });
+                    _rawOutput = await System.Threading.Tasks.Task.Run(delegate { return RunCached(cli, "overview" + BoardDaysSuffix()); });
                 }
                 else
                 {
                     // 老行为（串行四命令）：聚合大输出在个别环境被管道/杀软卡住时的排障退路 ✓
                     _rawOutput = await System.Threading.Tasks.Task.Run(delegate { return RunCached(cli, "status --detail"); });
-                    string part = await System.Threading.Tasks.Task.Run(delegate { return RunCached(cli, "sessions"); });
+                    string part = await System.Threading.Tasks.Task.Run(delegate { return RunCached(cli, "sessions" + BoardDaysSuffix()); });
                     _rawOutput += "\n" + part;
                     part = await System.Threading.Tasks.Task.Run(delegate { return RunCached(cli, "backup-list"); });
                     _rawOutput += "\n" + part;
@@ -1790,7 +1804,7 @@ namespace Dsht.Gui.Avalonia
                 return;
             }
 
-            string text = await System.Threading.Tasks.Task.Run(delegate { return RunCached(cli, "sessions"); });
+            string text = await System.Threading.Tasks.Task.Run(delegate { return RunCached(cli, "sessions" + BoardDaysSuffix()); });   // ★ 窗口档透传（看板第一批 ✓ 列表页自身仍显示全部 SESSION 行 ✓ 不受影响 ✓）
             _data = SessionsMarkers.Parse(text);
             _rawOutput = text;
             if (!_data.Ok)

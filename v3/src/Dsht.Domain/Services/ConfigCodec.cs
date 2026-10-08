@@ -103,8 +103,26 @@ namespace Dsht.Domain.Services
                 if (int.TryParse(t.Substring("gui_style=".Length).Trim(), out n) && n >= 0 && n <= 3) c.GuiStyle = n;
             }
             else if (t.StartsWith("balance_key=", StringComparison.Ordinal)) c.BalanceKey = t.Substring("balance_key=".Length).Trim();
+            else if (t.StartsWith("sessions_default_level=", StringComparison.Ordinal))
+            {
+                // 与 config-set 白名单同一条规则 ✓：三口径之外不认 → 保持默认 global ✗ 不猜 ✗
+                string lv = t.Substring("sessions_default_level=".Length).Trim().ToLowerInvariant();
+                if (lv == "global" || lv == "parents" || lv == "parents_sub") c.SessionsDefaultLevel = lv;
+            }
+            else if (t.StartsWith("sessions_price_in_per_mtok=", StringComparison.Ordinal)) c.SessionsPriceInPerMTok = ParsePrice(t.Substring("sessions_price_in_per_mtok=".Length));
+            else if (t.StartsWith("sessions_price_cache_read_per_mtok=", StringComparison.Ordinal)) c.SessionsPriceCacheReadPerMTok = ParsePrice(t.Substring("sessions_price_cache_read_per_mtok=".Length));
+            else if (t.StartsWith("sessions_price_cache_write_per_mtok=", StringComparison.Ordinal)) c.SessionsPriceCacheWritePerMTok = ParsePrice(t.Substring("sessions_price_cache_write_per_mtok=".Length));
+            else if (t.StartsWith("sessions_price_out_per_mtok=", StringComparison.Ordinal)) c.SessionsPriceOutPerMTok = ParsePrice(t.Substring("sessions_price_out_per_mtok=".Length));
             }
             return c;
+        }
+
+        /// <summary>单价解析：≥0 的十进制才接受（InvariantCulture ✓ 与 config-set 白名单同规则 ✓）；不认 → 0（未填 ✓ 不猜 ✗）。</summary>
+        private static decimal ParsePrice(string raw)
+        {
+            decimal d;
+            if (decimal.TryParse((raw ?? "").Trim(), System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out d) && d >= 0m) return d;
+            return 0m;
         }
 
         public static string Serialize(ToolkitConfig c)
@@ -130,6 +148,11 @@ namespace Dsht.Domain.Services
             sb.Append("gui_shell=").Append(c.GuiShell).Append("\r\n");
             sb.Append("gui_style=").Append(c.GuiStyle).Append("\r\n");
             sb.Append("balance_key=").Append(c.BalanceKey == null ? "" : c.BalanceKey).Append("\r\n");
+            sb.Append("sessions_default_level=").Append(c.SessionsDefaultLevel).Append("\r\n");
+            sb.Append("sessions_price_in_per_mtok=").Append(c.SessionsPriceInPerMTok.ToString(System.Globalization.CultureInfo.InvariantCulture)).Append("\r\n");
+            sb.Append("sessions_price_cache_read_per_mtok=").Append(c.SessionsPriceCacheReadPerMTok.ToString(System.Globalization.CultureInfo.InvariantCulture)).Append("\r\n");
+            sb.Append("sessions_price_cache_write_per_mtok=").Append(c.SessionsPriceCacheWritePerMTok.ToString(System.Globalization.CultureInfo.InvariantCulture)).Append("\r\n");
+            sb.Append("sessions_price_out_per_mtok=").Append(c.SessionsPriceOutPerMTok.ToString(System.Globalization.CultureInfo.InvariantCulture)).Append("\r\n");
             return sb.ToString();
         }
 

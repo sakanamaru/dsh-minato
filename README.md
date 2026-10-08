@@ -188,6 +188,11 @@ This section states only what the code does. If a claim here is not backed by th
 - **Test counts are not proof of individual safety promises**: an all-green contract/GUI/plugin suite only shows
   regression coverage — the two promises above were broken while every suite was green. Treat per-promise
   end-to-end assertions and fix records as the evidence.
+- **Subagent-inclusive statistics are not implemented yet** (含子代理统计：未实现（待第二批；需读原始日志）):
+  the on-disk session projection carries no lineage fields at all (verified across the full store), so a
+  projection-only "include subagents" count would silently miss edges. The GUI scope selector greys those modes
+  out with a "batch 2" label, and `sessions --level` refuses anything but `global` with an honest
+  `SESSIONS_FAIL` instead of guessing.
 
 ---
 

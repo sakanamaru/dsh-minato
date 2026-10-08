@@ -95,11 +95,11 @@ powershell -ExecutionPolicy Bypass -File v3\tests\verify_switchover.ps1 -Repo .
 | `status` / `status --detail` | `STATUS_UP` / `STATUS_STARTING` / `STATUS_DOWN` + `STATUS_PID` / `STATUS_START` / `STATUS_UPTIME` |
 | `profilecheck [--dir X] [--file Y] [--vendor] [--abs]` | `PROFILECHK_WARN` / `_TOTAL` / `_SKIPPED_VENDOR` / `_FIX` / `_OK` |
 | `profiles`（V3 独有） | `PROFILES_OK <n>` + `PROFILE <name> form=<web\|headless\|acp\|unknown\|unparsed> bundles=<n> thirdparty=<m>` + `BUNDLE <profile> <bundle-id> <official\|thirdparty>` / `PROFILES_FAIL <原因>`；**只读** `profiles/<name>/package.json` 的 `dsh.profile.bundles` → 给出**配置形态**与**插件清单（含第三方）**。**注意：这是配置形态，不是运行形态**——"dsh 在跑"仍由端口/进程等运行时事实判断 |
-| `sessions`（V3 独有） | `SESSIONS_OK <n>` / `SESSIONS_NONBLANK <n>` / `SESSIONS_SOURCE <snapshot\|disk\|aggregate>` / `SESSIONS_ROOT <dir>` + 每会话 `SESSION <id> created= last= turns= steps= in= out= cacheRead= hit=<%\|unknown> decode=<tok/s\|unknown> ttft=<ms\|unknown> ctx=<%\|unknown> blank=0\|1` + `SESSIONS_TOTAL …` / `SESSIONS_FAIL <原因>`；**只读** dsh 的会话投影（明文 JSON，持续更新）。**诚实边界**：不读对话正文；字段缺失打印 `unknown`（不假装 0）；"有几个会话在跑"这里只能给最后活动时间——运行态是进程内事实，需要插件 |
+| `sessions [--days 7\|14\|30] [--level global]`（V3 独有） | `SESSIONS_OK <n>` / `SESSIONS_NONBLANK <n>` / `SESSIONS_SOURCE <snapshot\|disk\|aggregate>` / `SESSIONS_ROOT <dir>` + 每会话 `SESSION <id> created= last= turns= steps= in= out= cacheRead= hit=<%\|unknown> decode=<tok/s\|unknown> ttft=<ms\|unknown> ctx=<%\|unknown> blank=0\|1` + `SESSIONS_TOTAL …` / `SESSIONS_FAIL <原因>`；**只读** dsh 的会话投影（明文 JSON，持续更新）。**诚实边界**：不读对话正文；字段缺失打印 `unknown`（不假装 0）；"有几个会话在跑"这里只能给最后活动时间——运行态是进程内事实，需要插件。**窗口筛选（2026-10-08 起）**：`--days` 只认 7/14/30（省略 = 总计档；其他值 ⇒ 明说的 `SESSIONS_FAIL`），`--level` 第一批只实现 `global`（非 global ⇒ `SESSIONS_FAIL` + stderr 明说「含子代理统计须读原始日志，随解码器决策后移第二批」）。窗口元数据 `SESSWIN_META days=<7\|14\|30\|unknown> from=<本地日\|-> to=<本地日\|-> tz=<平台原生时区名> truth=0 level=global source=<…> scanned=<n> eligible=<n> unknown_last=<n>`（`truth=0` = 整会话累计、非窗口增量）；库级恒定 `SESSAGG_TOTAL scope=store …`（**不随筛选变**；`first_day`/`last_day` 是本地日，无 ⇒ `unknown`）；命中窗口的每会话 `SESSAGG_SESSION <id> bucket=own turns= steps= uncached= cacheRead= cacheWrite= output= children=unknown depth=unknown`（第一批只打 own 行；血缘字段打 `unknown` 不打 0 冒充）。逐键行数门禁只进 stderr：`SESSAGG_UNKNOWN_LAST n=` / `SESSAGG_ROWDROP key=<名> ver=<期望版本> n=<条数>` |
 | `backup-list [--detail]` | `BACKUP_LIST_OK` + 裸路径行 + `BACKUP_ITEM` |
 | `doctor [--report <file>]` | `DOCTOR_OK` / `DOCTOR_WARN` / `DOCTOR_ERROR` + `[级别] 类别 描述`；`--report` 另写完整诊断报告（分类小节 + 配置/日志摘要，全部脱敏）→ `DOCTOR_REPORT <路径>` / `DOCTOR_WRITE_FAIL <原因>` |
 | `restore --dry-run [--path <dir>]` | `DRYRUN_OK` + `DRYRUN_SRC` + 每个作用域 `DRYRUN_SCOPE`/`_NEW`/`_OVERWRITE`/`_KEEP`/`_BYTES` + `DRYRUN_TOTAL` + `DRYRUN_NOTE`（失败 `DRYRUN_FAIL 原因`） |
-| `config-get` | `CONFIGGET_OK` + `CONFIG <key> <value>` × 11 |
+| `config-get` | `CONFIGGET_OK` + `CONFIG <key> <value>` × 24（2026-10-08 起含看板键：`sessions_default_level`（第一批只有 `global` 生效）+ 4 个 `sessions_price_*_per_mtok` 单价键——**只存与校验，费用显示属第三批，当前不算不显示**） |
 | `config-set <key> <value>` | `CONFIGSET_OK <key>` / `CONFIGSET_FAIL <reason>` |
 | `bootdiag --from <file>` | `BOOTDIAG_OK`/`_FAIL` + `_KIND`/`_PLUGIN`/`_ENTRY`/`_FILE`/`_LINE`/`_HINT`（未识别时 `_FIRST`） |
 | `backup` | `BACKUP_OK <路径>` / `BACKUP_FAIL <原因>`（真实写盘；比对需 `-Heavy`，目录名含时间戳会归一化） |
@@ -151,6 +151,7 @@ interface IServiceTarget { AppKind Kind; bool IsAvailable(); ServiceReport Probe
 | `restore --dry-run --path <相对路径>` | **v2.x 的已知缺陷 —— 已在 v2.7.3 修复发布**：v2.7.2 的 `P()` 给相对路径加 `\\?\` 前缀（`\\?\.\backup\x` 是非法 Win32 路径）→ 源侧遍历被 try/catch 静默吞掉，预览报 `DRYRUN_NEW 0 / OVERWRITE 0`。V3 用相对路径能正常遍历（数字正确）。`compare_markers.ps1` 因此统一把 `-Repo` 转绝对路径，否则会比对出**假差异**（这条已在脚本注释里写明原因） |
 | GUI | Windows-only WinForms 保持不变；跨平台 GUI 只留架构能力（见设计稿 §7） |
 | **`DSH_HOME` 环境变量** | **唯一一处刻意偏离 v2.x 的行为**：Windows 侧也优先读 `$DSH_HOME`（Linux 侧本就支持）→ 便于在隔离数据根下安全测试写操作与多环境部署；未设置时与 v2.x 完全一致 |
+| 含子代理统计 | **未实现（待第二批；需读原始日志）**：投影全文扫描证实**没有**血缘字段（283 个投影 `origin`/`parentSession` 零命中），catalog 并集实测漏 26 个真子代理（13%）+ 18 条 fork 边无投影来源——纯投影血缘必然缺数 ⇒ 第一批 `sessions --level` 只认 `global`（其余明说拒绝），GUI 口径选择器「仅父会话」「父会话+子代理」灰显（角标「第二批」），随 zstd 解码器决策一起做 |
 ---
 
 ## 6. 门槛③（Win/Linux 双跑）—— **已变绿**（2026-09-28）

@@ -889,13 +889,18 @@ namespace Dsht.Gui.Avalonia.Shells
             public bool Filtered; public int Count, NonBlank, Live, Subs;
             public long In, Out, Cache;
             public double HitPct = -1, Tps = -1;
+            /// <summary>看板第一批（2026-10-08 ✓✓）：窗口档生效时 = 7/14/30（KPI 卡标签「（近 N 天）」✓）；0 = 未按窗口过滤 ✓。</summary>
+            public int WinDays;
         }
 
 
         /// <summary>KPI 卡的视图后缀 ✓（整体视图 = 空串 ✓）。</summary>
         private static string KpiTag(MainWindow host)
         {
-            return Agg(host).Filtered ? (host.SubTab == 2 ? "（子代理）" : "（父会话）") : "";
+            KpiAgg a = Agg(host);
+            if (a.Filtered) return host.SubTab == 2 ? "（子代理）" : "（父会话）";
+            if (a.WinDays > 0) return "（近 " + a.WinDays + " 天）";   // 看板第一批 ✓ 窗口档标签（truth=0 口径见筛选条 C.4 脚注 ✓）
+            return "";
         }
 
 

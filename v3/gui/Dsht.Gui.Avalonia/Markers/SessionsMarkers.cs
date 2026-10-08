@@ -171,6 +171,24 @@ namespace Dsht.Gui.Avalonia.Markers
         }
     }
 
+    /// <summary>SESSAGG_SESSION 行（看板第一批 · 2026-10-08 ✓✓ 规格 §11.1：bucket=own 唯一实现 ✓
+    /// 未知字段 → HasX=false ✗ 绝不假装 0 ✓；children/depth 第一批恒 unknown → 不建模 ✓ 血缘后移第二批 ✓）。</summary>
+    public sealed class SessAggRow
+    {
+        public string Id = "";
+        public string Bucket = "";
+        public long Turns;
+        public long Steps;
+        public long Uncached;
+        public long CacheRead;
+        public long CacheWrite;
+        public long Output;
+        public bool HasStats;   // turns/steps 任一 unknown → false ✓
+        public bool HasTokens;  // 四个 token 位任一 unknown → false ✓
+        /// <summary>这批会话的输入合计（uncached + cacheRead ✓ 与 SESSIONS_TOTAL 的 in 同口径 ✓）。</summary>
+        public long In { get { return Uncached + CacheRead; } }
+    }
+
     /// <summary>`sessions` 命令的完整结果（含汇总与数据来源）。</summary>
     public sealed class SessionsSnapshot
     {
@@ -190,6 +208,40 @@ namespace Dsht.Gui.Avalonia.Markers
         /// <summary>子代理（有父会话的）数量 ✓；RootCount = 其余（根会话/普通会话 ✓）。</summary>
         public int SubAgentCount;
         public int RootCount;
+
+        // —— 看板第一批（2026-10-08 ✓✓ 规格 §11.1 ✓ truth=0 ✓✓）——
+        // SESSWIN_META：窗口元信息（HasWinMeta=false → 老 CLI 没打这行 → GUI 走「不过滤」回退 ✓）
+        public int WinDays = -1;            // -1 = 总计（CLI 打 unknown ✓ GUI 内存哨兵 ✓）
+        public string WinFrom = "-";
+        public string WinTo = "-";
+        public string WinTz = "";
+        public bool WinTruth0;              // 第一批恒 true ✓（→ C.4 脚注两处常显 ✓）
+        public int WinScanned;
+        public int WinEligible;
+        public int WinUnknownLast;
+        public bool HasWinMeta;
+        // SESSAGG_TOTAL scope=store：**无视窗口过滤**的固定总计卡 ✓
+        public long AggSessions;
+        public long AggNonBlank;
+        public long AggUncached;
+        public long AggCacheRead;
+        public long AggCacheWrite;
+        public long AggOutput;
+        public string AggFirstDay = "";     // 本地日 yyyy-MM-dd；CLI 全无数据时打 unknown → 这里留 "unknown" 原文 ✓
+        public string AggLastDay = "";
+        public bool HasAggTotal;
+        // SESSAGG_SESSION（bucket=own ✓ 只含 eligible ✓ 窗口卡数据源 + KPI/图表过滤基准 ✓）
+        public List<SessAggRow> AggRows = new List<SessAggRow>();
+
+        /// <summary>窗口内会话 id 集（SESSAGG_SESSION 行就是 eligible 集合 ✓ 规格 §4.1 ✓）。
+        /// HasWinMeta=false（老 CLI）→ 返回 null → 调用方走「不过滤」回退 ✓✓</summary>
+        public HashSet<string> AggIdSet()
+        {
+            if (!HasWinMeta) return null;
+            HashSet<string> h = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < AggRows.Count; i++) if (AggRows[i] != null && AggRows[i].Id != null) h.Add(AggRows[i].Id);
+            return h;
+        }
 
         /// <summary>数据来源的中文说明（给界面用；插件缺失时如实说明少了什么）。</summary>
         public string SourceText
@@ -281,6 +333,10 @@ namespace Dsht.Gui.Avalonia.Markers
     /// 契约见 `v3/README.md` 的命令表；这里的解析器与 CLI 的打印格式是同一份约定的两端。</summary>
     public static class SessionsMarkers
     {
+        /// <summary>C.4 脚注（规格 §4.2 :342 ✓ **一字不许改** ✓ LogicTests 逐字符断言 ✓）——
+        /// truth=0 期间：筛选条下方 + 窗口总计卡内**两处常显** ✓✓ 此文本是唯一能改它的地方。</summary>
+        public const string TruthFootnote = "本口径按会话最后活动时间筛选，用量为整会话累计，非窗口内增量。";
+
         public static SessionsSnapshot Parse(string output)
         {
             SessionsSnapshot s = new SessionsSnapshot();
@@ -311,6 +367,61 @@ namespace Dsht.Gui.Avalonia.Markers
                         s.TotalCacheRead = Num(Get(kv, "cacheRead"), 0);
                         s.TotalHitPercent = Pct(Get(kv, "hit"));
                         s.TotalDecodeTps = Pct(Get(kv, "decode"));
+                        continue;
+                    }
+                    // —— 看板第一批（2026-10-08 ✓✓ 规格 §11.1 ✓）——
+                    if (line.StartsWith("SESSWIN_META ", StringComparison.Ordinal))
+                    {
+                        Dictionary<string, string> kv = Pairs(Tail(line, "SESSWIN_META"));
+                        string d = Get(kv, "days");
+                        s.WinDays = (d == null || d == "unknown") ? -1 : (int)Num(d, -1);
+                        s.WinFrom = Get(kv, "from") ?? "-";
+                        s.WinTo = Get(kv, "to") ?? "-";
+                        s.WinTz = Decode(Get(kv, "tz") ?? "");
+                        s.WinTruth0 = Get(kv, "truth") == "0";
+                        s.WinScanned = (int)Num(Get(kv, "scanned"), 0);
+                        s.WinEligible = (int)Num(Get(kv, "eligible"), 0);
+                        s.WinUnknownLast = (int)Num(Get(kv, "unknown_last"), 0);
+                        s.HasWinMeta = true;
+                        continue;
+                    }
+                    if (line.StartsWith("SESSAGG_TOTAL ", StringComparison.Ordinal))
+                    {
+                        Dictionary<string, string> kv = Pairs(Tail(line, "SESSAGG_TOTAL"));
+                        s.AggSessions = Num(Get(kv, "sessions"), 0);
+                        s.AggNonBlank = Num(Get(kv, "nonblank"), 0);
+                        s.AggUncached = Num(Get(kv, "uncached"), 0);
+                        s.AggCacheRead = Num(Get(kv, "cacheRead"), 0);
+                        s.AggCacheWrite = Num(Get(kv, "cacheWrite"), 0);
+                        s.AggOutput = Num(Get(kv, "output"), 0);
+                        s.AggFirstDay = Get(kv, "first_day") ?? "";
+                        s.AggLastDay = Get(kv, "last_day") ?? "";
+                        s.HasAggTotal = true;
+                        continue;
+                    }
+                    if (line.StartsWith("SESSAGG_SESSION ", StringComparison.Ordinal))
+                    {
+                        string rest = Tail(line, "SESSAGG_SESSION").Trim();
+                        int sp = rest.IndexOf(' ');
+                        SessAggRow ar = new SessAggRow();
+                        if (sp < 0) { ar.Id = rest; s.AggRows.Add(ar); continue; }
+                        ar.Id = rest.Substring(0, sp);
+                        Dictionary<string, string> kv = Pairs(rest.Substring(sp + 1));
+                        ar.Bucket = Get(kv, "bucket") ?? "";
+                        string turns = Get(kv, "turns");
+                        string steps = Get(kv, "steps");
+                        ar.HasStats = !string.IsNullOrEmpty(turns) && !string.IsNullOrEmpty(steps) && turns != "unknown" && steps != "unknown";
+                        if (ar.HasStats) { ar.Turns = Num(turns, 0); ar.Steps = Num(steps, 0); }
+                        string un = Get(kv, "uncached");
+                        string cr = Get(kv, "cacheRead");
+                        string cw = Get(kv, "cacheWrite");
+                        string op = Get(kv, "output");
+                        ar.HasTokens = !string.IsNullOrEmpty(un) && un != "unknown"
+                            && !string.IsNullOrEmpty(cr) && cr != "unknown"
+                            && !string.IsNullOrEmpty(cw) && cw != "unknown"
+                            && !string.IsNullOrEmpty(op) && op != "unknown";
+                        if (ar.HasTokens) { ar.Uncached = Num(un, 0); ar.CacheRead = Num(cr, 0); ar.CacheWrite = Num(cw, 0); ar.Output = Num(op, 0); }
+                        s.AggRows.Add(ar);
                         continue;
                     }
                     if (line.StartsWith("SESSION ", StringComparison.Ordinal)) s.Rows.Add(ParseRow(line));

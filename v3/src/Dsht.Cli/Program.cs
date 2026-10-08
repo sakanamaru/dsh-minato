@@ -54,7 +54,7 @@ namespace Dsht.Cli
 
             if (cmd == "") return Menu(reg);
             if (cmd == "status") return Status(reg, Has(args, "--detail"));
-            if (cmd == "overview") return Overview(reg);   // 聚合只读：status --detail + sessions + backup-list + profiles（GUI 一次调用 ✓）
+            if (cmd == "overview") return Overview(reg, args);   // 聚合只读：status --detail + sessions + backup-list + profiles（GUI 一次调用 ✓；--days 透传给 sessions ✓ 看板第一批 ✓）
             if (cmd == "describe") return Describe(reg);
             if (cmd == "bridge-install") return BridgeInstall(args, reg);   // ✓ 可选的桥接插件 ✓（用户要求"安装桥接插件有按钮吗" ✓）
             if (cmd == "profilecheck") return ProfileCheck(args, reg);
@@ -75,7 +75,7 @@ namespace Dsht.Cli
             if (cmd == "uninstall") return UninstallCmd(args, reg);
             if (cmd == "start") return StartCmd(args, reg);
             if (cmd == "stop") return StopCmd(args, reg);
-            if (cmd == "sessions") return Sessions(reg);
+            if (cmd == "sessions") return Sessions(reg, args);   // --days 7|14|30 / --level global（看板第一批 ✓）
             if (cmd == "backup-list") return BackupList(args, reg);
             if (cmd == "backup-dir") return BackupDirCmd(args, reg);   // ✓ 备份位置查看/设置 ✓（用户要求"备份路径在备份页面里设置并且显示" ✓）
             if (cmd == "doctor") return Doctor(args, reg);
@@ -218,10 +218,10 @@ namespace Dsht.Cli
         /// status --detail + sessions + backup-list + profiles 的并集。GUI 每拍从 4 个进程降到 1 个 ✓
         /// （0.5 秒实时档的刷新成本大头是进程启动 ✓）。各子命令输出逐字不变 ✓ 解析方按前缀取行 ✓
         /// 只读聚合页：任一子块失败不打断后面的块（能显示多少显示多少 ✓）。</summary>
-        private static int Overview(ServiceRegistry reg)
+        private static int Overview(ServiceRegistry reg, string[] args)
         {
             Status(reg, true);
-            Sessions(reg);
+            Sessions(reg, args);   // ★ --days 透传（看板第一批 ✓ 窗口过滤 ✓）；overview 不认的其它参数 sessions 侧自行忽略 ✓
             BackupList(new string[] { "backup-list" }, reg);
             Profiles(reg);
             return 0;
@@ -232,7 +232,7 @@ namespace Dsht.Cli
             Console.WriteLine(T("dsh-minato 命令速查：", "dsh-minato commands:"));
             Console.WriteLine("  status [--detail] | overview | describe | doctor | bootdiag | check | selftest | version | about");
             Console.WriteLine("  profiles | profilecheck [--dir <d>] [--file <yaml>] [--diag] | profilepatch --profile <name> --id <entry> [--enable] [--yes]");
-            Console.WriteLine("  sessions | log [--lines <n>] [--level info|warn|error] [--grep <text>] [--export <file> [--yes]]");
+            Console.WriteLine("  sessions [--days 7|14|30] [--level global] | log [--lines <n>] [--level info|warn|error] [--grep <text>] [--export <file> [--yes]]");
             Console.WriteLine("  update-info | update-center | update [--yes]");
             Console.WriteLine("  balance（DeepSeek 余额检测 ✓ 只读 ✓ 需先在设置里填 balance_key ✓）");
 Console.WriteLine("  config-get | config-set <key> <value>");

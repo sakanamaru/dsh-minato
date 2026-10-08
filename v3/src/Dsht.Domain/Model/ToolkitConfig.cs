@@ -47,12 +47,27 @@ namespace Dsht.Domain.Model
         /// 不强制格式 ✗（不猜 sk- 前缀 ✓ 兼容平台将来换形式 ✓）。</summary>
         public string BalanceKey = "";
 
+        // —— 看板（2026-10-08 · 看板第一批 ✓）：口径默认 + 单价键 ✓（费用显示是第三批 ✓ 现在只落**存储 + 校验** ✓）——
+        /// <summary>sessions 的默认口径：global / parents / parents_sub。
+        /// ★ 第一批**只实现 global** ✓：选 parents / parents_sub 时 CLI 如实拒绝（SESSIONS_FAIL + stderr 注明待第二批 ✓✓）——
+        ///   投影侧没有可靠血缘数据（catalog 漏 26 个真子代理 + 18 条 fork 边无投影来源 ✓ 实测证据见施工规格 §11.2）。</summary>
+        public string SessionsDefaultLevel = "global";
+        /// <summary>输入单价（美元/百万 token）。0 = 未填 → 不显示费用 ✓（绝不硬编码价格 ✗✓）。</summary>
+        public decimal SessionsPriceInPerMTok = 0m;
+        /// <summary>缓存读单价（美元/百万 token）。0 = 未填。</summary>
+        public decimal SessionsPriceCacheReadPerMTok = 0m;
+        /// <summary>缓存写单价（美元/百万 token）。0 = 未填。</summary>
+        public decimal SessionsPriceCacheWritePerMTok = 0m;
+        /// <summary>输出单价（美元/百万 token）。0 = 未填。</summary>
+        public decimal SessionsPriceOutPerMTok = 0m;
+
         public ToolkitConfig Copy()
         {
             ToolkitConfig c = new ToolkitConfig();
             c.Lang = Lang; c.Host = Host; c.Workspace = Workspace; c.KeepBackups = KeepBackups;
             c.CheckUpdate = CheckUpdate; c.CheckDshUpdate = CheckDshUpdate; c.DshVersions = DshVersions;
             c.UpdateChannel = UpdateChannel; c.CloseAction = CloseAction; c.AutoStart = AutoStart; c.AutoStartTarget = AutoStartTarget; c.BrowserMode = BrowserMode; c.UiParallel = UiParallel; c.ScanChildren = ScanChildren; c.GuiStartPage = GuiStartPage; c.GuiAutoRefresh = GuiAutoRefresh; c.GuiShell = GuiShell; c.GuiStyle = GuiStyle; c.BalanceKey = BalanceKey;
+            c.SessionsDefaultLevel = SessionsDefaultLevel; c.SessionsPriceInPerMTok = SessionsPriceInPerMTok; c.SessionsPriceCacheReadPerMTok = SessionsPriceCacheReadPerMTok; c.SessionsPriceCacheWritePerMTok = SessionsPriceCacheWritePerMTok; c.SessionsPriceOutPerMTok = SessionsPriceOutPerMTok;
             return c;
         }
     }

@@ -33,7 +33,7 @@ profile 隔离等少数操作还需要 **v2.x 核心程序**（有 `profilepatch
 | 页面 | 数据源（CLI 标记行） | 内容 |
 |---|---|---|
 | 概览 | `overview`（聚合 `status --detail` + `profiles` + `sessions` + `backup-list`，一次调用）| 一键启动/停止 dashboard：运行状态 hero、PID/启动时间/已运行、token/缓存命中/解码速度/会话数，子页签切原始输出 |
-| 看板 | 同上 | KPI 总览 + 操作回执；子页签是**手绘图表**（近 14 天新增会话、缓存命中率分布，纯 Grid/Border 柱子，零图表依赖） |
+| 看板 | 同上 | KPI 总览 + 操作回执；**窗口筛选条**（总计 / 近 7 天 / 近 14 天 / 近 30 天，走 `sessions --days N`，KPI 条与图表随筛选重算，固定「总计」卡恒定不变）+ 口径 chips（仅「全局」可用，「仅父会话」「父会话+子代理」灰显标「第二批」）；子页签是**手绘图表**（新增会话、缓存命中率分布、token 消耗、体检结论，纯 Grid/Border 柱子，零图表依赖） |
 | 会话与 Token | `sessions` | 汇总条 + 工具栏（排序/过滤）+ 会话列表或统计子页（最耗 token 排行）；子菜单切"列表/统计"，排序一律走工具栏下拉 |
 | 形态与插件 | `profiles` | 每个 profile 的形态（web/headless/acp）与插件卡片（含第三方），过滤 chips + 就地搜索；隔离等写操作走 v2.x 核心并有二次确认 |
 | 备份 | `backup-list --detail` | 备份清单（时间/范围/大小）+ 立即备份/导出/恢复预览/应用恢复/删除（删除要两次确认） |
@@ -55,7 +55,7 @@ profile 隔离等少数操作还需要 **v2.x 核心程序**（有 `profilepatch
 
 ## 逻辑测试
 
-`v3/gui/Dsht.Gui.LogicTests`：**58 项，不依赖 Avalonia**（CI 里 windows+ubuntu 都跑）——覆盖标记行解析、unknown 语义、脏数据容错、备份/体检/配置解析。
+`v3/gui/Dsht.Gui.LogicTests`：**78 项，不依赖 Avalonia**（CI 里 windows+ubuntu 都跑）——覆盖标记行解析、unknown 语义、脏数据容错、备份/体检/配置解析、看板窗口筛选（`SESSWIN_META`/`SESSAGG_TOTAL`/`SESSAGG_SESSION` 解析与 eligible 交集）。
 
 ```bash
 dotnet run --project v3/gui/Dsht.Gui.LogicTests -c Release
@@ -68,6 +68,7 @@ dotnet run --project v3/gui/Dsht.Gui.LogicTests -c Release
 | i18n | 界面是硬编码中英混排；**没有** L10N 机制（v2.x WinForms 那套 i18n 强制检查还没搬过来） |
 | 发布形态 | **未定**：self-contained（60–90 MB，免装运行时）还是 framework-dependent（小，要 .NET 8）——需要拍板 |
 | 体检页原始输出子页 | 子页签只有一项时切不到"原始输出"页（`SubTab==1` 分支暂不可达），内容本身在说明页可见 |
+| 含子代理统计 | **未实现（待第二批；需读原始日志）**——投影无血缘字段、catalog 路线实测漏数（见 `v3/README.md` §5），看板口径选择器里「仅父会话」「父会话+子代理」灰显标「第二批」，随解码器决策一起做 |
 | 与 WinForms 的关系 | 并行存在；v2.x 发布线仍是 WinForms 版，成熟前不替换 |
 
 ## 图标许可提醒
