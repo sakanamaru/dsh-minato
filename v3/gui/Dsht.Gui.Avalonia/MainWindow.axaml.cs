@@ -48,7 +48,7 @@ namespace Dsht.Gui.Avalonia
         private static readonly string[][] NavSubs = new string[][]
         {
             new string[] { "概览", "原始输出" },
-            new string[] { "总览" },
+            new string[] { "指标", "图表" },   // ★ 看板重排（2026-10-09 ✓✓ 规格 §2-7 ✓）：指标 / 图表 双子标签 ✓
             new string[] { "整体", "父会话", "子代理", "统计" },   // 用户要求的三视图 + 原有统计 ✓
             new string[] { "原始输出" },
             new string[] { "原始输出" },
@@ -61,7 +61,8 @@ namespace Dsht.Gui.Avalonia
         private static readonly string[][] NavDesc = new string[][]
         {
             new string[] { "这台机器的运行状态：dsh 是否在跑（含官方桌面端）+ 运行事实 + DeepSeek 余额；指标与图表的唯一主场在「看板」。", "status --detail 的标记行原文。" },
-            new string[] { "指标唯一主场：会话/token/命中率/解码速度 KPI + 操作回执 + 趋势图（近 N 天新增会话 / 命中率分布 / token 消耗 / 体检结论，N = 7/14/30 可切）。" },
+            // ★ 看板重排（2026-10-09 ✓✓ 规格 §2-1 ✓）：两行说明 → 一行 ≤40 字 ✓ 指标/图表 各一条 ✓
+            new string[] { "KPI（会话/token/命中率/解码速度）+ 筛选 + 总计。", "七张趋势图：新增/命中率/token 消耗/热力/耗时/Token 分类/体检。" },
             new string[] { "逐条会话：标题、token、缓存命中率、解码速度、上下文压力（排序用工具栏的下拉）。", "汇总统计：总量、命中率、速度，以及最耗 token 的会话排行。" },
             new string[] { "每个 profile 启用了哪个形态（web/headless/acp）以及装了哪些插件（含第三方）。" },
             new string[] { "备份清单：每个备份的时间、范围与大小。" },

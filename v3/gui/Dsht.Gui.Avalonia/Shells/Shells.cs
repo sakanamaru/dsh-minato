@@ -696,7 +696,9 @@ namespace Dsht.Gui.Avalonia.Shells
             s.Children.Add(new TextBlock { Text = StripMd(host.SubtitleText), Foreground = Palette.TextDim, FontSize = 12.5, TextWrapping = TextWrapping.Wrap });
             g.Children.Add(s);
             // 提案A：概览/看板页的「自动刷新」收进页眉行右侧 ✓（内容流不再被它占一整行 ✓）
-            if (host.IsOverviewLike && host.SubTab == 0)
+            // ★ 看板重排（2026-10-09 ✓✓）：看板（MainSection==1）两个子标签都显示 ✓（「图表」页也要能刷 ✓）；
+            //   概览（MainSection==0）保持原状：仅主标签显示（「原始输出」页不刷 ✓）。
+            if (host.IsOverviewLike && (host.MainSection == 1 || host.SubTab == 0))
             {
                 Control ar = AutoRefreshBar(host);
                 if (ar != null) { Grid.SetColumn(ar, 1); g.Children.Add(ar); }   // ★ 必须设列 ✗ 否则两块同叠列 0（截图抓到标题被遮）

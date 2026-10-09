@@ -423,44 +423,54 @@ namespace Dsht.Gui.Avalonia.Shells
 
         }
 
-        /// <summary>看板（提案A 后的唯一分工）：**指标的唯一主场**。
-
-        /// 主标签「指标」= KPI 四卡 + 最近一条操作回执；「图表」子标签 = 4 张图（**全页唯一出现处** ✓
-
-        /// —— 原来主标签也嵌一份 ChartsBody，同一组图渲染两遍 ✗ 已拆 ✓）。</summary>
-
-        /// <summary>看板 = **指标与图表的唯一主场（单页）**。
-        /// 用户反馈"主标签太空 + 图表子标签重复"→ 合成一页：KPI 四卡 + 操作回执 + 4 张图 ✓
-        /// 同一组图只出现一次（既填满也不重复 ✓）。「图表」子标签已随之取消。</summary>
+        /// <summary>看板 = **指标与图表的唯一主场（双子标签）**。
+        /// ★ 看板重排（2026-10-09 ✓✓ 规格 docs\看板重排规格-给Kimi-2026-10-09.md §2 ✓✓）——
+        ///   主标签「指标」= KPI 四卡 → 筛选条 → 总计卡（固定总计块 + 窗口块合一 ✓ §2-5 ✓）→ 操作回执细条 ✓ **没有图** ✗（§2-7 ✓）
+        ///     —— 1320×840 首屏顺序 = KPI → 筛选 → 总计（→ 回执细条），与 §2-9 一致 ✓；
+        ///   子标签「图表」= 筛选条（同一口径入口 ✓ 两标签共享 ✓ C.4 脚注每屏恰好一次 ✓ §1 ✓）→ 七张图（同排两图等高 ✓ §2-8 ✓）。
+        ///   上方两段旧注释曾自相矛盾（指标/图表分标签 → 又合成单页）—— 现在是第二次拆分，以此段为准 ✓。</summary>
         private static Control BoardContent(MainWindow host)
         {
             StackPanel s = new StackPanel { Margin = PageMargin, Spacing = 14 };
+            // —— 子标签「图表」（§2-7 ✓✓）：筛选条 + 图 ✓ KPI / 总计卡 / 回执不在这里 ✓
+            if (host.SubTab == 1)
+            {
+                s.Children.Add(BoardFilterBar(host));   // 图随窗口/口径 ✓ C.4 脚注在此出现本屏唯一一次（图内不再重复 ✓ §1 ✓）
+                s.Children.Add(ChartsBody(host));
+                return s;
+            }
+            // —— 主标签「指标」✓✓ 顺序 = KPI → 筛选 → 总计 → 回执（§2-9 ✓）——
             s.Children.Add(KpiStrip(host));
-            // —— 看板第一批（2026-10-08 ✓✓ 规格 §4.1/§4.2 ✓ truth=0 ✓✓）——
-            // 筛选条：总计 / 近 7 / 近 14 / 近 30 ✓ + 口径选择器（只有「全局」可用 ✓ 血缘两档灰显「第二批」✓ §B 缩圈 ✓）
-            //   + C.4 固定脚注（truth=0 期间常显 ✓ 一字不许改 ✓ 文案唯一出处 = SessionsMarkers.TruthFootnote ✓）
+            // 筛选条：窗口档 + 「自定义…」+ 口径 chips + fork 口径差「?」入口（B.5 ✓ §2-4 ✓）+ C.4 固定脚注（本屏唯一一次 ✓ §1 ✓）
             s.Children.Add(BoardFilterBar(host));
             SessionsSnapshot bd = host.Data;
-            // —— B.5 口径差说明行（第三批 · 2026-10-09 ✓✓ 规格 §11.7-E-2 ✓✓）：仅 level ∈ {global, parents_sub} 时显示 ✓
-            //   文案 = §B.5 固定模板（一字不许改 ✓ 唯一出处 SessionsMarkers.ForkDiffText ✓）；n 取不到 ⇒ unknown（✗ 不打 0 ✓）；0 也照显（D-7 ✓）——
-            if (bd != null && bd.Ok && bd.HasWinMeta && bd.LineageOk
-                && (bd.WinLevel == "global" || bd.WinLevel == "parents_sub"))
-                s.Children.Add(T(SessionsMarkers.ForkDiffText(bd.ForkSessions), 11, Palette.TextFaint));
-            if (bd != null && bd.Ok && bd.HasAggTotal)
-                s.Children.Add(BoardTotalCard(bd));                      // ③ 固定总计卡：无视窗口过滤 ✓ scope=store ✓
-            if (bd != null && bd.Ok && bd.HasWinMeta && (bd.WinDays > 0 || bd.WinFrom != "-"))
-                s.Children.Add(BoardWindowCard(bd));                     // 窗口总计卡：eligible 集 GUI 侧求和 ✓ 卡内再印 C.4 ✓（自定义区间 days=unknown 也显 ✓ D4 ✓）
-            // 操作回执：最近一条动作的结果（细节在右下角 toast）
+            // 总计卡（§2-5 ✓✓）：固定总计块 + 窗口总计块合一 ✓ 文案逐字保留 ✓ 卡内不再重复 C.4（筛选条已印 ✓ §1 ✓）
+            Control totals = (bd == null || !bd.Ok) ? null : BoardTotalsCard(bd);
+            if (totals != null) s.Children.Add(totals);
+            // 操作回执 → 细条（§2-6 ✓✓ 不再占一整卡 ✓；「检测到官方桌面端正在运行 → 不启动 webui」等动作提示就走这条 ✓）
             if (!string.IsNullOrEmpty(host.ActionLog))
-                s.Children.Add(Card(T(host.ActionLog, 12, Palette.TextDim), new Thickness(0), new Thickness(14, 10)));
+                s.Children.Add(ReceiptStrip(host.ActionLog));
             else
-                s.Children.Add(Card(T("还没有操作 —— 侧栏底部可以一键启动 / 停止 dsh；结果会显示在这里并弹 toast。", 11.5, Palette.TextFaint), new Thickness(0), new Thickness(14, 10)));
-            s.Children.Add(ChartsBody(host));
+                s.Children.Add(ReceiptStrip("还没有操作 —— 侧栏底部可以一键启动 / 停止 dsh；结果会显示在这里并弹 toast。"));
             return s;
         }
 
-        /// <summary>看板筛选条（看板第一批 · 规格 §4.1 ✓✓；第三批 2026-10-09 ✓✓ 规格 §11.7-E ✓✓）：
-        /// 窗口档按钮 + 「自定义…」（D4 ✓）+ 口径 chips（lineage=ok ⇒ 三档全解锁 ✓ 否则血缘两档静态形态 + 「需桥插件血缘」✓）+ C.4 脚注 ✓。</summary>
+        /// <summary>回执细条（看板重排 §2-6 ✓✓）：半高细条承载操作回执/运行提示 ✗ 不再占整卡 ✓。</summary>
+        private static Control ReceiptStrip(string text)
+        {
+            return new Border
+            {
+                Background = Palette.CardHover,
+                CornerRadius = new CornerRadius(6),
+                Padding = new Thickness(12, 6),
+                Child = T(text, 11.5, Palette.TextDim)
+            };
+        }
+
+        /// <summary>看板筛选条（看板第一批 · 规格 §4.1 ✓✓；第三批 2026-10-09 ✓✓ 规格 §11.7-E ✓✓；重排 2026-10-09 ✓✓ §2-3/§2-4 ✓✓）：
+        /// 窗口档按钮 + 「自定义…」（D4 ✓）+ 口径 chips（lineage=ok ⇒ 三档全解锁 ✓ 否则血缘两档静态形态 + 「需桥插件血缘」✓）
+        /// + fork 口径差「？」入口（B.5 ✓ 文案逐字 ✓）+ C.4 脚注（**每屏恰好一次，就印在这里** ✓ 重排 §1 ✓✓ 图内/卡内不再重复 ✓）。
+        /// 两个子标签都挂这条 ✓ 口径入口一处可见 ✓。</summary>
         private static Control BoardFilterBar(MainWindow host)
         {
             StackPanel col = new StackPanel { Spacing = 8 };
@@ -529,6 +539,36 @@ namespace Dsht.Gui.Avalonia.Shells
                 row.Children.Add(BoardScopeChip("仅父会话（需桥插件血缘）", false));
                 row.Children.Add(BoardScopeChip("父会话+子代理（需桥插件血缘）", false));
             }
+            // ★ 看板重排（2026-10-09 ✓✓ 规格 §2-4 ✓✓）：B.5 fork 口径差说明从裸文本行收进「口径」旁的「？」入口 ✓✓
+            //   入口显眼（描边强调 ✓ 悬浮提示 ✓ 无障碍名 ✓）；文案 = SessionsMarkers.ForkDiffText 逐字 ✗ 一字未改 ✓
+            //   （「相差 N 个会话」N 实时取 SESSWIN_META fork_sessions ✓ 取不到 ⇒ unknown ✓ 0 照显 ✓ D-7 ✓）；
+            //   可见条件与旧裸行完全相同（lineage=ok 且 level ∈ {global, parents_sub} ✓）—— 只换呈现 ✗ 不改口径 ✓
+            if (bd0 != null && bd0.Ok && bd0.HasWinMeta && bd0.LineageOk
+                && (bd0.WinLevel == "global" || bd0.WinLevel == "parents_sub"))
+            {
+                Button qb = new Button
+                {
+                    Content = T("？口径差", 11.5, Palette.Accent),
+                    Background = Palette.CardHover,
+                    BorderBrush = Palette.Accent,
+                    BorderThickness = new Thickness(1),
+                    CornerRadius = new CornerRadius(6),
+                    Padding = new Thickness(10, 5),
+                    VerticalAlignment = VerticalAlignment.Center
+                };
+                StackPanel fc = new StackPanel { Spacing = 6 };
+                fc.Children.Add(T("为什么「全局」和「父会话+子代理」数字不一样？", 12.5, Palette.Text, FontWeight.SemiBold));
+                TextBlock ft = T(SessionsMarkers.ForkDiffText(bd0.ForkSessions), 11.5, Palette.TextDim);
+                ft.TextWrapping = TextWrapping.Wrap;
+                ft.MaxWidth = 460;
+                fc.Children.Add(ft);
+                Control fcard = Card(fc, new Thickness(0), new Thickness(14, 10));
+                fcard.MaxWidth = 500;
+                qb.Flyout = new Flyout { Content = fcard };
+                ToolTip.SetTip(qb, "fork 会话算不算？点开看口径说明");
+                global::Avalonia.Automation.AutomationProperties.SetName(qb, "口径：fork 说明");
+                row.Children.Add(qb);
+            }
             col.Children.Add(row);
             SessionsSnapshot d = host.Data;
             if (d != null && d.HasWinMeta && d.WinTruth0)
@@ -566,57 +606,66 @@ namespace Dsht.Gui.Avalonia.Shells
             return b;
         }
 
-        /// <summary>③ 固定总计卡（规格 §4.2 ✓✓）：SESSAGG_TOTAL scope=store —— **无视窗口过滤** ✓
-        /// 窗口怎么切它都不变 ✓ 数据面 = 全部会话的已知字段之和（unknown 的按缺失处理 ✗ 不假装 0 ✓）。</summary>
-        private static Control BoardTotalCard(SessionsSnapshot d)
+        /// <summary>总计卡（★ 看板重排 2026-10-09 ✓✓ 规格 §2-5 ✓✓）：**固定总计块 + 窗口总计块合一** ——
+        /// 旧版两张卡并排 ✗ 各印一遍 C.4 脚注 ✗ 首屏拥挤；现在一卡两节（细分隔线）✓ 首屏少一层 ✓。
+        /// 文案**逐字保留**：「不随上方筛选变化」「右端不含 · 时区」「不假装 0」「不进窗口（不猜日期 ✓ 已计入上方总计卡 ✓）」一字未丢 ✓✓
+        /// （合并后总计块仍在窗口块上方 ✓ 那句"已计入上方总计卡"依然成立 ✓）；
+        /// C.4 脚注**不在卡内重复** —— 筛选条已印、每屏恰好一次（规格 §1 原话：全页只出现一次 ✓✓ 文案未动 ✓ 只挪位置 ✓）。
+        /// 数据面不变：固定块 = SESSAGG_TOTAL scope=store（无视窗口过滤 ✓ 规格 §4.2 ✓✓）；
+        /// 窗口块 = SESSAGG_SESSION 行（= eligible 集合 ✓）GUI 侧求和（规格 §4.1 ✓✓ 自定义区间 days=unknown 也显 ✓ D4 ✓）。
+        /// 任一块可用即渲染 ✓ 都不可用 → 不出卡 ✓。</summary>
+        private static Control BoardTotalsCard(SessionsSnapshot d)
         {
+            bool hasTotal = d.HasAggTotal;
+            bool hasWin = d.HasWinMeta && (d.WinDays > 0 || d.WinFrom != "-");   // 与旧两卡的出现条件分别逐字相同 ✓
+            if (!hasTotal && !hasWin) return null;
             StackPanel c = new StackPanel { Spacing = 8 };
-            c.Children.Add(T("总计（全部 " + d.AggSessions + " 个会话 · 不随上方筛选变化）", 13, Palette.Text, FontWeight.Bold));
-            c.Children.Add(T("输入 " + SessionRow.Human(d.AggUncached + d.AggCacheRead)
-                + " token（其中缓存读 " + SessionRow.Human(d.AggCacheRead) + " · 缓存写 " + SessionRow.Human(d.AggCacheWrite) + "）"
-                + "　输出 " + SessionRow.Human(d.AggOutput) + " token", 12, Palette.TextDim));
-            string span = (d.AggFirstDay.Length > 0 && d.AggFirstDay != "unknown" && d.AggLastDay.Length > 0 && d.AggLastDay != "unknown")
-                ? d.AggFirstDay + " ~ " + d.AggLastDay : "未知（不猜）";
-            c.Children.Add(T("非空会话 " + d.AggNonBlank + " 个 · 活动跨度（本地日期）" + span
-                + " · token 未知的会话未计入求和（不假装 0）", 11.5, Palette.TextFaint));
-            return Card(c, new Thickness(0), new Thickness(18, 16));
-        }
-
-        /// <summary>窗口总计卡（规格 §4.1 ✓✓）：SESSAGG_SESSION 行（= eligible 集合 ✓）GUI 侧求和 ✓
-        /// 与固定总计卡并排对照 ✓ 卡内必须再印 C.4（truth=0 ✓ 一字不许改 ✓）。</summary>
-        private static Control BoardWindowCard(SessionsSnapshot d)
-        {
-            long uncached = 0, cacheRead = 0, cacheWrite = 0, output = 0, turns = 0, tokKnown = 0, tokUnknown = 0;
-            for (int i = 0; i < d.AggRows.Count; i++)
+            if (hasTotal)
             {
-                SessAggRow r = d.AggRows[i];
-                if (r == null) continue;
-                if (r.HasTokens)
-                {
-                    tokKnown++;
-                    uncached += r.Uncached; cacheRead += r.CacheRead; cacheWrite += r.CacheWrite; output += r.Output;
-                }
-                else tokUnknown++;
-                if (r.HasStats) turns += r.Turns;
+                // —— 固定总计块：无视窗口过滤 ✓ scope=store ✓（与旧 BoardTotalCard 逐字一致 ✓）
+                c.Children.Add(T("总计（全部 " + d.AggSessions + " 个会话 · 不随上方筛选变化）", 13, Palette.Text, FontWeight.Bold));
+                c.Children.Add(T("输入 " + SessionRow.Human(d.AggUncached + d.AggCacheRead)
+                    + " token（其中缓存读 " + SessionRow.Human(d.AggCacheRead) + " · 缓存写 " + SessionRow.Human(d.AggCacheWrite) + "）"
+                    + "　输出 " + SessionRow.Human(d.AggOutput) + " token", 12, Palette.TextDim));
+                string span = (d.AggFirstDay.Length > 0 && d.AggFirstDay != "unknown" && d.AggLastDay.Length > 0 && d.AggLastDay != "unknown")
+                    ? d.AggFirstDay + " ~ " + d.AggLastDay : "未知（不猜）";
+                c.Children.Add(T("非空会话 " + d.AggNonBlank + " 个 · 活动跨度（本地日期）" + span
+                    + " · token 未知的会话未计入求和（不假装 0）", 11.5, Palette.TextFaint));
             }
-            StackPanel c = new StackPanel { Spacing = 8 };
-            // 自定义区间 ⇒ 标题改显「自定义区间 from~to」（D4 ✓ 规格 §11.7-E-4 ✓✓）；窗口档 ⇒ 原「近 N 天」不动 ✓
-            string winTitle = d.WinDays > 0
-                ? "近 " + d.WinDays + " 天窗口总计（" + d.WinEligible + " 个会话有活动）"
-                : "自定义区间 " + d.WinFrom + "~" + d.WinTo + " 窗口总计（" + d.WinEligible + " 个会话有活动）";
-            c.Children.Add(T(winTitle, 13, Palette.Text, FontWeight.Bold));
-            c.Children.Add(T("输入 " + SessionRow.Human(uncached + cacheRead)
-                + " token（其中缓存读 " + SessionRow.Human(cacheRead) + " · 缓存写 " + SessionRow.Human(cacheWrite) + "）"
-                + "　输出 " + SessionRow.Human(output) + " token　轮次 " + turns, 12, Palette.TextDim));
-            string range = (d.WinFrom != "-" && d.WinTo != "-") ? d.WinFrom + " ~ " + d.WinTo + "（右端不含 · 时区 " + (d.WinTz.Length > 0 ? d.WinTz : "未知") + "）" : "窗口范围未知";
-            string miss = d.WinUnknownLast > 0
-                ? " · 另有 " + d.WinUnknownLast + " 个会话没有最后活动时间 → 不进窗口（不猜日期 ✓ 已计入上方总计卡 ✓）"
-                : "";
-            string unk = tokUnknown > 0
-                ? " · " + tokUnknown + " 个会话 token 未知（未计入求和 ✓ 不假装 0 ✓）"
-                : "";
-            c.Children.Add(T("窗口：" + range + miss + unk, 11.5, Palette.TextFaint));
-            c.Children.Add(T(SessionsMarkers.TruthFootnote, 11, Palette.TextFaint));
+            if (hasWin)
+            {
+                if (hasTotal) c.Children.Add(new Border { Height = 1, Background = Palette.Border, Opacity = 0.5, Margin = new Thickness(0, 2) });   // 两节分隔线 ✓
+                // —— 窗口总计块：eligible 集 GUI 侧求和 ✓（与旧 BoardWindowCard 逐字一致 ✓ 仅去掉卡内第二遍 C.4 ✓ §1 ✓）——
+                long uncached = 0, cacheRead = 0, cacheWrite = 0, output = 0, turns = 0, tokKnown = 0, tokUnknown = 0;
+                for (int i = 0; i < d.AggRows.Count; i++)
+                {
+                    SessAggRow r = d.AggRows[i];
+                    if (r == null) continue;
+                    if (r.HasTokens)
+                    {
+                        tokKnown++;
+                        uncached += r.Uncached; cacheRead += r.CacheRead; cacheWrite += r.CacheWrite; output += r.Output;
+                    }
+                    else tokUnknown++;
+                    if (r.HasStats) turns += r.Turns;
+                }
+                // 自定义区间 ⇒ 标题改显「自定义区间 from~to」（D4 ✓ 规格 §11.7-E-4 ✓✓）；窗口档 ⇒ 原「近 N 天」不动 ✓
+                string winTitle = d.WinDays > 0
+                    ? "近 " + d.WinDays + " 天窗口总计（" + d.WinEligible + " 个会话有活动）"
+                    : "自定义区间 " + d.WinFrom + "~" + d.WinTo + " 窗口总计（" + d.WinEligible + " 个会话有活动）";
+                c.Children.Add(T(winTitle, 13, Palette.Text, FontWeight.Bold));
+                c.Children.Add(T("输入 " + SessionRow.Human(uncached + cacheRead)
+                    + " token（其中缓存读 " + SessionRow.Human(cacheRead) + " · 缓存写 " + SessionRow.Human(cacheWrite) + "）"
+                    + "　输出 " + SessionRow.Human(output) + " token　轮次 " + turns, 12, Palette.TextDim));
+                string range = (d.WinFrom != "-" && d.WinTo != "-") ? d.WinFrom + " ~ " + d.WinTo + "（右端不含 · 时区 " + (d.WinTz.Length > 0 ? d.WinTz : "未知") + "）" : "窗口范围未知";
+                string miss = d.WinUnknownLast > 0
+                    ? " · 另有 " + d.WinUnknownLast + " 个会话没有最后活动时间 → 不进窗口（不猜日期 ✓ 已计入上方总计卡 ✓）"
+                    : "";
+                string unk = tokUnknown > 0
+                    ? " · " + tokUnknown + " 个会话 token 未知（未计入求和 ✓ 不假装 0 ✓）"
+                    : "";
+                c.Children.Add(T("窗口：" + range + miss + unk, 11.5, Palette.TextFaint));
+            }
             return Card(c, new Thickness(0), new Thickness(18, 16));
         }
 
@@ -1173,13 +1222,13 @@ namespace Dsht.Gui.Avalonia.Shells
 
             c1.Children.Add(T("近 " + days + " 天新增会话（按 dsh 记录的创建时间，本地日期）", 13, Palette.Text, FontWeight.Bold));   // ★ 第二批：UTC → 本地 ✓ 规格 §11.6-C3 ✓
 
-            c1.Children.Add(BarChart(labels, counts, max, Palette.Accent, "个"));
+            c1.Children.Add(BarChart(labels, counts, max, Palette.Accent, "个", 200));   // ★ 重排 §2-8 ✓ 图高归一 180–220 → 200 ✓
 
             c1.Children.Add(T("最高 " + max + " 个/天　合计 " + Sum(counts) + " 个（创建时间缺失的会话不计入，不猜）", 11.5, Palette.TextFaint));
 
             c1.Children.Add(T("按会话创建日（本地）分桶" + (winFilter ? "；只统计上方窗口内有活动的会话" : ""), 11, Palette.TextFaint));   // 规格 §5.5/D-5 + §11.6-C3 ✓ 图 1 保留但明说分桶键 ✓ 第二批改本地日 ✓
 
-            s.Children.Add(Card(c1, new Thickness(0), new Thickness(18, 16)));
+            Control cardC1 = Card(c1, new Thickness(0), new Thickness(18, 16));   // ★ 重排 §2-8 ✓ 卡片存局部变量，末尾按「同排两图」装排 ✓
 
 
 
@@ -1213,11 +1262,11 @@ namespace Dsht.Gui.Avalonia.Shells
 
             c2.Children.Add(T("缓存命中率分布（会话数）", 13, Palette.Text, FontWeight.Bold));
 
-            c2.Children.Add(BarChart(hl, hc, Math.Max(Math.Max(low, mid), Math.Max(high, unknown)), Palette.Good, "个"));
+            c2.Children.Add(BarChart(hl, hc, Math.Max(Math.Max(low, mid), Math.Max(high, unknown)), Palette.Good, "个", 200));   // ★ 重排 §2-8 ✓
 
             c2.Children.Add(T("命中率越高越省钱；unknown 表示该会话没有这个字段（空会话），我们不会把它算成 0%。", 11.5, Palette.TextFaint));
 
-            s.Children.Add(Card(c2, new Thickness(0), new Thickness(18, 16)));
+            Control cardC2 = Card(c2, new Thickness(0), new Thickness(18, 16));   // ★ 重排 §2-8 ✓
 
 
 
@@ -1225,7 +1274,7 @@ namespace Dsht.Gui.Avalonia.Shells
             //   ✗ 旧版按 **Created 的 UTC 日**把整会话累计塞进创建日 → 与"近 N 天用量"观感打架 ✗
             //   ✓ 现在：分桶键 = 各会话 **lastPromptAt 的本地日** ✓（GUI 侧分桶先例 ✓ 规格 :812 ✓）
             //     · 缺 lastPromptAt 的会话**不进图**（不猜日期 ✓）并在脚注如实计数 ✓
-            //     · 数字是**整会话累计**（truth=0 ✗ 非窗口内增量 ✓ C.4 脚注必须跟着 ✓✓）
+            //     · 数字是**整会话累计**（truth=0 ✗ 非窗口内增量 ✓ C.4 脚注：重排后每屏只在筛选条印一次 ✓ §1 ✓✓）
             string[] labelsLoc = new string[days];
 
             string[] labelsLocFull = new string[days];
@@ -1291,13 +1340,13 @@ namespace Dsht.Gui.Avalonia.Shells
 
             c3.Children.Add(T("近 " + days + " 天有活动的会话 · 整会话累计（输入侧合计，" + (tokDiv >= 1000 ? "k token" : "token") + "）", 13, Palette.Text, FontWeight.Bold));   // 口径名一字不改 ✓ 规格 §4.3 :119 ✓
 
-            c3.Children.Add(BarChart(labelsLoc, dayTokK, maxTok / tokDiv, Palette.Warn, maxTok >= 1000 ? "k tok" : "tok"));   // F11 FIX: unit follows the data
+            c3.Children.Add(BarChart(labelsLoc, dayTokK, maxTok / tokDiv, Palette.Warn, maxTok >= 1000 ? "k tok" : "tok", 200));   // F11 FIX: unit follows the data  // ★ 重排 §2-8 ✓
 
             c3.Children.Add(T("合计 " + SessionRow.Human(Sum(dayTok)) + " token　最高 " + SessionRow.Human(maxTok) + "/天（按最后活动时间归**本地日**；缺失 " + missingLast3 + " 个不计入，不猜）", 11.5, Palette.TextFaint));
 
-            c3.Children.Add(T(SessionsMarkers.TruthFootnote, 11, Palette.TextFaint));   // C.4 ✓ 一字不许改 ✓ 规格 §4.3/C.4 ✓✓
+            // ★ 看板重排（§1 ✓✓）：卡内不再印第二遍 C.4 —— 筛选条已印、每屏恰好一次 ✓ 文案未动 ✓ 只去重复 ✓
 
-            s.Children.Add(Card(c3, new Thickness(0), new Thickness(18, 16)));
+            Control cardC3 = Card(c3, new Thickness(0), new Thickness(18, 16));   // ★ 重排 §2-8 ✓
 
 
 
@@ -1347,11 +1396,12 @@ namespace Dsht.Gui.Avalonia.Shells
 
             Grid hg = new Grid();   // 间距用各格 Margin 出（此 Avalonia 版本的 Grid 无 ColumnSpacing/RowSpacing ✓ 编译门槛实测 ✓）
 
-            hg.ColumnDefinitions.Add(new ColumnDefinition(16, GridUnitType.Pixel));   // 星期标签列
+            // ★ 看板重排（§2-8 ✓✓）：格子 14px → 22px —— 网格总高 7×(22+5) = 189px ∈ 图高 180–220 区间 ✓ 与同排条形图视觉等高 ✓
+            hg.ColumnDefinitions.Add(new ColumnDefinition(20, GridUnitType.Pixel));   // 星期标签列
 
-            for (int ci = 0; ci < cols; ci++) hg.ColumnDefinitions.Add(new ColumnDefinition(14, GridUnitType.Pixel));
+            for (int ci = 0; ci < cols; ci++) hg.ColumnDefinitions.Add(new ColumnDefinition(22, GridUnitType.Pixel));
 
-            for (int ri = 0; ri < 7; ri++) hg.RowDefinitions.Add(new RowDefinition(14, GridUnitType.Pixel));
+            for (int ri = 0; ri < 7; ri++) hg.RowDefinitions.Add(new RowDefinition(22, GridUnitType.Pixel));
 
             string[] wd = new string[] { "一", "二", "三", "四", "五", "六", "日" };
 
@@ -1359,7 +1409,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             {
 
-                TextBlock wl = T(wd[ri], 9, Palette.TextFaint);
+                TextBlock wl = T(wd[ri], 10, Palette.TextFaint);   // ★ 重排 §2-8 ✓ 9 → 10（格变大，字跟上 ✓）
 
                 wl.VerticalAlignment = VerticalAlignment.Center;
 
@@ -1375,7 +1425,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 int pos = lead + k;
 
-                Border cell = new Border { Width = 14, Height = 14, CornerRadius = new CornerRadius(3), Background = HeatBrush(dayCnt[k]), Margin = new Thickness(1.5) };
+                Border cell = new Border { Width = 22, Height = 22, CornerRadius = new CornerRadius(4), Background = HeatBrush(dayCnt[k]), Margin = new Thickness(2.5) };   // ★ 重排 §2-8 ✓ 14 → 22 ✓
 
                 ToolTip.SetTip(cell, labelsLocFull[k] + "：" + dayCnt[k] + " 个会话");   // 悬浮出真值 ✓
 
@@ -1391,7 +1441,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             ch.Children.Add(T(string.Format(SessionsMarkers.HeatFootnote, missingH), 11, Palette.TextFaint));
 
-            s.Children.Add(Card(ch, new Thickness(0), new Thickness(18, 16)));
+            Control cardHeat = Card(ch, new Thickness(0), new Thickness(18, 16));   // ★ 重排 §2-8 ✓
 
 
 
@@ -1434,11 +1484,11 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 ctm.Children.Add(T(SessionsMarkers.TimeFootnote, 11, Palette.TextFaint));
 
-                ctm.Children.Add(T(SessionsMarkers.TruthFootnote, 11, Palette.TextFaint));   // C.4 ✓✓ 整会话累计 ✗ 非窗口增量 ✓
+                // ★ 看板重排（§1 ✓✓）：卡内不再印第二遍 C.4 —— 筛选条已印、每屏恰好一次 ✓ 文案未动 ✓ 只去重复 ✓
 
             }
 
-            s.Children.Add(Card(ctm, new Thickness(0), new Thickness(18, 16)));
+            Control cardTime = Card(ctm, new Thickness(0), new Thickness(18, 16));   // ★ 重排 §2-8 ✓
 
 
 
@@ -1481,7 +1531,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             }
 
-            s.Children.Add(Card(ccx, new Thickness(0), new Thickness(18, 16)));
+            Control cardCtx = Card(ccx, new Thickness(0), new Thickness(18, 16));   // ★ 重排 §2-8 ✓
 
 
 
@@ -1497,7 +1547,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             c4.Children.Add(T("体检结论分布（条目数）", 13, Palette.Text, FontWeight.Bold));
 
-            c4.Children.Add(BarChart(dl, dv, Math.Max(Math.Max(dv[0], dv[1]), dv[2]), Palette.Accent, "项"));
+            c4.Children.Add(BarChart(dl, dv, Math.Max(Math.Max(dv[0], dv[1]), dv[2]), Palette.Accent, "项", 200));   // ★ 重排 §2-8 ✓
 
             c4.Children.Add(T(dsum == null || !dsum.Ok
 
@@ -1505,13 +1555,35 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 : "来自 doctor 的分级条目；错误项在「体检」页可以逐条看到原因。", 11.5, Palette.TextFaint));
 
-            s.Children.Add(Card(c4, new Thickness(0), new Thickness(18, 16)));
+            Control cardC4 = Card(c4, new Thickness(0), new Thickness(18, 16));   // ★ 重排 §2-8 ✓
+
+            // —— ★ 看板重排（2026-10-09 ✓✓ 规格 §2-7/§2-8 ✓✓）：同排两图等高装排 ——
+            //   三列 Grid（图 | 14px 间隔列 | 图；此 Avalonia Grid 无 ColumnSpacing ✓ 用间隔列 ✓），Grid 单元格默认拉伸 ⇒ 同排两卡等高 ✓
+            //   排布：①新增会话 | ②命中率 ／ ③token 消耗 | 热力图 ／ 耗时 | Token 分类 ／ 体检分布独占整行
+            //   （体检分布来自 doctor ✗ 不随窗口过滤 ✓ 不与窗口图混排，单独成行更诚实 ✓）
+            s.Children.Add(PairRow(cardC1, cardC2));
+            s.Children.Add(PairRow(cardC3, cardHeat));
+            s.Children.Add(PairRow(cardTime, cardCtx));
+            s.Children.Add(cardC4);
 
             return s;
 
         }
 
-        private static Control BarChart(string[] labels, long[] values, long max, IBrush brush, string unit)
+        /// <summary>同排两图（★ 看板重排 §2-8 ✓✓）：三列 Grid，中列 14px 间隔 ✓ 两图等宽 ✓ 默认拉伸 ⇒ 同排等高 ✓。</summary>
+        private static Control PairRow(Control left, Control right)
+        {
+            Grid g = new Grid { ColumnDefinitions = new ColumnDefinitions("*,14,*") };
+            Grid.SetColumn(left, 0);
+            Grid.SetColumn(right, 2);
+            g.Children.Add(left);
+            g.Children.Add(right);
+            return g;
+        }
+
+        /// <summary>条形图。★ 看板重排（2026-10-09 ✓✓ 规格 §2-8 ✓✓）：图高归一 180–220 —— 新增可选参数 height（看板传 200 ✓）；
+        /// 默认 132 ⇒ 条幅公式 4 + v×(132−44)/max = 4 + v×88/max，与旧版**逐点相同** ✓（调用处没改的零行为变化 ✓）。</summary>
+        private static Control BarChart(string[] labels, long[] values, long max, IBrush brush, string unit, double height = 132)
 
         {
 
@@ -1539,13 +1611,13 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 es.Children.Add(T("这个区间里没有可统计的记录（单位：" + unit + "；是没有，不是 0）", 11, Palette.TextFaint));
 
-                return new Border { Height = 132, Child = es };
+                return new Border { Height = height, Child = es };   // ★ 重排 §2-8 ✓ 空状态也等高 ✓
 
             }
 
 
 
-            Grid outer = new Grid { Height = 132 };
+            Grid outer = new Grid { Height = height };
 
             // ② 水平网格线 ✓（4 条淡线 ✓ 让空白区有结构 ✓ 不再是一片白 ✓）
 
@@ -1577,7 +1649,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 long v = values[i];
 
-                double h = 4 + (v * 88.0 / max);
+                double h = 4 + (v * (height - 44.0) / max);   // ★ 重排 §2-8 ✓ 默认 132 ⇒ v×88.0 与旧版一致 ✓
 
                 StackPanel col = new StackPanel { VerticalAlignment = VerticalAlignment.Bottom, Spacing = 3, Margin = new Thickness(2, 0) };
 
