@@ -260,8 +260,8 @@ try {
     foreach ($l in (MarkLines $s7.out 'SESSWIN_META|SESSAGG_' | Select-Object -First 4)) { Write-Host ("       " + $l) }
     Check "1b --days 7 退出码 = 0" ($s7.rc -eq 0)
     Check "1b --days 7 SESSIONS_OK 4（列表不过滤 ✓ 含待拒的 sessD ✓）" (HasMarker $s7.out '^SESSIONS_OK 4$')
-    Check "1b --days 7 SESSWIN_META 精确整行（eligible=1 · unknown_last=1 · truth=0 ✓）" `
-        (HasMarker $s7.out ('^SESSWIN_META days=7 from=' + $from7 + ' to=' + $toDay + ' tz=.+ truth=0 level=global source=disk scanned=4 eligible=1 unknown_last=1$'))
+    Check "1b --days 7 SESSWIN_META 精确整行（eligible=1 · unknown_last=1 · truth=0 ✓ 第三批尾键 lineage=none fork_sessions=unknown ✓）" `
+        (HasMarker $s7.out ('^SESSWIN_META days=7 from=' + $from7 + ' to=' + $toDay + ' tz=.+ truth=0 level=global source=disk scanned=4 eligible=1 unknown_last=1 lineage=none fork_sessions=unknown$'))
     Check "1b --days 7 SESSAGG_TOTAL 精确整行（无视窗口 ✓ 三**有效**会话求和 607/800/100/120 ✓ sessD 四桶被门拒 → 不进求和 ✗ 不假装 0 ✓）" `
         (HasMarker $s7.out ('^SESSAGG_TOTAL scope=store sessions=4 nonblank=4 uncached=607 cacheRead=800 cacheWrite=100 output=120 first_day=' + $firstDay + ' last_day=' + $lastDay + ' truth=0$'))
     $aggRows7 = @(MarkLines $s7.out '^SESSAGG_SESSION ')
@@ -280,7 +280,7 @@ try {
     #    用合并 stderr 的入口 ✓（SESSAGG_ROWDROP 是 stderr 诚实行 ✗ 不污染 stdout 标记面 ✓ → 断言它必须合并流才看得到 ✓）
     $sAll = Run-CliMerged $Cli @("sessions")
     Check "1b 总计档 SESSWIN_META 精确整行（days=unknown · from/to=- · eligible=4 · unknown_last=1 ✓）" `
-        (HasMarker $sAll.out '^SESSWIN_META days=unknown from=- to=- tz=.+ truth=0 level=global source=disk scanned=4 eligible=4 unknown_last=1$')
+        (HasMarker $sAll.out '^SESSWIN_META days=unknown from=- to=- tz=.+ truth=0 level=global source=disk scanned=4 eligible=4 unknown_last=1 lineage=none fork_sessions=unknown$')
     $aggRowsAll = @(MarkLines $sAll.out '^SESSAGG_SESSION ')
     Check "1b 总计档 SESSAGG_SESSION 全量 4 行（含无 lastPromptAt 的 sessC ✓ 只报告不排除 ✓）" ($aggRowsAll.Count -eq 4)
     Check "1b 验收③ 端到端：sessD（tokenUsage ver=1）四桶 literal unknown · turns/steps 照读 ✓（R5 逐键行门 ✓✓）" `
@@ -302,21 +302,21 @@ try {
 
     # -- --days 14：-6.5 天仍在窗内 → eligible=1 --
     $s14 = Run-Cli $Cli @("sessions", "--days", "14")
-    Check "1b --days 14 eligible=1（近会话在 · 远会话出 ✓）" (HasMarker $s14.out '^SESSWIN_META days=14 .+ eligible=1 unknown_last=1$')
+    Check "1b --days 14 eligible=1（近会话在 · 远会话出 ✓）" (HasMarker $s14.out '^SESSWIN_META days=14 .+ eligible=1 unknown_last=1 lineage=none fork_sessions=unknown$')
 
     # -- 非法 --days / --level：FAIL + SESSWIN_META(source=unknown 计数全 0) 先于 SESSIONS_FAIL · rc=0（与既有 FAIL 一致 ✓）--
     $sBad = Run-Cli $Cli @("sessions", "--days", "99")
     $badMeta = @(MarkLines $sBad.out '^SESSWIN_META ')
     $badFail = @(MarkLines $sBad.out '^SESSIONS_FAIL ')
     Check "1b --days 99 → rc=0 + SESSIONS_FAIL" ($sBad.rc -eq 0 -and $badFail.Count -eq 1)
-    Check "1b --days 99 SESSWIN_META(source=unknown 计数全 0) 在 SESSIONS_FAIL **之前**（顺序敏感 ✓ 规格 §11.1 ✓）" `
-        ($badMeta.Count -eq 1 -and $badMeta[0] -match '^SESSWIN_META days=unknown from=- to=- tz=.+ truth=0 level=global source=unknown scanned=0 eligible=0 unknown_last=0$' -and $sBad.out.IndexOf($badMeta[0]) -lt $sBad.out.IndexOf($badFail[0]))
+    Check "1b --days 99 SESSWIN_META(level=unknown · source=unknown · 计数全 0) 在 SESSIONS_FAIL **之前**（顺序敏感 ✓ 规格 §11.1/§11.7 ✓）" `
+        ($badMeta.Count -eq 1 -and $badMeta[0] -match '^SESSWIN_META days=unknown from=- to=- tz=.+ truth=0 level=unknown source=unknown scanned=0 eligible=0 unknown_last=0 lineage=none fork_sessions=unknown$' -and $sBad.out.IndexOf($badMeta[0]) -lt $sBad.out.IndexOf($badFail[0]))
     $sLv = Run-Cli $Cli @("sessions", "--level", "parents")
     $lvMeta = @(MarkLines $sLv.out '^SESSWIN_META ')
     $lvFail = @(MarkLines $sLv.out '^SESSIONS_FAIL ')
-    Check "1b --level parents → rc=0 + SESSIONS_FAIL（第一批只实现 global ✓ 血缘后移第二批 ✓ 决策 D2/D6 ✓）" ($sLv.rc -eq 0 -and $lvFail.Count -eq 1)
-    Check "1b --level parents SESSWIN_META 零计数且先于 FAIL（含子代理统计未实现 → 明说 ✗ 不编数字 ✓✓）" `
-        ($lvMeta.Count -eq 1 -and $lvMeta[0] -match 'source=unknown scanned=0 eligible=0 unknown_last=0$' -and $sLv.out.IndexOf($lvMeta[0]) -lt $sLv.out.IndexOf($lvFail[0]))
+    Check "1b --level parents（无血缘）→ rc=0 + SESSIONS_FAIL（第三批降级口径：lineage=none ⇒ 非 global 档如实拒 ✓ 规格 §11.7-D ✓）" ($sLv.rc -eq 0 -and $lvFail.Count -eq 1)
+    Check "1b --level parents SESSWIN_META 打**请求档+实扫数**且先于 FAIL（血缘缺失 → 明说 ✗ 不编数字 ✓✓ 规格 §11.7-D ✓）" `
+        ($lvMeta.Count -eq 1 -and $lvMeta[0] -match '^SESSWIN_META days=unknown from=- to=- tz=.+ truth=0 level=parents source=disk scanned=4 eligible=0 unknown_last=0 lineage=none fork_sessions=unknown$' -and $sLv.out.IndexOf($lvMeta[0]) -lt $sLv.out.IndexOf($lvFail[0]))
 
     # -- 默认口径配置键接线（sessions_default_level ✓ 第一批只认 global → 配成 parents 如实 FAIL ✓）--
     $cfg1 = Run-Cli $Cli @("config-set", "sessions_default_level", "parents")
@@ -325,6 +325,70 @@ try {
     $cfg2 = Run-Cli $Cli @("config-set", "sessions_default_level", "global")
     $sCfg2 = Run-Cli $Cli @("sessions")
     Check "1b 恢复 global 后默认档恢复 OK（不留脏配置 ✓）" ((HasMarker $cfg2.out '^CONFIGSET_OK') -and (HasMarker $sCfg2.out '^SESSIONS_OK 4$'))
+
+    # ------------------------------------------------------------------
+    # 1c) 看板第三批（2026-10-09 ✓✓ 规格 §11.7 验收①的 CLI 面 ✓✓）：血缘口径三档 + 自定义区间
+    #   夹具 = 桥快照（sessions 空数组 ⇒ 数据仍走磁盘 ✓ lineage 段被消费 ✓ §11.7-A.5 ✓ formatVersion 仍 2 ✓）
+    #          + 磁盘投影三会话：根 aaaa0010 / 子代理 bbbb0010 / fork cccc0010（origin=fork ✓ §B：计入父 sub ✓ 不进父+子 ✓）
+    #   sub 行闭包和：turns=3+2+1=6 · steps=6+4+1=11 · uncached=100+10+1=111 · cacheRead=56 · cacheWrite=11 · output=23 ✓
+    # ------------------------------------------------------------------
+    Section "1c. 看板第三批：血缘口径 + 自定义区间（隔离数据根 + 血缘快照夹具）"
+    $f3 = New-Fixture "board3"; $script:isoList.Add($f3.iso)
+    $env:DSH_HOME = $f3.home
+    $cset3 = Run-Cli $Cli @("config-set", "ws", $f3.ws)
+    Check "1c 前置：config-set ws 成功" (HasMarker $cset3.out '^CONFIGSET_OK')
+    Write-BoardProj $f3.home "aaaa0010" $msNear $metaNear 100 50 10 20 3 6
+    Write-BoardProj $f3.home "bbbb0010" $msNear $metaNear 10 5 1 2 2 4
+    Write-BoardProj $f3.home "cccc0010" $msNear $metaNear 1 1 0 1 1 1
+    $snapDir3 = Join-Path $f3.home "shio-bridge"
+    New-Item -ItemType Directory -Path $snapDir3 -Force | Out-Null
+    $snapJson3 = '{ "formatVersion": 2, "generatedAt": "2026-01-01T00:00:00.000Z", "intervalMs": 3000, "sessions": [], ' +
+        '"lineage": { "errors": 0, "sessions": { "aaaa0010": {}, ' +
+        '"bbbb0010": { "origin": "subagent", "parent": "aaaa0010", "createdAt": 1735689600000 }, ' +
+        '"cccc0010": { "origin": "fork", "parent": "aaaa0010" } } } }'
+    [System.IO.File]::WriteAllText((Join-Path $snapDir3 "sessions.json"), $snapJson3, [System.Text.Encoding]::UTF8)
+
+    $sPs = Run-Cli $Cli @("sessions", "--days", "7", "--level", "parents_sub")
+    Write-Host ("  -- sessions --days 7 --level parents_sub   rc=" + $sPs.rc)
+    foreach ($l in (MarkLines $sPs.out 'SESSWIN_META|SESSAGG_SESSION' | Select-Object -First 5)) { Write-Host ("       " + $l) }
+    Check "1c parents_sub SESSWIN_META 三新键（level=parents_sub · lineage=ok · fork_sessions=1 ✓ eligible=2 ✓）" `
+        (HasMarker $sPs.out '^SESSWIN_META days=7 .+ level=parents_sub source=disk scanned=3 eligible=2 unknown_last=0 lineage=ok fork_sessions=1$')
+    Check "1c parents_sub 父会话 sub 行精确整行（闭包含 fork ✓ §B ✓ members=3 ✓ children=2 ✓ depth=0 ✓）" `
+        (HasMarker $sPs.out '^SESSAGG_SESSION aaaa0010 bucket=sub turns=6 steps=11 uncached=111 cacheRead=56 cacheWrite=11 output=23 children=2 depth=0 members=3 sub_unknown=0 sub_unknown_stats=0$')
+    Check "1c parents_sub 叶子 B.4 自校验行（children=0 ⇒ sub 六字段与 own 逐字节相等 ✓✓）" `
+        ((HasMarker $sPs.out '^SESSAGG_SESSION bbbb0010 bucket=own turns=2 steps=4 uncached=10 cacheRead=5 cacheWrite=1 output=2 children=0 depth=1$') `
+        -and (HasMarker $sPs.out '^SESSAGG_SESSION bbbb0010 bucket=sub turns=2 steps=4 uncached=10 cacheRead=5 cacheWrite=1 output=2 children=0 depth=1 members=1 sub_unknown=0 sub_unknown_stats=0$'))
+    Check "1c parents_sub：子代理 own 行在 ✓ fork 被排除（origin≠subagent 且非孤儿 ⇒ 不进 ✓ §B ✓）" `
+        ((HasMarker $sPs.out '^SESSAGG_SESSION bbbb0010 bucket=own ') -and -not (HasMarker $sPs.out '^SESSAGG_SESSION cccc0010 '))
+
+    $sPar = Run-Cli $Cli @("sessions", "--days", "7", "--level", "parents")
+    Check "1c --level parents：只剩根（eligible=1 ✓ 子代理/fork 都排除 ✓）" `
+        ((HasMarker $sPar.out '^SESSWIN_META days=7 .+ level=parents .+ eligible=1 .+ lineage=ok fork_sessions=1$') `
+        -and (HasMarker $sPar.out '^SESSAGG_SESSION aaaa0010 bucket=own ') -and -not (HasMarker $sPar.out '^SESSAGG_SESSION bbbb0010 '))
+    $sGlb = Run-Cli $Cli @("sessions", "--days", "7", "--level", "global")
+    Check "1c --level global：三会话全进（eligible=3 ✓ fork 在全局 ✓ §B ✓）" `
+        ((HasMarker $sGlb.out 'eligible=3') -and (HasMarker $sGlb.out '^SESSAGG_SESSION cccc0010 bucket=own '))
+
+    # 降级：无血缘快照 + 非 global 档 ⇒ SESSIONS_FAIL + stderr 明说（§11.7-D ✓ GUI 照显原文 ✓）
+    $f4 = New-Fixture "board3n"; $script:isoList.Add($f4.iso)
+    $env:DSH_HOME = $f4.home
+    Write-BoardProj $f4.home "aaaa0010" $msNear $metaNear 100 50 10 20 3 6
+    $sDeg = Run-CliMerged $Cli @("sessions", "--days", "7", "--level", "parents_sub")
+    Check "1c 降级：无血缘 + parents_sub ⇒ FAIL + SESSAGG_LINEAGE stderr（✗ 不拿投影冒充 ✓✓）" `
+        ($sDeg.rc -eq 0 -and (HasMarker $sDeg.out '^SESSIONS_FAIL ') -and (HasMarker $sDeg.out 'SESSAGG_LINEAGE'))
+    $env:DSH_HOME = $f3.home
+
+    # D4 自定义区间：正例 + 三负例（互斥/单端/坏格式 ✓ ✗ 不猜 ✗ 不补端点 ✓）
+    $sCu = Run-Cli $Cli @("sessions", "--from", $from7, "--to", $toDay)
+    Check "1c --from/--to 正例：OK + days=unknown + from/to 原样回打 + eligible=3（含端点闭区间 ✓）" `
+        ((HasMarker $sCu.out '^SESSIONS_OK ') `
+        -and (HasMarker $sCu.out ('^SESSWIN_META days=unknown from=' + $from7 + ' to=' + $toDay + ' .+ scanned=3 eligible=3 unknown_last=0 lineage=ok fork_sessions=1$')))
+    $sMx = Run-Cli $Cli @("sessions", "--days", "7", "--from", $from7, "--to", $toDay)
+    Check "1c --from/--to 与 --days 互斥 ⇒ FAIL" ($sMx.rc -eq 0 -and (HasMarker $sMx.out '^SESSIONS_FAIL '))
+    $sOne = Run-Cli $Cli @("sessions", "--from", $from7)
+    Check "1c --from 单端（缺 --to）⇒ FAIL（✗ 不默认补端点 ✓）" ($sOne.rc -eq 0 -and (HasMarker $sOne.out '^SESSIONS_FAIL '))
+    $sBad2 = Run-Cli $Cli @("sessions", "--from", "2026/10/01", "--to", $toDay)
+    Check "1c --from 坏格式 ⇒ FAIL（只认 yyyy-MM-dd ✓）" ($sBad2.rc -eq 0 -and (HasMarker $sBad2.out '^SESSIONS_FAIL '))
 
     # ------------------------------------------------------------------
     # 2) 写路径：backup / backup-list --verify / backup-export / restore --dry-run

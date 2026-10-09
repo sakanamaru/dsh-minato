@@ -441,10 +441,15 @@ namespace Dsht.Gui.Avalonia.Shells
             //   + C.4 固定脚注（truth=0 期间常显 ✓ 一字不许改 ✓ 文案唯一出处 = SessionsMarkers.TruthFootnote ✓）
             s.Children.Add(BoardFilterBar(host));
             SessionsSnapshot bd = host.Data;
+            // —— B.5 口径差说明行（第三批 · 2026-10-09 ✓✓ 规格 §11.7-E-2 ✓✓）：仅 level ∈ {global, parents_sub} 时显示 ✓
+            //   文案 = §B.5 固定模板（一字不许改 ✓ 唯一出处 SessionsMarkers.ForkDiffText ✓）；n 取不到 ⇒ unknown（✗ 不打 0 ✓）；0 也照显（D-7 ✓）——
+            if (bd != null && bd.Ok && bd.HasWinMeta && bd.LineageOk
+                && (bd.WinLevel == "global" || bd.WinLevel == "parents_sub"))
+                s.Children.Add(T(SessionsMarkers.ForkDiffText(bd.ForkSessions), 11, Palette.TextFaint));
             if (bd != null && bd.Ok && bd.HasAggTotal)
                 s.Children.Add(BoardTotalCard(bd));                      // ③ 固定总计卡：无视窗口过滤 ✓ scope=store ✓
-            if (bd != null && bd.Ok && bd.HasWinMeta && bd.WinDays > 0)
-                s.Children.Add(BoardWindowCard(bd));                     // 窗口总计卡：eligible 集 GUI 侧求和 ✓ 卡内再印 C.4 ✓
+            if (bd != null && bd.Ok && bd.HasWinMeta && (bd.WinDays > 0 || bd.WinFrom != "-"))
+                s.Children.Add(BoardWindowCard(bd));                     // 窗口总计卡：eligible 集 GUI 侧求和 ✓ 卡内再印 C.4 ✓（自定义区间 days=unknown 也显 ✓ D4 ✓）
             // 操作回执：最近一条动作的结果（细节在右下角 toast）
             if (!string.IsNullOrEmpty(host.ActionLog))
                 s.Children.Add(Card(T(host.ActionLog, 12, Palette.TextDim), new Thickness(0), new Thickness(14, 10)));
@@ -454,7 +459,8 @@ namespace Dsht.Gui.Avalonia.Shells
             return s;
         }
 
-        /// <summary>看板筛选条（看板第一批 · 规格 §4.1 ✓✓）：窗口档按钮 + 口径 chips（全局唯一可用 ✓）+ C.4 脚注 ✓。</summary>
+        /// <summary>看板筛选条（看板第一批 · 规格 §4.1 ✓✓；第三批 2026-10-09 ✓✓ 规格 §11.7-E ✓✓）：
+        /// 窗口档按钮 + 「自定义…」（D4 ✓）+ 口径 chips（lineage=ok ⇒ 三档全解锁 ✓ 否则血缘两档静态形态 + 「需桥插件血缘」✓）+ C.4 脚注 ✓。</summary>
         private static Control BoardFilterBar(MainWindow host)
         {
             StackPanel col = new StackPanel { Spacing = 8 };
@@ -464,7 +470,7 @@ namespace Dsht.Gui.Avalonia.Shells
             for (int oi = 0; oi < opts.Length; oi++)
             {
                 int dd = opts[oi];
-                bool on = host.BoardDays == dd;
+                bool on = host.BoardDays == dd && host.BoardFrom == null;   // 自定义区间生效 ⇒ 预设档都不亮 ✓
                 Button rb = new Button
                 {
                     Content = T(names[oi], 11.5, on ? Palette.OnAccent : Palette.TextDim),
@@ -473,17 +479,56 @@ namespace Dsht.Gui.Avalonia.Shells
                     CornerRadius = new CornerRadius(6),
                     Padding = new Thickness(12, 5)
                 };
-                rb.Click += delegate { host.BoardDays = dd; host.Refresh(); };
+                rb.Click += delegate { host.BoardDays = dd; host.Refresh(); };   // 设档 ⇒ 自动清自定义区间（互斥 ✓）
                 // UIA/无障碍名（截图脚本按名字找按钮 ✓ 读屏也能念出来 ✓ 与可见文案一致 ✓）
                 global::Avalonia.Automation.AutomationProperties.SetName(rb, names[oi]);
                 row.Children.Add(rb);
             }
-            // 口径选择器（§B 缩圈 ✓✓：血缘两档在纯投影下必缺边 → 后移第二批 ✓ 这里灰显且**明说原因** ✓ 不许假装可用 ✗）
+            // 「自定义…」（D4 ✓ 规格 §11.7-E-4 ✓✓）：弹窗一次输两个日期 ⇒ 本地校验（✗ 不猜 ✗ 不补端点 ✓）⇒ --from/--to ✓
+            bool customOn = host.BoardFrom != null && host.BoardTo != null;
+            Button cb = new Button
+            {
+                Content = T(customOn ? "自定义：" + host.BoardFrom + "~" + host.BoardTo : "自定义…", 11.5, customOn ? Palette.OnAccent : Palette.TextDim),
+                Background = customOn ? Palette.Accent : Palette.CardHover,
+                BorderThickness = new Thickness(0),
+                CornerRadius = new CornerRadius(6),
+                Padding = new Thickness(12, 5)
+            };
+            cb.Click += async delegate
+            {
+                string typed = await PromptDialog.Ask(host, "自定义日期区间", "请输入起止两个日期（空格或逗号分隔）", "yyyy-MM-dd yyyy-MM-dd", "");
+                if (typed == null || typed.Trim().Length == 0) return;   // 取消 ⇒ 不动 ✓
+                string f2; string t2; string err2;
+                if (!SessionsMarkers.TryParseCustomRange(typed, out f2, out t2, out err2))
+                {
+                    host.NoteBoard("自定义日期区间未生效：" + err2 + "（✗ 不默认补端点 ✗ 不猜 ✓ 重新点「自定义…」再输 ✓）");
+                    host.Refresh();
+                    return;
+                }
+                host.SetBoardCustomRange(f2, t2);
+                host.Refresh();
+            };
+            global::Avalonia.Automation.AutomationProperties.SetName(cb, "自定义…");
+            row.Children.Add(cb);
+            // 口径选择器（第三批 ✓✓ 规格 §11.7-E-1 ✓✓：lineage=ok ⇒ 三档全可点；lineage=none ⇒ 血缘两档保持不可点静态形态
+            //   + 「需桥插件血缘」✗ 不做灰按钮假象 ✓ 沿用第一批形态纪律 ✓；高亮以 SESSWIN_META 实发 level 为准 ✓✓）
             row.Children.Add(new Border { Width = 1, Height = 18, Background = Palette.TextFaint, Opacity = 0.4, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0) });
             row.Children.Add(T("口径：", 11.5, Palette.TextDim));
-            row.Children.Add(BoardScopeChip("全局", true));
-            row.Children.Add(BoardScopeChip("仅父会话（第二批）", false));
-            row.Children.Add(BoardScopeChip("父会话+子代理（第二批）", false));
+            SessionsSnapshot bd0 = host.Data;
+            string effLevel = (bd0 != null && bd0.WinLevel != null && bd0.WinLevel.Length > 0 && bd0.WinLevel != "unknown") ? bd0.WinLevel : "global";
+            bool lineageOn = bd0 != null && bd0.LineageOk;
+            if (lineageOn)
+            {
+                row.Children.Add(BoardScopeButton(host, "全局", "global", effLevel == "global"));
+                row.Children.Add(BoardScopeButton(host, "仅父会话", "parents", effLevel == "parents"));
+                row.Children.Add(BoardScopeButton(host, "父会话+子代理", "parents_sub", effLevel == "parents_sub"));
+            }
+            else
+            {
+                row.Children.Add(BoardScopeChip("全局", effLevel == "global"));
+                row.Children.Add(BoardScopeChip("仅父会话（需桥插件血缘）", false));
+                row.Children.Add(BoardScopeChip("父会话+子代理（需桥插件血缘）", false));
+            }
             col.Children.Add(row);
             SessionsSnapshot d = host.Data;
             if (d != null && d.HasWinMeta && d.WinTruth0)
@@ -491,7 +536,7 @@ namespace Dsht.Gui.Avalonia.Shells
             return Card(col, new Thickness(0), new Thickness(14, 10));
         }
 
-        /// <summary>口径 chip（静态标签 ✗ 不是按钮 ✓ 血缘两档永远点不了 —— 用不可点的形态，不做「灰按钮」假象 ✓）。</summary>
+        /// <summary>口径 chip（静态标签 ✗ 不是按钮 ✓ 血缘缺失时血缘两档永远点不了 —— 用不可点的形态，不做「灰按钮」假象 ✓）。</summary>
         private static Control BoardScopeChip(string text, bool active)
         {
             return new Border
@@ -502,6 +547,23 @@ namespace Dsht.Gui.Avalonia.Shells
                 VerticalAlignment = VerticalAlignment.Center,
                 Child = T(text, 11.5, active ? Palette.OnAccent : Palette.TextFaint)
             };
+        }
+
+        /// <summary>口径 chip 的可点形态（第三批 · 2026-10-09 ✓✓ 规格 §11.7-E-1 ✓✓）：
+        /// lineage=ok ⇒ 三档都是真按钮 ✓ 点击 ⇒ host.BoardLevel = 档 → 重跑 CLI ✓（与窗口档按钮同形制 ✓）。</summary>
+        private static Control BoardScopeButton(MainWindow host, string text, string level, bool active)
+        {
+            Button b = new Button
+            {
+                Content = T(text, 11.5, active ? Palette.OnAccent : Palette.TextDim),
+                Background = active ? Palette.Accent : Palette.CardHover,
+                BorderThickness = new Thickness(0),
+                CornerRadius = new CornerRadius(6),
+                Padding = new Thickness(12, 5)
+            };
+            b.Click += delegate { host.BoardLevel = level; host.Refresh(); };
+            global::Avalonia.Automation.AutomationProperties.SetName(b, "口径：" + text);
+            return b;
         }
 
         /// <summary>③ 固定总计卡（规格 §4.2 ✓✓）：SESSAGG_TOTAL scope=store —— **无视窗口过滤** ✓
@@ -538,7 +600,11 @@ namespace Dsht.Gui.Avalonia.Shells
                 if (r.HasStats) turns += r.Turns;
             }
             StackPanel c = new StackPanel { Spacing = 8 };
-            c.Children.Add(T("近 " + d.WinDays + " 天窗口总计（" + d.WinEligible + " 个会话有活动）", 13, Palette.Text, FontWeight.Bold));
+            // 自定义区间 ⇒ 标题改显「自定义区间 from~to」（D4 ✓ 规格 §11.7-E-4 ✓✓）；窗口档 ⇒ 原「近 N 天」不动 ✓
+            string winTitle = d.WinDays > 0
+                ? "近 " + d.WinDays + " 天窗口总计（" + d.WinEligible + " 个会话有活动）"
+                : "自定义区间 " + d.WinFrom + "~" + d.WinTo + " 窗口总计（" + d.WinEligible + " 个会话有活动）";
+            c.Children.Add(T(winTitle, 13, Palette.Text, FontWeight.Bold));
             c.Children.Add(T("输入 " + SessionRow.Human(uncached + cacheRead)
                 + " token（其中缓存读 " + SessionRow.Human(cacheRead) + " · 缓存写 " + SessionRow.Human(cacheWrite) + "）"
                 + "　输出 " + SessionRow.Human(output) + " token　轮次 " + turns, 12, Palette.TextDim));

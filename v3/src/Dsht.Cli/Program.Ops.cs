@@ -509,8 +509,8 @@ namespace Dsht.Cli
             Console.WriteLine("CONFIG gui_shell " + _cfg.GuiShell);   // ★ 布局偏好（2026-10-06：顶栏切换器的选择被记住 ✓ 仅 GUI 用 ✓）
             Console.WriteLine("CONFIG gui_style " + _cfg.GuiStyle);   // ★ 风格偏好（同上 ✓ A/B/C/D → 0..3 ✓）
             Console.WriteLine("CONFIG balance_key " + ((_cfg.BalanceKey == null ? "" : _cfg.BalanceKey).Trim().Length > 0 ? "set" : ""));   // ★ 审查 M1 修复：不回显明文（终端回滚缓冲留底 ✗）只报 set/unset ✓ GUI 按"留空=保持"工作 ✓
-            // —— 看板（2026-10-08 · 第一批 ✓）：口径默认 + 单价键（费用显示是第三批 ✓ 现在只有存储与校验 ✓）——
-            Console.WriteLine("CONFIG sessions_default_level " + _cfg.SessionsDefaultLevel);   // ★ 第一批只实现 global ✓（parents/parents_sub 会被 sessions 如实拒绝，注明待第二批 ✓）
+            // —— 看板（2026-10-08 · 第一批 ✓ 第三批口径全解锁 ✓）：口径默认 + 单价键（费用显示前置=D2b 多帧解码 ✓ 决策 D5 ✓ 现在只有存储与校验 ✓）——
+            Console.WriteLine("CONFIG sessions_default_level " + _cfg.SessionsDefaultLevel);   // ★ 第三批起三档全生效 ✓（parents/parents_sub 需要桥插件血缘段；缺血缘 ⇒ sessions 如实拒绝 ✓）
             Console.WriteLine("CONFIG sessions_price_in_per_mtok " + _cfg.SessionsPriceInPerMTok.ToString(System.Globalization.CultureInfo.InvariantCulture));
             Console.WriteLine("CONFIG sessions_price_cache_read_per_mtok " + _cfg.SessionsPriceCacheReadPerMTok.ToString(System.Globalization.CultureInfo.InvariantCulture));
             Console.WriteLine("CONFIG sessions_price_cache_write_per_mtok " + _cfg.SessionsPriceCacheWritePerMTok.ToString(System.Globalization.CultureInfo.InvariantCulture));
@@ -526,8 +526,8 @@ namespace Dsht.Cli
             Console.WriteLine("CONFIGNOTE gui_shell " + T("【侧栏布局】0=侧栏式 1=顶部标签 2=卡片网格 3=主从式 4=混合式（默认 4）——顶栏切换器会记住你的选择", "sidebar layout 0-4; the top-bar switcher remembers your choice"));
             Console.WriteLine("CONFIGNOTE gui_style " + T("【视觉风格】0=A 浅色卡片 1=B 深色卡片 2=C 深色紧凑 3=D 浅色仪表盘（默认 0）——顶栏 A-D 会记住你的选择", "visual style A-D; the top-bar switcher remembers your choice"));
             Console.WriteLine("CONFIGNOTE balance_key " + T("【DeepSeek 平台 API key，用于余额检测】留空=未绑定（概览页不显示余额卡）。⚠ key 以明文保存在本机配置文件里，只在你自己的机器上，不上传", "DeepSeek platform API key for the balance card; empty = unbound; stored in plain text in the local config only"));
-            Console.WriteLine("CONFIGNOTE sessions_default_level " + T("【看板口径默认】global=全局（第一批唯一生效 ✓）/ parents=仅父会话（第二批）/ parents_sub=父会话+子代理（第二批）——投影侧血缘数据不全（实测 26 个真子代理不在 catalog），含子代理统计须读原始日志，故后移", "default sessions scope; only global is implemented in batch 1"));
-            Console.WriteLine("CONFIGNOTE sessions_price_in_per_mtok " + T("【输入单价】美元/百万 token；0=未填 → 不显示费用（费用显示属第三批，当前只存不算）", "input price per million tokens; 0 = unset"));
+            Console.WriteLine("CONFIGNOTE sessions_default_level " + T("【看板口径默认】global=全局 / parents=仅父会话 / parents_sub=父会话+子代理（第三批起三档全生效 ✓）——后两档需要桥插件血缘段（dsh-minato-bridge 只解原始日志首帧 header，正文帧一帧不解）；缺血缘时看板会如实提示降级", "default sessions scope; all three tiers live since batch 3 (parents/parents_sub need the bridge lineage section)"));
+            Console.WriteLine("CONFIGNOTE sessions_price_in_per_mtok " + T("【输入单价】美元/百万 token；0=未填 → 不显示费用（费用显示前置=D2b 多帧解码 ✓ 当前只存不算）", "input price per million tokens; 0 = unset"));
             Console.WriteLine("CONFIGNOTE sessions_price_cache_read_per_mtok " + T("【缓存读单价】美元/百万 token；0=未填", "cache-read price per million tokens; 0 = unset"));
             Console.WriteLine("CONFIGNOTE sessions_price_cache_write_per_mtok " + T("【缓存写单价】美元/百万 token；0=未填", "cache-write price per million tokens; 0 = unset"));
             Console.WriteLine("CONFIGNOTE sessions_price_out_per_mtok " + T("【输出单价】美元/百万 token；0=未填", "output price per million tokens; 0 = unset"));

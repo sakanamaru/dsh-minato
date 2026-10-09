@@ -1117,17 +1117,49 @@ namespace Dsht.Gui.Avalonia
         public bool IsOverviewLike { get { return _mainSection <= 1; } }
         /// <summary>看板窗口档（看板第一批 · 2026-10-08 ✓✓）：0=总计（CLI 省略参数 ✓ days=unknown ✓）/ 7 / 14 / 30。
         /// 筛选条 handler：host.BoardDays = n; host.Refresh(); ✓ RunCached 4 秒缓存按命令串分键 ✓ 档位互不踩 ✓。
-        /// ✗ 不进 config（会话内状态 ✓ 规格 §4.1 ✓）。</summary>
+        /// 设窗口档 ⇒ 清掉自定义区间（D4 ✓ 规格 §11.7-E-4 ✓ 两组互斥 ✓）。✗ 不进 config（会话内状态 ✓ 规格 §4.1 ✓）。</summary>
         private int _boardDays;
         public int BoardDays
         {
             get { return _boardDays; }
-            set { _boardDays = (value == 7 || value == 14 || value == 30) ? value : 0; }
+            set { _boardDays = (value == 7 || value == 14 || value == 30) ? value : 0; _boardFrom = null; _boardTo = null; }
         }
-        /// <summary>sessions/overview 命令串的窗口后缀（>0 → " --days N"；0 → 空 ✓ CLI 省略 = 总计 ✓）。</summary>
-        private string BoardDaysSuffix()
+        // —— 看板第三批（2026-10-09 ✓✓ 规格 §11.7-E ✓✓）——
+        /// <summary>口径档：null = 交给 CLI/配置决定（sessions_default_level ✓ §11.7-D ✓）；否则 global / parents / parents_sub。
+        /// chips 点击 ⇒ BoardLevel = 档; host.Refresh(); ✓ 高亮以 SESSWIN_META 实发 level 为准（说法与代码一致 ✓✓）。</summary>
+        private string _boardLevel;
+        public string BoardLevel
         {
-            return _boardDays > 0 ? " --days " + _boardDays.ToString(System.Globalization.CultureInfo.InvariantCulture) : "";
+            get { return _boardLevel; }
+            set
+            {
+                _boardLevel = (value == "parents" || value == "parents_sub" || value == "global") ? value : null;
+            }
+        }
+        /// <summary>自定义日期区间（D4 ✓）：两段都给了才生效（✗ 不默认补端点 ✗ 不猜 ✓ 与 CLI 同口径 ✓）。</summary>
+        private string _boardFrom;
+        private string _boardTo;
+        public string BoardFrom { get { return _boardFrom; } }
+        public string BoardTo { get { return _boardTo; } }
+        /// <summary>设自定义区间（本地已校验 ✓）⇒ 清掉窗口档（互斥 ✓）。</summary>
+        public void SetBoardCustomRange(string from, string to)
+        {
+            _boardFrom = from; _boardTo = to; _boardDays = 0;
+        }
+        /// <summary>看板侧的小提示（自定义区间本地校验失败等 ✓ 复用操作回执位 ✓ GUI 不另编 CLI 文案 ✓ 这只是本地校验原因 ✓）。</summary>
+        public void NoteBoard(string text)
+        {
+            _actionLog = text ?? "";
+        }
+        /// <summary>sessions/overview 命令串的筛选后缀：
+        /// 自定义区间优先生效（--from/--to ✓ D4 ✓）；否则窗口档（>0 → " --days N"；0 → 空 ✓ CLI 省略 = 总计 ✓）；
+        /// 口径档非 null → 追加 " --level X"（null = 交给 CLI/配置 ✓）。</summary>
+        private string BoardArgsSuffix()
+        {
+            string suf = _boardDays > 0 ? " --days " + _boardDays.ToString(System.Globalization.CultureInfo.InvariantCulture) : "";
+            if (_boardFrom != null && _boardTo != null) suf = " --from " + _boardFrom + " --to " + _boardTo;
+            if (_boardLevel != null) suf += " --level " + _boardLevel;
+            return suf;
         }
         public string RawOutput { get { return _rawOutput; } }
         /// <summary>导航表访问一律带范围保护 —— 菜单项数与表长度不一致时不允许越界（审计发现过 UI 线程越界崩溃）。</summary>
@@ -1229,9 +1261,22 @@ namespace Dsht.Gui.Avalonia
             rows = SessionsView.Sort(rows, SortMode);
             SessionsView.AttachBars(rows);
             List<SessionRowVm> vms = new List<SessionRowVm>();
-            for (int i = 0; i < rows.Count; i++) vms.Add(new SessionRowVm(rows[i]));
+            for (int i = 0; i < rows.Count; i++) vms.Add(NewRowVm(rows[i]));
             _rows = vms;
             BuildShell();
+        }
+
+        /// <summary>建一行 VM + 查 sub 行填「含子代理」小字（第三批 · 2026-10-09 ✓✓ 规格 §11.7-E-3 ✓✓）：
+        /// SubById 无此 id ⇒ SubLine 留空（不显示 ✓）；文案唯一出处 = SessionsMarkers.SubLineText ✓。</summary>
+        private SessionRowVm NewRowVm(SessionRow row)
+        {
+            SessionRowVm vm = new SessionRowVm(row);
+            if (row != null && row.Id != null && _data != null)
+            {
+                SessAggRow sub;
+                if (_data.SubById.TryGetValue(row.Id, out sub)) vm.SubLine = SessionsMarkers.SubLineText(sub);
+            }
+            return vm;
         }
 
         public void ShowDetail(SessionRowVm vm)
@@ -1712,13 +1757,13 @@ namespace Dsht.Gui.Avalonia
                 //   ui_parallel=off（排障开关）保留老的四命令路径 ✓ 开关仍然真的接线 ✓
                 if (UiParallel)
                 {
-                    _rawOutput = await System.Threading.Tasks.Task.Run(delegate { return RunCached(cli, "overview" + BoardDaysSuffix()); });
+                    _rawOutput = await System.Threading.Tasks.Task.Run(delegate { return RunCached(cli, "overview" + BoardArgsSuffix()); });
                 }
                 else
                 {
                     // 老行为（串行四命令）：聚合大输出在个别环境被管道/杀软卡住时的排障退路 ✓
                     _rawOutput = await System.Threading.Tasks.Task.Run(delegate { return RunCached(cli, "status --detail"); });
-                    string part = await System.Threading.Tasks.Task.Run(delegate { return RunCached(cli, "sessions" + BoardDaysSuffix()); });
+                    string part = await System.Threading.Tasks.Task.Run(delegate { return RunCached(cli, "sessions" + BoardArgsSuffix()); });
                     _rawOutput += "\n" + part;
                     part = await System.Threading.Tasks.Task.Run(delegate { return RunCached(cli, "backup-list"); });
                     _rawOutput += "\n" + part;
@@ -1804,7 +1849,7 @@ namespace Dsht.Gui.Avalonia
                 return;
             }
 
-            string text = await System.Threading.Tasks.Task.Run(delegate { return RunCached(cli, "sessions" + BoardDaysSuffix()); });   // ★ 窗口档透传（看板第一批 ✓ 列表页自身仍显示全部 SESSION 行 ✓ 不受影响 ✓）
+            string text = await System.Threading.Tasks.Task.Run(delegate { return RunCached(cli, "sessions" + BoardArgsSuffix()); });   // ★ 窗口档透传（看板第一批 ✓ 列表页自身仍显示全部 SESSION 行 ✓ 不受影响 ✓）
             _data = SessionsMarkers.Parse(text);
             _rawOutput = text;
             if (!_data.Ok)
@@ -1816,7 +1861,7 @@ namespace Dsht.Gui.Avalonia
                 List<SessionRow> rows = SessionsView.Sort(SessionsView.Filter(_data.Rows, _filter), SortMode);
                 SessionsView.AttachBars(rows);
                 List<SessionRowVm> vms = new List<SessionRowVm>();
-                for (int i = 0; i < rows.Count; i++) vms.Add(new SessionRowVm(rows[i]));
+                for (int i = 0; i < rows.Count; i++) vms.Add(NewRowVm(rows[i]));   // 第三批 ✓ sub 行查表填「含子代理」✓
                 _rows = vms;
             }
         }

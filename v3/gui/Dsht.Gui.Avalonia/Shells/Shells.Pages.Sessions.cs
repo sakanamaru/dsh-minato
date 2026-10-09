@@ -345,6 +345,10 @@ namespace Dsht.Gui.Avalonia.Shells
 
             mid.Children.Add(new TextBlock { Text = vm.DecodeLine, Foreground = Palette.TextFaint, FontSize = 11, Margin = new Thickness(0, 2, 0, 0) });
 
+            // 「含子代理」小字行（第三批 · 2026-10-09 ✓✓ 规格 §11.7-E-3 ✓✓）：仅该会话有 sub 行时显示 ✓ 文案唯一出处 SubLineText ✓
+            if (vm.SubLine != null && vm.SubLine.Length > 0)
+                mid.Children.Add(new TextBlock { Text = vm.SubLine, Foreground = Palette.TextFaint, FontSize = 11, Margin = new Thickness(0, 2, 0, 0) });
+
             Grid.SetColumn(mid, 1);
 
 
@@ -644,6 +648,10 @@ namespace Dsht.Gui.Avalonia.Shells
             host.Children.Add(T("解码速度 " + vm.DecodeText + "　首 token " + vm.TtftText, 12, Palette.TextDim));
 
             host.Children.Add(T("缓存读 " + vm.CacheReadText, 11, Palette.TextFaint));
+
+            // 「含子代理」小字行（第三批 · 2026-10-09 ✓✓ 规格 §11.7-E-3 ✓✓ 与列表卡同一出处 ✓）
+            if (vm.SubLine != null && vm.SubLine.Length > 0)
+                host.Children.Add(T(vm.SubLine, 11, Palette.TextFaint));
 
         }
 

@@ -18,9 +18,9 @@
  * 注意：**导入期错误会阻止 dsh 启动**（dsh 的行为，不是本插件能控制的）——
  * 所以先在临时 profile 里装一次确认能起来，再装到你日常用的 profile。
  */
-import { apply, buildSnapshot, collectSessions, defaultOutFile, findToolkit, noticeOnce, startupNotice, TOOLKIT_MISSING_NOTICE, writeSnapshot, SNAPSHOT_FORMAT_VERSION } from "./snapshot.js";
+import { apply, buildSnapshot, collectSessions, defaultOutFile, defaultSessionsRoot, decodeFirstFrameHeader, extractLineageEntry, findToolkit, noticeOnce, scanSessionsLineage, startupNotice, TOOLKIT_MISSING_NOTICE, writeSnapshot, SNAPSHOT_FORMAT_VERSION } from "./snapshot.js";
 
-export { apply, buildSnapshot, collectSessions, defaultOutFile, findToolkit, noticeOnce, startupNotice, TOOLKIT_MISSING_NOTICE, writeSnapshot, SNAPSHOT_FORMAT_VERSION };
+export { apply, buildSnapshot, collectSessions, defaultOutFile, defaultSessionsRoot, decodeFirstFrameHeader, extractLineageEntry, findToolkit, noticeOnce, scanSessionsLineage, startupNotice, TOOLKIT_MISSING_NOTICE, writeSnapshot, SNAPSHOT_FORMAT_VERSION };
 
 /** cordis 插件名（与 cordis.patch.yml 里的 id 对应）。 */
 export const name = "shio-bridge";

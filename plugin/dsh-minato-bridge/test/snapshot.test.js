@@ -18,7 +18,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { buildSnapshot, collectSessions, defaultOutFile, findToolkit, noticeOnce, startupNotice, writeSnapshot, apply, markActivity, SNAPSHOT_FORMAT_VERSION } from "../snapshot.js";
+import { buildSnapshot, collectSessions, defaultOutFile, findToolkit, noticeOnce, startupNotice, writeSnapshot, apply, markActivity, decodeFirstFrameHeader, extractLineageEntry, scanSessionsLineage, SNAPSHOT_FORMAT_VERSION } from "../snapshot.js";
 import { name as pluginName, inject as pluginInject } from "../index.js";
 
 let pass = 0;
@@ -428,6 +428,156 @@ const snapF = buildSnapshot([{ id: "x", live: true, active: false, seq: 5 }], "2
 assert.ok(JSON.stringify(snapF).indexOf('"active":false') >= 0, "active=false 必须写出 ✓（端到端：C# 侧三态的『明确没动』分支等着它）");
 	assert.ok(txt.indexOf('"seq":7') >= 0, "seq 必须写出 ✓");
 	assert.equal(SNAPSHOT_FORMAT_VERSION, 2, "版本仍是 2（可选字段追加 ✓ v1/v2 解析器都认 ✓）");
+});
+
+// ─────────── ⑪ 第三批血缘（2026-10-09 · 规格 §11.7-A ✓ 决策 D2a 路线① ✓ 验收② case 8 在此）───────────
+// 配方与 verify/probe_d2a.cjs 逐字一致：找下一个 zstd 魔数 → 切 [0,next) → zstdDecompressSync → JSON.parse 第一行。
+// 纪律：只解**首帧** ✓ 正文帧一帧不解 ✓✓；失败 ⇒ 诚实计数 ✗ 不猜 ✓。
+const zlibT = await import("node:zlib");
+function frameOf(obj) {
+	return zlibT.zstdCompressSync(Buffer.from(JSON.stringify(obj) + "\n", "utf8"));
+}
+
+await check("**decodeFirstFrameHeader：单帧文件 → header 原样解出**", async () => {
+	const h = { origin: "subagent", parentSession: "session-p1", createdAt: 1759900000000 };
+	const got = decodeFirstFrameHeader(frameOf(h));
+	assert.equal(got.origin, "subagent");
+	assert.equal(got.parentSession, "session-p1");
+	assert.equal(got.createdAt, 1759900000000);
+});
+
+await check("**decodeFirstFrameHeader：双帧拼接 → 只解首帧**（正文帧一帧不解 ✓✓ 规格 §11.7-A 逐字 ✓）", async () => {
+	const f1 = frameOf({ origin: "subagent", parentSession: "p9" });
+	const f2 = frameOf({ body: "这是正文帧，永远不该被当成 header" });
+	const got = decodeFirstFrameHeader(Buffer.concat([f1, f2]));
+	assert.equal(got.parentSession, "p9", "拿到的是首帧 ✓ 不是正文帧 ✓");
+	assert.equal(got.body, undefined, "正文帧的内容没有被读进来 ✓");
+});
+
+await check("**decodeFirstFrameHeader：垃圾字节/空buf/非对象 → 抛**（调用方计数 ✓ ✗ 不猜 ✓）", async () => {
+	assert.throws(() => decodeFirstFrameHeader(Buffer.alloc(300, 0x41)), "无魔数 ⇒ 解压失败 ⇒ 抛 ✓");
+	assert.throws(() => decodeFirstFrameHeader(Buffer.alloc(3, 0x28)), "太短 ⇒ 抛 ✓");
+	assert.throws(() => decodeFirstFrameHeader(frameOf(42)), "JSON 非对象 ⇒ 抛 ✓");
+});
+
+await check("**decodeFirstFrameHeader：超大首帧（>1MiB）→ maxOutputLength 顶住 → 抛**（诚实降级 ✓）", async () => {
+	const huge = frameOf({ pad: "x".repeat(2 * 1024 * 1024) });
+	assert.throws(() => decodeFirstFrameHeader(huge), "超大首帧 ⇒ 解压失败 ⇒ 抛 ⇒ errors++ ✓");
+});
+
+await check("**extractLineageEntry：形状防御**（字符串/{id}/{sessionId}/前缀剥离/纯根/null ✓）", async () => {
+	assert.deepEqual(extractLineageEntry({ origin: "subagent", parentSession: "session-p1", createdAt: 1759900000000 }),
+		{ origin: "subagent", parent: "p1", createdAt: 1759900000000 }, "标准形状 + session- 前缀剥离 ✓");
+	assert.deepEqual(extractLineageEntry({ parentSession: { id: "p2" } }), { parent: "p2" }, "{id} 形态 ✓");
+	assert.deepEqual(extractLineageEntry({ parentSession: { sessionId: "p3" } }), { parent: "p3" }, "{sessionId} 形态 ✓");
+	assert.deepEqual(extractLineageEntry({}), {}, "纯根 = 空条目 ✓（血缘**已知** ✓ 与「无血缘」严格区分 ✓✓）");
+	assert.deepEqual(extractLineageEntry({ createdAt: 0 }), {}, "createdAt=0 不写 ✓（0 不是有效时间 ✗ 不假装 ✓）");
+	assert.equal(extractLineageEntry(null), null, "null header ⇒ null ✓");
+	assert.equal(extractLineageEntry("oops"), null, "非对象 ⇒ null ✓");
+});
+
+/** 造一个临时会话仓库目录树：<tmp>/sessions/--cwd--/session-<id>/session.vN.jsonl.zstd */
+function makeSessionsTree() {
+	const root = fs.mkdtempSync(path.join(os.tmpdir(), "dsht-lin-"));
+	const sessionsRoot = path.join(root, "sessions");
+	return { root, sessionsRoot };
+}
+function putSession(sessionsRoot, id, gens) {
+	const dir = path.join(sessionsRoot, "--d--proj--", "session-" + id);
+	fs.mkdirSync(dir, { recursive: true });
+	for (const [gen, buf] of gens) fs.writeFileSync(path.join(dir, "session.v" + gen + ".jsonl.zstd"), buf);
+	return dir;
+}
+
+await check("**scanSessionsLineage：三代同堂取数值最大代**（验收② case 8 ✓ v10 > v2 ✗ 不是字典序 ✓）", async () => {
+	const { root, sessionsRoot } = makeSessionsTree();
+	putSession(sessionsRoot, "multi1", [
+		[1, frameOf({ origin: "subagent", parentSession: "p1" })],
+		[2, frameOf({})],
+		[10, frameOf({ origin: "subagent", parentSession: "pNew" })],
+	]);
+	const r = scanSessionsLineage(sessionsRoot, new Map());
+	assert.equal(r.errors, 0, "好文件不计错误 ✓");
+	assert.equal(r.sessions.multi1.parent, "pNew", "取的是 v10（数值最大 ✓ 不是 v2/v1）✓");
+	assert.equal(r.sessions.multi1.origin, "subagent");
+	fs.rmSync(root, { recursive: true, force: true });
+});
+
+await check("**scanSessionsLineage：无代际旧版 session.jsonl.zstd 兜底 + 裸 GUID 目录名**（真实库 69 个 ✓ 两种命名并存 ✓）", async () => {
+	const { root, sessionsRoot } = makeSessionsTree();
+	// 旧版单文件：目录名裸 GUID（无 session- 前缀）+ 文件名 session.jsonl.zstd（无 vN）✓
+	const bareDir = path.join(sessionsRoot, "--d--proj--", "b1are0-guid-0000-0000-000000000001");
+	fs.mkdirSync(bareDir, { recursive: true });
+	fs.writeFileSync(path.join(bareDir, "session.jsonl.zstd"), frameOf({ origin: "subagent", parentSession: "legacyP" }));
+	// 并存：同会话既有旧版又有代际 ⇒ 代际优先 ✓
+	const bothDir = path.join(sessionsRoot, "--d--proj--", "session-both1");
+	fs.mkdirSync(bothDir, { recursive: true });
+	fs.writeFileSync(path.join(bothDir, "session.jsonl.zstd"), frameOf({}));
+	fs.writeFileSync(path.join(bothDir, "session.v3.jsonl.zstd"), frameOf({ origin: "subagent", parentSession: "winGen" }));
+	const r = scanSessionsLineage(sessionsRoot, new Map());
+	assert.equal(r.errors, 0);
+	assert.equal(r.sessions["b1are0-guid-0000-0000-000000000001"].parent, "legacyP", "旧版单文件兜底 ✓ 裸 GUID 目录名认 ✓");
+	assert.equal(r.sessions.both1.parent, "winGen", "代际文件优先于旧版单文件 ✓");
+	fs.rmSync(root, { recursive: true, force: true });
+});
+
+await check("**scanSessionsLineage：纯根/子代理/孤儿父各归各位 + 垃圾帧诚实计数**", async () => {
+	const { root, sessionsRoot } = makeSessionsTree();
+	putSession(sessionsRoot, "r1", [[1, frameOf({})]]);
+	putSession(sessionsRoot, "c1", [[1, frameOf({ origin: "subagent", parentSession: "session-r1" })]]);
+	putSession(sessionsRoot, "bad1", [[1, Buffer.alloc(400, 0x41)]]);   // 垃圾帧 ✓
+	putSession(sessionsRoot, "empty1", []);                              // 连 zstd 都没有 ✓
+	const r = scanSessionsLineage(sessionsRoot, new Map());
+	assert.deepEqual(r.sessions.r1, {}, "纯根 = 空条目 ✓");
+	assert.deepEqual(r.sessions.c1, { origin: "subagent", parent: "r1" }, "子代理 + 前缀剥离 ✓");
+	assert.equal("bad1" in r.sessions, false, "解码失败 ⇒ 无条目 ✓");
+	assert.equal("empty1" in r.sessions, false, "没有帧文件 ⇒ 无条目 ✓（CLI 侧走 NOHEADER ✓）");
+	assert.equal(r.errors, 1, "只有 bad1 计一次失败 ✓（empty1 不算错误 ✓✓）");
+	fs.rmSync(root, { recursive: true, force: true });
+});
+
+await check("**scanSessionsLineage：(size,mtimeMs) 缓存命中不重读；变了才重解**", async () => {
+	const { root, sessionsRoot } = makeSessionsTree();
+	const dir = putSession(sessionsRoot, "k1", [[1, frameOf({ origin: "subagent", parentSession: "p1" })]]);
+	const zp = path.join(dir, "session.v1.jsonl.zstd");
+	const cache = new Map();
+	const r1 = scanSessionsLineage(sessionsRoot, cache);
+	assert.equal(r1.sessions.k1.parent, "p1");
+	assert.equal(cache.size, 1, "缓存已记 ✓");
+	// 把文件**换成垃圾**但把缓存伪造成与现状一致 ⇒ 命中 ⇒ 应返回旧好条目（证明没重读 ✓）
+	fs.writeFileSync(zp, Buffer.alloc(600, 0x42));
+	const st = fs.statSync(zp);
+	cache.set("k1", { size: st.size, mtimeMs: st.mtimeMs, entry: { origin: "subagent", parent: "p1" } });
+	const r2 = scanSessionsLineage(sessionsRoot, cache);
+	assert.equal(r2.sessions.k1.parent, "p1", "缓存命中 ⇒ 不重读（重读会解垃圾帧失败 ✗）✓");
+	assert.equal(r2.errors, 0, "命中不重复计失败 ✓");
+	// 缓存指纹与现状不符 ⇒ 重读 ⇒ 垃圾帧诚实失败 ✓
+	cache.set("k1", { size: st.size + 1, mtimeMs: st.mtimeMs, entry: { origin: "subagent", parent: "p1" } });
+	const r3 = scanSessionsLineage(sessionsRoot, cache);
+	assert.equal("k1" in r3.sessions, false, "指纹变了 ⇒ 真重读 ⇒ 垃圾帧无条目 ✓");
+	assert.equal(r3.errors, 1, "失败重计 ✓");
+	// 缓存住的失败**下一拍照样计数** ✓（总数口径恒定 ✓ 不随缓存挥发 ✓）
+	const r4 = scanSessionsLineage(sessionsRoot, cache);
+	assert.equal(r4.errors, 1, "缓存住的失败照样计入总数 ✓");
+	fs.rmSync(root, { recursive: true, force: true });
+});
+
+await check("**scanSessionsLineage：根目录不存在 ⇒ 空血缘 0 错误**（没扫 ≠ 扫了零失败 ✓✓ 与坏帧严格区分 ✓）", async () => {
+	const r = scanSessionsLineage(path.join(os.tmpdir(), "dsht-lin-no-such-" + process.pid), new Map());
+	assert.equal(r.errors, 0);
+	assert.deepEqual(r.sessions, {});
+});
+
+await check("**buildSnapshot：血缘段 additive**（第 4 参给了才写 ✓ formatVersion 恒 2 ✓ errors 恒写 ✓）", async () => {
+	const base = [{ id: "a", live: true }];
+	const noLin = buildSnapshot(base, "2026-10-09T00:00:00Z", 3000);
+	assert.equal("lineage" in noLin, false, "不给 ⇒ 不写那个键 ✓（老解析器零感知 ✓）");
+	const withLin = buildSnapshot(base, "2026-10-09T00:00:00Z", 3000, { errors: 0, sessions: { a: { origin: "subagent", parent: "r" } } });
+	assert.equal(withLin.formatVersion, 2, "formatVersion 恒 2 ✓（additive ✓ 规格 §11.7-A.5 ✓）");
+	assert.equal(withLin.lineage.errors, 0, "errors=0 也写 ✓（区分「扫了零失败」与「没扫」✓ 零是真实数据 ✓）");
+	assert.equal(withLin.lineage.sessions.a.parent, "r");
+	const errLin = buildSnapshot(base, "2026-10-09T00:00:00Z", 3000, { errors: 3, sessions: {} });
+	assert.equal(errLin.lineage.errors, 3, "失败计数透传 ✓（CLI 侧打 SESSAGG_HDRERR ✓）");
 });
 
 console.log("\n== " + pass + " passed, " + fail + " failed ==");

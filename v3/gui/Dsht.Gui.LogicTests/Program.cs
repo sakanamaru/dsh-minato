@@ -210,6 +210,59 @@ namespace Dsht.Gui.LogicTests
             Check("看板2：热力图脚注模板逐字（最后活动日 ≠ 逐日活跃轨迹 ✓ 逐日真值 → 第三批 ✓）",
                 SessionsMarkers.HeatFootnote == "按会话最后活动时间归本地日；投影只含最后活动时间，这不是逐日活跃轨迹（逐日真值须读原始日志 → 第三批）；缺失 {0} 个不计入，不猜。");
 
+            // —— 看板第三批（2026-10-09 ✓✓ 规格 §11.7 ✓✓）——
+            string b3 = "SESSIONS_OK 2\n" +
+                "SESSWIN_META days=7 from=2026-10-02 to=2026-10-09 tz=Asia%2FHong_Kong truth=0 level=parents_sub source=disk scanned=283 eligible=10 unknown_last=1 lineage=ok fork_sessions=18\n" +
+                "SESSAGG_SESSION p1 bucket=own turns=2 steps=4 uncached=100 cacheRead=50 cacheWrite=10 output=20 children=2 depth=0\n" +
+                "SESSAGG_SESSION p1 bucket=sub turns=6 steps=12 uncached=300 cacheRead=150 cacheWrite=30 output=60 children=2 depth=0 members=3 sub_unknown=1 sub_unknown_stats=1\n" +
+                "SESSAGG_SESSION solo bucket=own turns=1 steps=1 uncached=7 cacheRead=3 cacheWrite=1 output=2 children=0 depth=0\n" +
+                "SESSAGG_SESSION solo bucket=sub turns=1 steps=1 uncached=7 cacheRead=3 cacheWrite=1 output=2 children=0 depth=0 members=1 sub_unknown=0 sub_unknown_stats=0\n";
+            SessionsSnapshot w3 = SessionsMarkers.Parse(b3);
+            Check("看板3：SESSWIN_META 三新键（level=parents_sub ✓ lineage=ok ✓ fork_sessions=18 ✓ tz %2F 解码 ✓）",
+                w3.WinLevel == "parents_sub" && w3.LineageOk && w3.ForkSessions == 18 && w3.WinTz == "Asia/Hong_Kong");
+            Check("看板3：own/sub 分流（AggRows 只装 own=2 ✓ SubRows=2 ✓ SubById 可双查 ✓）",
+                w3.AggRows.Count == 2 && w3.SubRows.Count == 2 && w3.SubById.Count == 2 && w3.SubById.ContainsKey("p1") && w3.SubById.ContainsKey("solo"));
+            Check("看板3：sub 行新键全读出（children=2 depth=0 members=3 sub_unknown=1 ✓）",
+                w3.SubById["p1"].HasChildren && w3.SubById["p1"].Children == 2 && w3.SubById["p1"].HasDepth && w3.SubById["p1"].Depth == 0
+                && w3.SubById["p1"].Members == 3 && w3.SubById["p1"].SubUnknown == 1 && w3.SubById["p1"].SubUnknownStats == 1);
+            Check("看板3：AggIdSet 仍 = eligible own 集（sub 行不污染 ✓✓）",
+                w3.AggIdSet().Count == 2 && w3.AggIdSet().Contains("solo"));
+            Check("看板3：血缘键 unknown → Has=false ✗ 不假装 0 ✓✓",
+                !w.AggRows[0].HasChildren && !w.AggRows[0].HasDepth);
+            SessionsSnapshot w3old = SessionsMarkers.Parse("SESSIONS_OK 1\nSESSWIN_META days=7 from=2026-10-02 to=2026-10-09 tz=- truth=0 level=global source=disk scanned=1 eligible=1 unknown_last=0\nSESSAGG_SESSION z9 bucket=own turns=1 steps=1 uncached=1 cacheRead=1 cacheWrite=1 output=1 children=unknown depth=unknown");
+            Check("看板3：老 CLI → lineage=none（LineageOk=false ✓ WinLevel 仍读出 ✓ fork=-1=unknown ✓ SubRows 空 ✓）",
+                !w3old.LineageOk && w3old.WinLevel == "global" && w3old.ForkSessions == -1 && w3old.SubRows.Count == 0);
+            Check("看板3：fork_sessions=unknown 字面值 → -1（✗ 不假装 0 ✓✓）",
+                SessionsMarkers.Parse("SESSWIN_META days=7 from=- to=- tz=- truth=0 level=global source=disk scanned=0 eligible=0 unknown_last=0 lineage=none fork_sessions=unknown").ForkSessions == -1);
+            // B.5 差值行文案逐字钉死（规格 §B.5 :285-293 ✓✓ 一字不许改 ✓✓）；D-7：0 照显 ✓ unknown 不装 0 ✓
+            Check("看板3：ForkDiffText(n=18) 逐字 == §B.5 模板 ✓✓",
+                SessionsMarkers.ForkDiffText(18) == "「全局」与「父会话+子代理」相差 18 个会话 = 它们的 parentSession 指向别的会话，但 origin 不是 subagent（dsh 的 fork 复制出来的会话）。它们算血缘后代（用量计入父的「本会话+子代理」），但不是子代理。");
+            Check("看板3：ForkDiffText(0) = 「相差 0 个会话」（0 是真实值 ✓ D-7 ✓）",
+                SessionsMarkers.ForkDiffText(0).IndexOf("相差 0 个会话") >= 0);
+            Check("看板3：ForkDiffText(-1) = 「相差 unknown 个会话」（✗ 不打 0 ✓✓）",
+                SessionsMarkers.ForkDiffText(-1).IndexOf("相差 unknown 个会话") >= 0);
+            // 含子代理小字行（B.4 ✓ §11.7-E-3 ✓✓ 唯一出处 SubLineText ✓✓）
+            Check("看板3：SubLineText(null) = 空串（该行不显示 ✓）", SessionsMarkers.SubLineText(null) == "");
+            Check("看板3：SubLineText(sub 有子孙+未知成员) = 「含子代理：输入 450 · 输出 60（其中 1 个会话用量未知，未计入）」",
+                SessionsMarkers.SubLineText(w3.SubById["p1"]) == "含子代理：输入 450 · 输出 60（其中 1 个会话用量未知，未计入）");
+            Check("看板3：SubLineText(children=0) = 同数 + 「（无子会话 ⇒ 两口径相等）」（B.4 ✓✓）",
+                SessionsMarkers.SubLineText(w3.SubById["solo"]) == "含子代理：输入 10 · 输出 2（无子会话 ⇒ 两口径相等）");
+            SessAggRow subUnk = new SessAggRow(); subUnk.Bucket = "sub";
+            Check("看板3：SubLineText(token 未知) 如实「用量未知」（✗ 不猜 ✓✓）",
+                SessionsMarkers.SubLineText(subUnk).IndexOf("用量未知") >= 0);
+            // D4 自定义区间本地校验（§11.7-D/E-4 ✓✓ ✗ 不猜 ✗ 不补端点 ✓）
+            string cf, ct, ce;
+            Check("看板3：TryParseCustomRange 空格分隔通过（from/to 原样回 ✓）",
+                SessionsMarkers.TryParseCustomRange("2026-10-01 2026-10-08", out cf, out ct, out ce) && cf == "2026-10-01" && ct == "2026-10-08");
+            Check("看板3：TryParseCustomRange 逗号/全角逗号也认 ✓",
+                SessionsMarkers.TryParseCustomRange("2026-10-01，2026-10-08", out cf, out ct, out ce) && ct == "2026-10-08");
+            Check("看板3：TryParseCustomRange 倒序拒绝（err 中文 ✗ 不猜 ✓）",
+                !SessionsMarkers.TryParseCustomRange("2026-10-08 2026-10-01", out cf, out ct, out ce) && ce.Length > 0);
+            Check("看板3：TryParseCustomRange 坏格式/单日期/空 全拒绝 ✗ 不默认补端点 ✓✓",
+                !SessionsMarkers.TryParseCustomRange("2026/10/01 2026-10-08", out cf, out ct, out ce)
+                && !SessionsMarkers.TryParseCustomRange("2026-10-01", out cf, out ct, out ce)
+                && !SessionsMarkers.TryParseCustomRange("", out cf, out ct, out ce));
+
             Console.WriteLine("== " + _pass + "/" + (_pass + _fail) + " passed, " + _fail + " failed ==");
             return _fail == 0 ? 0 : 1;
         }

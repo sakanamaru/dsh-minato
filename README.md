@@ -205,9 +205,17 @@ without the plugin that column reads `unknown`.
 |---|---|---|
 | Session list, tokens, cache-hit rate, speed | yes (read from the on-disk projection) | yes |
 | **"running" / "parked" marker** | `unknown` | **live, in-process** |
+| Dashboard lineage scopes (parents / parents + sub-agents) | only "global"; the other two stay disabled | **all three scopes** |
 
 It is read-only: no model requests, no writes to dsh state, no conversation content, no network, and it never blocks
-dsh. Install it with:
+dsh.
+
+For the lineage scopes it reads the raw session logs under `~/.dsh/sessions` directly from disk and decodes **only the
+first zstd frame header** of each file (`parentSession` / `origin` / `createdAt`, at most 64 KiB read per file) —
+**body frames are never decompressed and message content is never touched**. Decode failures are counted and reported,
+never guessed.
+
+Install it with:
 
 ```bash
 dsh-minato bridge-install --profile web --yes

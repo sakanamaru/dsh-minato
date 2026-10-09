@@ -171,8 +171,9 @@ namespace Dsht.Gui.Avalonia.Markers
         }
     }
 
-    /// <summary>SESSAGG_SESSION 行（看板第一批 · 2026-10-08 ✓✓ 规格 §11.1：bucket=own 唯一实现 ✓
-    /// 未知字段 → HasX=false ✗ 绝不假装 0 ✓；children/depth 第一批恒 unknown → 不建模 ✓ 血缘后移第二批 ✓）。</summary>
+    /// <summary>SESSAGG_SESSION 行（看板第一批 · 2026-10-08 ✓✓ 规格 §11.1 ✓；第三批 2026-10-09 ✓✓ 规格 §11.7-C：
+    /// bucket=own|sub ✓ children/depth/members/sub_unknown/sub_unknown_stats 建模 ✓
+    /// 未知字段 → HasX=false ✗ 绝不假装 0 ✓）。</summary>
     public sealed class SessAggRow
     {
         public string Id = "";
@@ -187,6 +188,19 @@ namespace Dsht.Gui.Avalonia.Markers
         public bool HasTokens;  // 四个 token 位任一 unknown → false ✓
         /// <summary>这批会话的输入合计（uncached + cacheRead ✓ 与 SESSIONS_TOTAL 的 in 同口径 ✓）。</summary>
         public long In { get { return Uncached + CacheRead; } }
+        // —— 第三批血缘（规格 §11.7 ✓✓）：-1 = unknown（CLI 打 unknown 原文 ✓ GUI 内存哨兵 ✓✓ ✗ 不假装 0 ✓）——
+        /// <summary>直接子会话数（own 行；血缘缺失/无血缘条目 ⇒ HasChildren=false ✓）。</summary>
+        public long Children;
+        public bool HasChildren;
+        /// <summary>血缘深度（own 行；环成员/未知 ⇒ HasDepth=false ✓）。</summary>
+        public long Depth;
+        public bool HasDepth;
+        /// <summary>sub 行成员数（含自己 ✓ 规格 §11.7-C members=1+后代闭包 ✓）；仅 bucket=sub 有意义（own 行恒 -1 ✓）。</summary>
+        public long Members = -1;
+        /// <summary>sub 行：后代里用量未知的会话数（token 未知 ⇒ 未计入求和 ✓ 如实标注 ✓）。</summary>
+        public long SubUnknown = -1;
+        /// <summary>sub 行：后代里 turns/steps 未知的会话数。</summary>
+        public long SubUnknownStats = -1;
     }
 
     /// <summary>SESSTIME_SESSION 行（看板第二批 · 2026-10-09 ✓✓ 规格 §11.6-B：逐会话计时四件 ✓
@@ -255,6 +269,17 @@ namespace Dsht.Gui.Avalonia.Markers
         public bool HasAggTotal;
         // SESSAGG_SESSION（bucket=own ✓ 只含 eligible ✓ 窗口卡数据源 + KPI/图表过滤基准 ✓）
         public List<SessAggRow> AggRows = new List<SessAggRow>();
+        // —— 看板第三批（2026-10-09 ✓✓ 规格 §11.7 ✓✓）——
+        /// <summary>SESSWIN_META level 键（global / parents / parents_sub ✓ 老 CLI 没打 → "" ✓ FAIL 路径 unknown ✓）。</summary>
+        public string WinLevel = "";
+        /// <summary>SESSWIN_META lineage=ok ✓（桥插件血缘段可用 ⇒ 口径 chips 三档解锁 ✓ §11.7-E-1 ✓）。</summary>
+        public bool LineageOk;
+        /// <summary>SESSWIN_META fork_sessions 键（B.5 差值 n 的数据源 ✓ 全库口径不随筛选 ✓）；&lt;0 = unknown ✗ 不假装 0 ✓。</summary>
+        public long ForkSessions = -1;
+        /// <summary>SESSAGG_SESSION bucket=sub 行（含子代理口径 ✓ 与 AggRows 同一 eligible 集 ✓ 老 CLI → 空列表 ✓）。</summary>
+        public List<SessAggRow> SubRows = new List<SessAggRow>();
+        /// <summary>sub 行按会话 id 索引（会话列表「含子代理」小字行用 ✓ 先赢 ✓）。</summary>
+        public Dictionary<string, SessAggRow> SubById = new Dictionary<string, SessAggRow>(StringComparer.Ordinal);
         // —— 看板第二批（2026-10-09 ✓✓ 规格 §11.6-B ✓）：与 SESSAGG_SESSION 同一 eligible 集 ✓
         //   旧 CLI 没有这两行 → 列表为空 → 对应卡片如实显示「当前数据源未提供」✗ 不画空图 ✗ 不猜 ✓ ——
         /// <summary>SESSTIME_SESSION 行集（耗时分解卡数据源）。</summary>
@@ -434,6 +459,55 @@ namespace Dsht.Gui.Avalonia.Markers
         /// <summary>热力图：脚注固定模板（{0} = 缺 lastPromptAt 的会话数）。</summary>
         public const string HeatFootnote = "按会话最后活动时间归本地日；投影只含最后活动时间，这不是逐日活跃轨迹（逐日真值须读原始日志 → 第三批）；缺失 {0} 个不计入，不猜。";
 
+        // —— 看板第三批（2026-10-09 ✓✓ 规格 §11.7-E ✓✓）——
+        /// <summary>B.5 口径差说明（§B.5 :285-292 固定模板 ✓ **一字不许改** ✓ LogicTests 逐字符断言 ✓✓）。
+        /// n &lt; 0（fork_sessions=unknown）⇒ 「相差 unknown 个会话」（✗ 不打 0 ✓ D-7：0 是真实值照显 ✓）。</summary>
+        public static string ForkDiffText(long n)
+        {
+            string nText = n < 0 ? "unknown" : n.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            return "「全局」与「父会话+子代理」相差 " + nText + " 个会话 = 它们的 parentSession 指向别的会话，"
+                + "但 origin 不是 subagent（dsh 的 fork 复制出来的会话）。它们算血缘后代（用量计入父的「本会话+子代理」），但不是子代理。";
+        }
+
+        /// <summary>自定义日期区间本地校验（D4 ✓ 规格 §11.7-D/E-4 ✓✓）：一次输入两个 yyyy-MM-dd（空格/逗号分隔 ✓）。
+        /// 通过 ⇒ from/to（原样字符串 ✓ 已按格式校验 ✓）+ err=""；不通过 ⇒ err=中文原因 ✓（✗ 不默认补端点 ✗ 不猜 ✓）。</summary>
+        public static bool TryParseCustomRange(string input, out string from, out string to, out string err)
+        {
+            from = ""; to = ""; err = "";
+            string t = (input ?? "").Trim();
+            if (t.Length == 0) { err = "请输入两个日期：yyyy-MM-dd yyyy-MM-dd"; return false; }
+            string[] pc = t.Split(new char[] { ' ', ',', '，', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+            if (pc.Length != 2) { err = "需要正好两个日期（空格或逗号分隔），收到 " + pc.Length + " 段"; return false; }
+            DateTime df; DateTime dt;
+            if (!DateTime.TryParseExact(pc[0], "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.None, out df))
+            {
+                err = "起始日期不是 yyyy-MM-dd：" + pc[0]; return false;
+            }
+            if (!DateTime.TryParseExact(pc[1], "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.None, out dt))
+            {
+                err = "结束日期不是 yyyy-MM-dd：" + pc[1]; return false;
+            }
+            if (df > dt) { err = "起始日期晚于结束日期（" + pc[0] + " > " + pc[1] + "）"; return false; }
+            from = pc[0]; to = pc[1];
+            return true;
+        }
+
+        /// <summary>会话列表「含子代理」小字行（B.4 单会话两口径 ✓ 规格 §11.7-E-3 ✓✓ **唯一文案出处** ✓ LogicTests 断言 ✓✓）：
+        /// null ⇒ 空串（该行不显示 ✓）；token 未知 ⇒ 如实「用量未知」（✗ 不猜 ✓）；children=0 ⇒ 同数 + 「（无子会话 ⇒ 两口径相等）」✓；
+        /// sub_unknown &gt; 0 ⇒ 追加「（其中 n 个会话用量未知，未计入）」✓。</summary>
+        public static string SubLineText(SessAggRow sub)
+        {
+            if (sub == null) return "";
+            string core = sub.HasTokens
+                ? "含子代理：输入 " + SessionRow.Human(sub.In) + " · 输出 " + SessionRow.Human(sub.Output)
+                : "含子代理：用量未知（该口径 token 未知 ✗ 不猜 ✓）";
+            if (sub.HasChildren && sub.Children == 0) core += "（无子会话 ⇒ 两口径相等）";
+            if (sub.SubUnknown > 0) core += "（其中 " + sub.SubUnknown + " 个会话用量未知，未计入）";
+            return core;
+        }
+
         public static SessionsSnapshot Parse(string output)
         {
             SessionsSnapshot s = new SessionsSnapshot();
@@ -479,6 +553,11 @@ namespace Dsht.Gui.Avalonia.Markers
                         s.WinScanned = (int)Num(Get(kv, "scanned"), 0);
                         s.WinEligible = (int)Num(Get(kv, "eligible"), 0);
                         s.WinUnknownLast = (int)Num(Get(kv, "unknown_last"), 0);
+                        // —— 第三批（规格 §11.7-A.6 ✓✓ 追加三键 ✓ 老 CLI 没打 → 保持默认 ✓）——
+                        s.WinLevel = Get(kv, "level") ?? "";
+                        s.LineageOk = Get(kv, "lineage") == "ok";
+                        string fk = Get(kv, "fork_sessions");
+                        s.ForkSessions = (fk == null || fk == "unknown") ? -1 : Num(fk, -1);
                         s.HasWinMeta = true;
                         continue;
                     }
@@ -518,7 +597,29 @@ namespace Dsht.Gui.Avalonia.Markers
                             && !string.IsNullOrEmpty(cw) && cw != "unknown"
                             && !string.IsNullOrEmpty(op) && op != "unknown";
                         if (ar.HasTokens) { ar.Uncached = Num(un, 0); ar.CacheRead = Num(cr, 0); ar.CacheWrite = Num(cw, 0); ar.Output = Num(op, 0); }
-                        s.AggRows.Add(ar);
+                        // —— 第三批血缘键（规格 §11.7 ✓✓ unknown → Has=false ✓ 缺键 → 保持默认 ✓）——
+                        string ch = Get(kv, "children");
+                        ar.HasChildren = !string.IsNullOrEmpty(ch) && ch != "unknown";
+                        if (ar.HasChildren) ar.Children = Num(ch, 0);
+                        string dp = Get(kv, "depth");
+                        ar.HasDepth = !string.IsNullOrEmpty(dp) && dp != "unknown";
+                        if (ar.HasDepth) ar.Depth = Num(dp, 0);
+                        string mb = Get(kv, "members");
+                        if (!string.IsNullOrEmpty(mb) && mb != "unknown") ar.Members = Num(mb, -1);
+                        string su = Get(kv, "sub_unknown");
+                        if (!string.IsNullOrEmpty(su) && su != "unknown") ar.SubUnknown = Num(su, -1);
+                        string sus = Get(kv, "sub_unknown_stats");
+                        if (!string.IsNullOrEmpty(sus) && sus != "unknown") ar.SubUnknownStats = Num(sus, -1);
+                        // bucket 分流：own → 窗口卡/KPI 基准 ✓；sub → 含子代理小字行 ✓（老 CLI 恒 own ✓ 行为不变 ✓）
+                        if (ar.Bucket == "sub")
+                        {
+                            s.SubRows.Add(ar);
+                            if (ar.Id != null && !s.SubById.ContainsKey(ar.Id)) s.SubById[ar.Id] = ar;   // 重复 id 先赢 ✓（与 CLI 先赢同口径 ✓）
+                        }
+                        else
+                        {
+                            s.AggRows.Add(ar);
+                        }
                         continue;
                     }
                     // —— 看板第二批（2026-10-09 ✓✓ 规格 §11.6-B ✓ 与 SESSAGG_SESSION 同模式：id 在前、键=值在后、unknown → Has=false ✓）——

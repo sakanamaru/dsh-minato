@@ -244,5 +244,10 @@ namespace Dsht.Gui.Avalonia.ViewModels
 
         public double TokenBar { get { return Row.TokenBar; } }
         public IBrush TokenBrush { get { return Palette.Accent; } }
+
+        /// <summary>「含子代理」小字行（看板第三批 · 2026-10-09 ✓✓ 规格 §11.7-E-3 ✓✓）：
+        /// 空串 = 该会话无 sub 行（不显示 ✓）；文案由 SessionsMarkers.SubLineText 统一产出（唯一出处 ✓ 可单测 ✓）。
+        /// 由 VM 构造处从 host.Data.SubById 查表填入（GUI 不算血缘 ✓ 只消费 CLI 标记 ✓✓）。</summary>
+        public string SubLine = "";
     }
 }

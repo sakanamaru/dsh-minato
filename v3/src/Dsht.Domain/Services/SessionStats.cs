@@ -190,6 +190,69 @@ namespace Dsht.Domain.Services
             return list.ToArray();
         }
 
+        /// <summary>解析插件快照的**血缘段**（看板第三批 · 规格 §11.7-A.5 ✓✓）。
+        /// 快照顶层追加键 `lineage`（**追加不动版本号** ✓ 旧 CLI/GUI 只读已知键 ⇒ 向后兼容 ✓）：
+        /// `{ "lineage": { "errors": &lt;解码失败数&gt;, "sessions": { "&lt;id&gt;": { "origin":"subagent"?,
+        /// "parent":"&lt;id&gt;"?, "createdAt":&lt;epochMs&gt;? } } } }`（字段缺失就不写 ✓ F5 纪律 ✓）。
+        /// ★ 格式不认 / 段缺失 ⇒ Present=false（=「血缘不可用」✓ 调用方据此拒绝非 global 口径 ✗ 不猜 ✓）。
+        /// ★ `parent` 防御**数组形态**（§B.3 多父 ✓）：&gt;1 个 id ⇒ Multiparent=true ⇒ 该会话拒绝归类。
+        /// ★ id/parent 一律去 `session-` 前缀（与 ParseAggregate 同口径 ✓）。</summary>
+        public static SnapshotLineage ParseSnapshotLineage(string json)
+        {
+            SnapshotLineage r = new SnapshotLineage();
+            JNode root = JsonLite.Parse(json);
+            if (root == null || !root.IsObject) return r;
+            JNode lin = root.Get("lineage");
+            if (lin == null || !lin.IsObject) return r;
+            JNode errs = lin.Get("errors");
+            r.Errors = errs == null ? 0 : (long)errs.AsNumber(0);
+            if (r.Errors < 0) r.Errors = 0;
+            JNode sessions = lin.Get("sessions");
+            if (sessions == null || !sessions.IsObject || sessions.Members == null) return r;
+            r.Present = true;   // 段存在且 sessions 是对象 ⇒ 血缘可用（哪怕 0 条边 ✓ 0 条边 ≠ 不可用 ✓）
+            foreach (KeyValuePair<string, JNode> kv in sessions.Members)
+            {
+                JNode n = kv.Value;
+                if (n == null || !n.IsObject) continue;
+                string id = kv.Key == null ? "" : kv.Key;
+                if (id.StartsWith("session-", StringComparison.Ordinal)) id = id.Substring("session-".Length);
+                if (id.Length == 0) continue;
+                LineageEdge e = new LineageEdge();
+                e.Id = id;
+                e.Origin = Str(n, "origin") ?? "";
+                JNode p = n.Get("parent");
+                if (p != null)
+                {
+                    if (p.IsArray)
+                    {
+                        // 多父防御（§B.3 ✓）：&gt;1 个 id ⇒ 拒绝归类（=1 ⇒ 按单值收 ✓ =0 ⇒ 无父 ✓）
+                        List<string> ids = new List<string>();
+                        for (int i = 0; i < p.Items.Count; i++)
+                        {
+                            string one = p.Items[i] == null ? null : p.Items[i].AsString(null);
+                            if (one == null) continue;
+                            if (one.StartsWith("session-", StringComparison.Ordinal)) one = one.Substring("session-".Length);
+                            if (one.Length > 0 && !ids.Contains(one)) ids.Add(one);
+                        }
+                        if (ids.Count > 1) { e.Multiparent = true; e.Parent = ids[0]; }
+                        else if (ids.Count == 1) e.Parent = ids[0];
+                    }
+                    else
+                    {
+                        string one = p.AsString(null);
+                        if (one != null)
+                        {
+                            if (one.StartsWith("session-", StringComparison.Ordinal)) one = one.Substring("session-".Length);
+                            e.Parent = one;
+                        }
+                    }
+                }
+                if (r.Edges.ContainsKey(e.Id)) continue;   // 同 id 双写 = 数据已坏 ✗ 不猜 ✓ 先到为准（与建图纪律一致 ✓）
+                r.Edges[e.Id] = e;
+            }
+            return r;
+        }
+
         // ---------------- 派生指标（纯函数） ----------------
 
         /// <summary>缓存命中率（%）= cacheRead / (cacheRead + uncachedInput)；分母 0 → Unknown。</summary>
@@ -378,5 +441,17 @@ namespace Dsht.Domain.Services
             JNode n = obj == null ? null : obj.Get(name);
             return (n != null && n.IsString) ? n.StringValue : "";
         }
+    }
+
+    /// <summary>快照血缘段的解析结果（看板第三批 · 规格 §11.7-A.5 ✓✓ 纯数据 ✓）。
+    /// Present=false ⇒ 血缘不可用（旧插件快照/段缺失/形状不认 ✓）⇒ 非 global 口径必须如实拒绝 ✗ 不猜 ✓。</summary>
+    public sealed class SnapshotLineage
+    {
+        /// <summary>lineage 段存在且 sessions 是对象 ⇒ true（0 条边也是「可用」✓ 空血缘 ≠ 缺血缘 ✓）。</summary>
+        public bool Present;
+        /// <summary>桥侧首帧解码失败总数（&gt;0 ⇒ CLI 打 SESSAGG_HDRERR 诚实行 ✓ 缺字段 ⇒ 0 ✓）。</summary>
+        public long Errors;
+        /// <summary>血缘边集（key = 会话 id，已去 session- 前缀 ✓ 多父 ⇒ edge.Multiparent=true ✓）。</summary>
+        public Dictionary<string, LineageEdge> Edges = new Dictionary<string, LineageEdge>(StringComparer.Ordinal);
     }
 }

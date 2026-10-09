@@ -16,8 +16,9 @@
 dsh 进程里有一个**只有它自己知道**的事实：**哪些会话此刻还活着** —— 它不落盘 ✗。
 本插件每 3 秒（可配）把这份事实，连同一部分 token / 统计数字，写成一份小 JSON ✓ —— **只读、只写这一份文件** ✓。
 
-装了它，工具箱的「会话 / token」面板能多显示 **运行中 / 挂着** 这一列 ✓；
-不装，那一列显示 `unknown` ✓，**其余一切照常** ✓（工具箱改用磁盘投影）。
+装了它，工具箱的「会话 / token」面板能多显示 **运行中 / 挂着** 这一列 ✓，
+看板的两档血缘口径（仅父会话 / 父会话+子代理）也会**解锁** ✓；
+不装，那一列显示 `unknown` ✓、血缘口径只留「全局」（chips 灰显「需桥插件血缘」）✓，**其余一切照常** ✓（工具箱改用磁盘投影）。
 
 ## Uninstall / 只装了这个插件？请卸载
 
@@ -98,12 +99,16 @@ dsh-minato profilepatch --profile web --id shio-bridge --yes
 
 ## What it reads / writes（能力与只读承诺）
 
-**读什么**（全部走 dsh 的公开插件接口，逐项防御式取值）：
+**读什么**（dsh 的公开插件接口 + 磁盘原始日志的**首帧 header**，逐项防御式取值）：
 
 - `ctx.sessions` / `ctx.sessionQuery.listSessions()` → 会话清单 + `live` 标记（**唯一"进程内才有"的事实**）
 - `ctx.sessionProjections.snapshot(session)` → `tokenUsage` / `sessionStats` / `contextPressure` / `sessionListMetadata` / `title`
+- **`~/.dsh/sessions/` 下原始会话日志的首帧 header**（血缘用，2026-10-09 第三批）——
+  递归扫描 `session.vN.jsonl.zstd` 与旧式 `session.jsonl.zstd`，每个文件**只读前 64 KiB**，
+  用 `node:zlib.zstdDecompressSync` **只解首帧**取 `parentSession` / `origin` / `createdAt` → 快照 `lineage` 段；
+  **正文帧一帧不解** ✓ · 解码失败计入 `lineage.errors` 并如实降级，绝不猜 ✓
 
-**绝不读**：会话正文（消息内容）✗ —— 只读计数、时间与元数据（id / 标题 / cwd / 用量）。
+**绝不读**：会话正文（消息内容）✗ —— 原始日志也只解**首帧 header**、正文帧一帧不解；其余只读计数、时间与元数据（id / 标题 / cwd / 用量）。
 
 **写什么**（**唯一**的写入）：
 
@@ -118,7 +123,7 @@ dsh-minato profilepatch --profile web --id shio-bridge --yes
 「T3：提示路径一个文件都不写」（apply 跑完临时目录仍为空）。
 决策本身是**纯函数**（`startupNotice` / `noticeOnce`），单测直接覆盖。
 
-**可核对性**：本插件只 `import` node 内置的 `node:fs` / `node:path`（`snapshot.js` 头两行即可核对）
+**可核对性**：本插件只 `import` node 内置的 `node:fs` / `node:path` / `node:zlib`（`snapshot.js` 头几行即可核对）
 —— 没有网络、没有第三方包。
 
 ## Snapshot format (v2，工具箱侧 `SessionStats.ParseSnapshot` 按此解析)
@@ -136,7 +141,13 @@ dsh-minato profilepatch --profile web --id shio-bridge --yes
       "uncachedInputTokens": 100, "outputTokens": 50, "cacheReadTokens": 900, "cacheWriteTokens": 10,
       "contextWindow": 1000, "pressureTokens": 250, "surfaceTokens": 500
     }
-  ]
+  ],
+  "lineage": {
+    "errors": 0,
+    "sessions": {
+      "<会话 id>": { "origin": "subagent", "parent": "<父会话 id>", "createdAt": 1735689600000 }
+    }
+  }
 }
 ```
 
@@ -144,16 +155,20 @@ dsh-minato profilepatch --profile web --id shio-bridge --yes
   （C# 侧的 `Str()` 只认字符串；写数字会被丢成空串 → 面板显示 `unknown`，默认排序也会退化）
 - 缺数据时**整个字段不写**（工具箱用「字段存在性」判 `Has*`）—— 不写 `0`，不假装有数据
 - `formatVersion` 不匹配时工具箱**不解析**（诚实降级，不猜）
+- `lineage` 段（2026-10-09 第三批，**纯增量** —— `formatVersion` 仍是 2）：由原始日志**首帧 header** 解码而来
+  （只解首帧、正文帧一帧不解）；`origin`/`parent`/`createdAt` 缺哪个就省哪个；纯根会话是**空对象 `{}`**
+  （= 血缘**已知**且无父，别与「无血缘」混淆）；段缺失/字段不符 ⇒ 工具箱血缘口径如实降级，绝不猜
 
 ## Self-test / 自测（零依赖，不需要 dsh）
 
 ```bash
 cd plugin/dsh-minato-bridge
-node test/snapshot.test.js     # 打印 "== N passed, 0 failed =="（2026-10-07：30 passed）
+node test/snapshot.test.js     # 打印 "== N passed, 0 failed =="（2026-10-09：41 passed）
 ```
 
 覆盖纯函数：字段映射、两种投影形状、防御式收集、原子写、`DSH_HOME` 语义、`apply` 首帧与
-`enabled:false`、实时活动标记、以及上面那条运行期提示的全部决策分支。
+`enabled:false`、实时活动标记、运行期提示的全部决策分支，以及**血缘首帧解码**（递归目录遍历、
+`session.vN.jsonl.zstd` 与旧式 `session.jsonl.zstd` 两种文件名、64 KiB 读上限、解码失败计数与降级）。
 
 ## Known limits / 已知限制
 

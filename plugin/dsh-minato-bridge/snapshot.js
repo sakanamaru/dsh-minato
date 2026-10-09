@@ -28,6 +28,7 @@
  */
 import fs from "node:fs";
 import path from "node:path";
+import zlib from "node:zlib";   // 第三批血缘：zstdDecompressSync（宿主内嵌 Node 24 ✓ 路线①/D2a 实测可达 ✓）仍是 node 内置 ✗ 零新依赖 ✓
 
 /** 快照格式版本（工具箱侧 Dsht.Domain.Services.SessionStats.SnapshotFormatVersion 必须一致）。 */
 export const SNAPSHOT_FORMAT_VERSION = 2;
@@ -86,8 +87,10 @@ function put(out, key, value) {
  * 组装快照（**纯函数**，不碰 ctx/磁盘/时钟 → 可单测）。
  * @param {Array<{id:string, live:boolean, values:object, header?:object}>} sessions
  * @param {string} generatedAt ISO 时间戳（由调用方传入）
+ * @param {number} intervalMs 生效的轮询间隔（写进快照供 CLI 推算新鲜度 ✓）
+ * @param {{errors:number, sessions:Object}|undefined} lineage 第三批血缘段（可选 ✓ 缺就不写那个键 ✓ additive ✓）
  */
-export function buildSnapshot(sessions, generatedAt, intervalMs) {
+export function buildSnapshot(sessions, generatedAt, intervalMs, lineage) {
 	const out = [];
 	for (const s of sessions || []) {
 		if (!s) continue;
@@ -134,7 +137,165 @@ export function buildSnapshot(sessions, generatedAt, intervalMs) {
 	// ✓ 现在：**把生效的间隔写进快照** ✓✓ 让 CLI 按它推算阈值 ✓（拿不到就不写 ✓ 不猜 ✓）
 	const iv = Number(intervalMs);
 	if (Number.isFinite(iv) && iv > 0) outObj.intervalMs = iv;
+	// ★ 第三批（2026-10-09 · 规格 §11.7-A.5 ✓ 决策 D2a 路线① ✓）：血缘段 **additive** ✓ formatVersion 恒 2 ✓
+	//   · 只在调用方给了 lineage（含 sessions 对象）时写 ✓ 缺失字段不补 ✓（F5 ✓）
+	//   · errors 恒写（含 0 ✓ —— 区分「扫了、零失败」与「没扫」✓ 零是真实数据 ✓）
+	if (lineage && typeof lineage === "object" && lineage.sessions && typeof lineage.sessions === "object") {
+		const errN = numOrUndef(lineage.errors);
+		outObj.lineage = { errors: errN !== undefined && errN > 0 ? errN : 0, sessions: lineage.sessions };
+	}
 	return outObj;
+}
+
+/* ─────────── ★ 第三批（2026-10-09 · 规格 §11.7-A · 决策 D2a 路线①）：血缘首帧解码 ───────────
+ * 口径（逐字锁死 ✓✓）：
+ *   · 只解**首帧 header**（203–213 字节纯元数据 ✓）—— **正文帧一帧不解** ✓✓（README 披露 ✓）
+ *   · 只读每个文件的**前 64 KiB**（fs.openSync/readSync ✓ 不整读 ✓）
+ *   · 首帧切不出来 / 解压失败 / JSON 坏 ⇒ **诚实降级**：该会话无血缘条目 + errors++ ✗ 不猜 ✓
+ *   · 多代文件（session.vN.jsonl.zstd）取**数值最大**的 N ✓
+ *   · 缓存按 (size, mtimeMs)：两拍之间没变 ⇒ 不重读 ✓（首帧不可变 ✓ 变了才重解 ✓）
+ *   · 任何单文件失败绝不抛 ✓（只读桥纪律 ✓）
+ */
+
+/** zstd 帧魔数（小端 0xFD2FB528 ✓ 与 verify/probe_d2a.cjs 同款配方 ✓）。 */
+const ZSTD_MAGIC = Buffer.from([0x28, 0xb5, 0x2f, 0xfd]);
+/** 每文件最多读的字节数（首帧只有 ~203–213 B ✓ 64 KiB 绰绰有余 ✓ 超大首帧 ⇒ 解压失败 ⇒ 诚实计数 ✓）。 */
+const FIRST_FRAME_READ_BYTES = 65536;
+
+/**
+ * 从文件头字节里解出首帧 header（**纯函数** → 可单测）。
+ * 配方（probe_d2a.cjs 逐字 ✓）：找下一个 zstd 魔数 → 有则切 [0,next) → zstdDecompressSync → JSON.parse 第一行。
+ * @param {Buffer} buf 文件头（≤ FIRST_FRAME_READ_BYTES）
+ * @returns {object} 首帧 header JSON 对象；**失败抛异常**（调用方负责计数 ✓ 这里不吞 ✓）
+ */
+export function decodeFirstFrameHeader(buf) {
+	if (!Buffer.isBuffer(buf) || buf.length < 5) throw new Error("too small");
+	const next = buf.indexOf(ZSTD_MAGIC, 4);           // 从 4 起找：跳过本帧自己的魔数 ✓
+	const frame = next > 0 ? buf.subarray(0, next) : buf;   // 无第二帧 ⇒ 整段就是首帧 ✓
+	const raw = zlib.zstdDecompressSync(frame, { maxOutputLength: 1 << 20 });
+	const line = raw.toString("utf8").split("\n")[0];
+	const h = JSON.parse(line);
+	if (!h || typeof h !== "object") throw new Error("not an object");
+	return h;
+}
+
+/**
+ * 首帧 header → 血缘条目（**纯函数** ✓ F5：只写有值的字段 ✓）。
+ * 形状防御：`parentSession` 实测是字符串 id ✓ 但容忍 `{id}` / `{sessionId}` 形态 ✓（哪种都没有 ⇒ 无 parent = 根 ✓）。
+ * @returns {object|null} header 不是对象 ⇒ null；否则条目（可能是空对象 = 纯根 ✓ 血缘**已知** ✓ 与「无血缘」严格区分 ✓✓）
+ */
+export function extractLineageEntry(header) {
+	if (!header || typeof header !== "object") return null;
+	const out = {};
+	const origin = strOrUndef(header.origin);
+	if (origin) out.origin = origin;
+	const ps = header.parentSession;
+	const parent =
+		(typeof ps === "string" && ps.length > 0 && ps) ||
+		(ps && typeof ps === "object" && (strOrUndef(ps.id) || strOrUndef(ps.sessionId))) ||
+		undefined;
+	if (parent) out.parent = parent.replace(/^session-/, "");
+	const createdAt = numOrUndef(header.createdAt);
+	if (createdAt !== undefined && createdAt > 0) out.createdAt = createdAt;
+	return out;
+}
+
+/** 默认原始会话日志根：<DSH_HOME||~/.dsh>/sessions（与 defaultOutFile 同一基准 ✓）。 */
+export function defaultSessionsRoot(env) {
+	const home = (env && env.DSH_HOME) || "";
+	const base =
+		home && home.trim().length > 0
+			? home.trim()
+			: path.join(process.env.HOME || process.env.USERPROFILE || ".", ".dsh");
+	return path.join(base, "sessions");
+}
+
+/**
+ * 扫全库血缘（**递归**走全树收集 .zstd ⇒ 按父目录名归组 ⇒ 每会话取最高代帧文件 ⇒ 首帧 header）。
+ * ★★ 真实库复核修正（2026-10-09 ✗✓）：第一版假设固定两层 `--<cwd>--/session-<id>/` ✗ —— 实测：
+ *   · 会话目录**两种命名并存**：`session-<guid>` **与裸 `<guid>`** ✓（剥前缀幂等 ✓）
+ *   · 嵌套深度不固定（还有 `sessions\sessions\...` 这种再嵌套 ✓）
+ *   → 与 verify/probe_d2a.cjs 同款：**递归 walk + 按父目录名归组** ✓✓（283 会话奇偶校验以此为准 ✓）
+ * @param {string} root 会话日志根目录
+ * @param {Map} cache 跨拍缓存（**就地更新** ✓）：sid → { size, mtimeMs, entry|null }；entry=null 记的是失败 ✓
+ * @returns {{errors:number, sessions:Object<string,object>}} errors = 首帧解码失败总数（含缓存住的旧失败 ✓）
+ *   根目录不存在 ⇒ 空血缘（**不算错误** ✓ 与解码失败严格区分 ✓）；任何单文件失败不抛 ✓
+ */
+export function scanSessionsLineage(root, cache) {
+	const sessions = {};
+	let errors = 0;
+	const c = cache instanceof Map ? cache : new Map();
+	const seen = new Set();
+	const bySess = new Map();   // sid → [zstd 文件路径]
+	(function walk(d) {
+		let entries;
+		try {
+			entries = fs.readdirSync(d, { withFileTypes: true });
+		} catch {
+			return;   // 根都没有 / 某层读不动 ⇒ 这层跳过 ✓（根缺失 ⇒ 整体空血缘 ✓ 不算错误 ✓）
+		}
+		for (const e of entries) {
+			if (!e) continue;
+			const p = path.join(d, e.name);
+			if (e.isDirectory()) {
+				walk(p);   // 递归 ✓（withFileTypes：符号链接 isDirectory=false ⇒ 不跟 ✓ 无环 ✓）
+			} else if (e.isFile() && e.name.endsWith(".zstd")) {
+				const sid = path.basename(d).replace(/^session-/, "");   // 两种命名都认 ✓ 剥离幂等 ✓
+				if (!sid) continue;
+				if (!bySess.has(sid)) bySess.set(sid, []);
+				bySess.get(sid).push(p);
+			}
+		}
+	})(root);
+	for (const [sid, files] of bySess) {
+		// 多代文件取**数值最大**的 N ✓（只认标准名 session.vN.jsonl.zstd ✓ 异形名不参与 ✓）；
+		// ★ 兜底：无代际的旧版单文件 `session.jsonl.zstd`（真实库实测 69 个 ✓ 第三批复核抓到 ✗✓）
+		let pick = null;
+		let legacy = null;
+		for (const f of files) {
+			const bn = path.basename(f);
+			const m = /^session\.v(\d+)\.jsonl\.zstd$/.exec(bn);
+			if (m) {
+				const gen = Number(m[1]);
+				if (Number.isFinite(gen) && (!pick || gen > pick.gen)) pick = { file: f, gen };
+			} else if (bn === "session.jsonl.zstd") {
+				legacy = f;
+			}
+		}
+		if (!pick && legacy) pick = { file: legacy, gen: 0 };
+		if (!pick) continue;   // 没有标准帧文件 ⇒ 无血缘条目（CLI 侧 NOHEADER ✓ 不算错误 ✓）
+		seen.add(sid);
+		let st;
+		try {
+			st = fs.statSync(pick.file);
+		} catch {
+			continue;
+		}
+		const hit = c.get(sid);
+		if (hit && hit.size === st.size && hit.mtimeMs === st.mtimeMs) {
+			if (hit.entry) sessions[sid] = hit.entry; else errors++;   // 缓存住的失败**照样计数** ✓（总数口径恒定 ✓）
+			continue;
+		}
+		let entry = null;
+		try {
+			const fd = fs.openSync(pick.file, "r");
+			let buf;
+			try {
+				buf = Buffer.alloc(FIRST_FRAME_READ_BYTES);
+				const n = fs.readSync(fd, buf, 0, FIRST_FRAME_READ_BYTES, 0);
+				buf = buf.subarray(0, n);
+			} finally {
+				fs.closeSync(fd);
+			}
+			entry = extractLineageEntry(decodeFirstFrameHeader(buf));
+		} catch {
+			entry = null;   // 解码/解析任何一步失败 ⇒ 诚实降级 ✓ errors++ ✓
+		}
+		if (entry) sessions[sid] = entry; else errors++;
+		c.set(sid, { size: st.size, mtimeMs: st.mtimeMs, entry });
+	}
+	for (const key of c.keys()) if (!seen.has(key)) c.delete(key);   // 目录没了 ⇒ 缓存也清 ✓ 不积灰 ✓
+	return { errors, sessions };
 }
 
 /** 原子写（先写临时文件再 rename）——工具箱可能正好在读到一半，不能让它看到半截 JSON。
@@ -435,6 +596,12 @@ export function apply(ctx, config) {
 	// ★ 2026-10-02：seq 差值的记忆（"真在动"的唯一实时证据 ✓ 见 markActivity ✓）
 	const lastSeq = new Map();
 	const lastActiveAt = new Map();
+	// ★ 第三批血缘（规格 §11.7-A ✓）：跨拍缓存 + 会话日志根（可被 config.sessionsRoot 覆盖 ✓ 测试与非常规部署用 ✓）
+	const lineageCache = new Map();
+	const sessionsRoot =
+		typeof cfg.sessionsRoot === "string" && cfg.sessionsRoot.trim().length > 0
+			? cfg.sessionsRoot.trim()
+			: defaultSessionsRoot(process.env);
 	const tick = async () => {
 		// P3 FIX (plugin audit MAJOR): disposed was only checked on entry, so a tick already
 		// awaiting listSessions resumed after the dispose handler cleared the live flags and
@@ -447,8 +614,16 @@ export function apply(ctx, config) {
 			// ✓ 零会话**不写** ✓（避免用空数据覆盖上一份好的 ✓）
 			if (sessions.length === 0) return;
 			const now = new Date().toISOString();
+			// ★ 第三批血缘：直读原始日志首帧 header（只解首帧 ✓ 正文帧一帧不解 ✓✓）——
+			//   扫失败 ⇒ lineage=null ⇒ 快照不写 lineage 键 ⇒ CLI 侧如实「血缘未知」降级 ✗ 绝不猜 ✓
+			let lineage = null;
+			try {
+				lineage = scanSessionsLineage(sessionsRoot, lineageCache);
+			} catch {
+				lineage = null;   /* 只读桥：静默降级 ✓ */
+			}
 			// ★ 先按 seq 差值打"真在动"标记 ✓ 再组装 ✓（`live` ≠ 在动 ✗ 见 markActivity 注释 ✓）
-			writeSnapshot(outFile, buildSnapshot(markActivity(sessions, lastSeq, lastActiveAt, now), now, interval));
+			writeSnapshot(outFile, buildSnapshot(markActivity(sessions, lastSeq, lastActiveAt, now), now, interval, lineage));
 		} catch {
 			/* 只读桥：静默降级 ✓ */
 		}

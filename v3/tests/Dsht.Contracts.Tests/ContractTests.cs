@@ -700,6 +700,124 @@ static class ContractTests
         Dsht.Domain.Model.SessionStat w4 = new Dsht.Domain.Model.SessionStat();
         w4.LastPromptAt = "not-a-date";
         Check("窗口：ISO 畸形 → 0（未知 ✓ 不抛 ✓）", Dsht.Domain.Services.SessionWindow.EffectiveLastPromptMs(w4) == 0);
+        // ══ 看板第三批（2026-10-09 ✓✓ 规格 §11.7 ✓ 决策 D2a 路线① + D4）：血缘图纯函数 + 快照血缘段解析 ══
+        Console.WriteLine();
+        Console.WriteLine("[24b] 看板第三批 · 血缘图与快照血缘段（纯函数 · 规格 §11.7 ✓✓ 验收② 8 用例 fixture · 纯内存 ✗ 不碰磁盘）");
+        // —— fixture：8 级链 r1→c1…c7 / fork 归属 r2→f1(fork)→f2(sub) / children=0 孤根 r3 / 环 cyc1↔cyc2 /
+        //   孤儿 orph1→ghost / 多父 mp1 / 无血缘会话 noedge1（只在 knownIds）——
+        System.Collections.Generic.List<Dsht.Domain.Services.LineageEdge> edges3 = new System.Collections.Generic.List<Dsht.Domain.Services.LineageEdge>();
+        edges3.Add(new Dsht.Domain.Services.LineageEdge { Id = "r1" });
+        string prevId = "r1";
+        for (int ci = 1; ci <= 7; ci++) { edges3.Add(new Dsht.Domain.Services.LineageEdge { Id = "c" + ci, Origin = "subagent", Parent = prevId }); prevId = "c" + ci; }
+        edges3.Add(new Dsht.Domain.Services.LineageEdge { Id = "r2" });
+        edges3.Add(new Dsht.Domain.Services.LineageEdge { Id = "f1", Parent = "r2" });                 // fork：有父 + origin 非 subagent ✓
+        edges3.Add(new Dsht.Domain.Services.LineageEdge { Id = "f2", Origin = "subagent", Parent = "f1" });
+        edges3.Add(new Dsht.Domain.Services.LineageEdge { Id = "r3" });                                 // 无子 ✓
+        edges3.Add(new Dsht.Domain.Services.LineageEdge { Id = "cyc1", Origin = "subagent", Parent = "cyc2" });
+        edges3.Add(new Dsht.Domain.Services.LineageEdge { Id = "cyc2", Origin = "subagent", Parent = "cyc1" });
+        edges3.Add(new Dsht.Domain.Services.LineageEdge { Id = "orph1", Origin = "subagent", Parent = "ghost" });
+        edges3.Add(new Dsht.Domain.Services.LineageEdge { Id = "mp1", Origin = "subagent", Parent = "r1", Multiparent = true });
+        System.Collections.Generic.HashSet<string> known3 = new System.Collections.Generic.HashSet<string>(StringComparer.Ordinal);
+        foreach (Dsht.Domain.Services.LineageEdge e in edges3) known3.Add(e.Id);
+        known3.Add("noedge1");
+        Dsht.Domain.Services.LineageGraph g3 = Dsht.Domain.Services.SessionLineage.Build(edges3, known3);
+        Func<string, Dsht.Domain.Services.LineageInfo> nodeOf3 = delegate(string id)
+        {
+            Dsht.Domain.Services.LineageInfo n;
+            return g3.Nodes.TryGetValue(id, out n) ? n : null;
+        };
+        Func<string, Dsht.Domain.Services.LineageEdge> edgeOf3 = delegate(string id)
+        {
+            for (int i = 0; i < edges3.Count; i++) if (edges3[i].Id == id) return edges3[i];
+            return null;
+        };
+        // ① 8 级链：深度自走链计算（✗ 不信 delegationDepth ✓ 规格 §11.7-B 禁判条款 ✓）
+        Check("血缘①：8 级链深度自走链（r1=0 / c4=4 / c7=7）", nodeOf3("r1").Depth == 0 && nodeOf3("c4").Depth == 4 && nodeOf3("c7").Depth == 7);
+        Check("血缘①：r1 直接子=1、后代闭包=7（任意深度 ✓）", nodeOf3("r1").Children.Count == 1 && nodeOf3("r1").Descendants.Count == 7);
+        Check("血缘①：c2 闭包=5（c3..c7）", nodeOf3("c2").Descendants.Count == 5);
+        // —— 回归钉（2026-10-09 验收④真实库抓出 ✗✓）：边序**子先父后**时深度不得颠倒 ——
+        //   DepthOf 记忆化回写曾按 path 正序写（path[0]=查询起点最深 ⇒ 终端深度错配给最深节点，
+        //   父先子后的 fixture 掩盖了它；真实库目录序不保证该序 ⇒ 183 个 depth 整链颠倒）。
+        System.Collections.Generic.List<Dsht.Domain.Services.LineageEdge> revEdges = new System.Collections.Generic.List<Dsht.Domain.Services.LineageEdge>();
+        for (int ri = 7; ri >= 1; ri--) revEdges.Add(new Dsht.Domain.Services.LineageEdge { Id = "c" + ri, Origin = "subagent", Parent = (ri == 1 ? "r1" : "c" + (ri - 1)) });
+        revEdges.Add(new Dsht.Domain.Services.LineageEdge { Id = "r1" });       // 根最后进场（最恶劣顺序 ✓）
+        System.Collections.Generic.HashSet<string> revKnown = new System.Collections.Generic.HashSet<string>(StringComparer.Ordinal);
+        foreach (Dsht.Domain.Services.LineageEdge e in revEdges) revKnown.Add(e.Id);
+        Dsht.Domain.Services.LineageGraph gRev = Dsht.Domain.Services.SessionLineage.Build(revEdges, revKnown);
+        Check("血缘①回归：子先父后边序 ⇒ 深度仍正确（r1=0 / c1=1 / c4=4 / c7=7 ✗ 不许颠倒）",
+            gRev.Nodes["r1"].Depth == 0 && gRev.Nodes["c1"].Depth == 1 && gRev.Nodes["c4"].Depth == 4 && gRev.Nodes["c7"].Depth == 7);
+        // ② children=0（B.4 前提）：叶节点与孤根都零子零后代
+        Check("血缘②：c7 叶节点 children=0 且闭包空", nodeOf3("c7").Children.Count == 0 && nodeOf3("c7").Descendants.Count == 0);
+        Check("血缘②：r3 孤根 children=0 且闭包空", nodeOf3("r3").Children.Count == 0 && nodeOf3("r3").Descendants.Count == 0 && nodeOf3("r3").Depth == 0);
+        // ③ 多父 ⇒ 拒绝归类：不进图 ✓ 三档口径里只进全局 ✓
+        Check("血缘③：多父 mp1 不进图（拒绝归类 ✓）", !g3.Nodes.ContainsKey("mp1"));
+        Check("血缘③：多父只进全局（parents/parents_sub 都拒 ✓）",
+            Dsht.Domain.Services.SessionLineage.LevelAccept("global", edgeOf3("mp1"), null)
+            && !Dsht.Domain.Services.SessionLineage.LevelAccept("parents", edgeOf3("mp1"), null)
+            && !Dsht.Domain.Services.SessionLineage.LevelAccept("parents_sub", edgeOf3("mp1"), null));
+        // ④ 环：访问集停止（不炸 ✓ 不挂死 ✓）+ 全员标环 + depth=unknown
+        Check("血缘④：环上两员都标 InCycle 且 depth 未知", nodeOf3("cyc1").InCycle && nodeOf3("cyc2").InCycle && !nodeOf3("cyc1").HasDepth && !nodeOf3("cyc2").HasDepth);
+        Check("血缘④：CycleIds 恰好=cyc1,cyc2", g3.CycleIds.Count == 2 && g3.CycleIds.Contains("cyc1") && g3.CycleIds.Contains("cyc2"));
+        Check("血缘④：环闭包被访问集截断（各自只见到对方 ✗ 不无限膨胀）", nodeOf3("cyc1").Descendants.Count == 1 && nodeOf3("cyc1").Descendants.Contains("cyc2") && nodeOf3("cyc2").Descendants.Count == 1);
+        // ⑤ 孤儿：父 ghost 不在已知集 ⇒ 只进全局 + Orphans 清单
+        Check("血缘⑤：孤儿标记 + Orphans 清单记录 (orph1, ghost)", nodeOf3("orph1").IsOrphan && g3.Orphans.Count == 1 && g3.Orphans[0].Key == "orph1" && g3.Orphans[0].Value == "ghost");
+        Check("血缘⑤：孤儿只进全局（parents/parents_sub 都拒 ✓）",
+            Dsht.Domain.Services.SessionLineage.LevelAccept("global", edgeOf3("orph1"), nodeOf3("orph1"))
+            && !Dsht.Domain.Services.SessionLineage.LevelAccept("parents", edgeOf3("orph1"), nodeOf3("orph1"))
+            && !Dsht.Domain.Services.SessionLineage.LevelAccept("parents_sub", edgeOf3("orph1"), nodeOf3("orph1")));
+        // ⑥ fork 归属：f1 在全局 ✓ 不在父+子 ✓ 但计入 r2 的闭包（own+sub ✓ §B 原话 ✓）；f2 是真子代理 ✓
+        Check("血缘⑥：fork f1 只进全局（parents/parents_sub 都拒 ✓）",
+            Dsht.Domain.Services.SessionLineage.LevelAccept("global", edgeOf3("f1"), nodeOf3("f1"))
+            && !Dsht.Domain.Services.SessionLineage.LevelAccept("parents", edgeOf3("f1"), nodeOf3("f1"))
+            && !Dsht.Domain.Services.SessionLineage.LevelAccept("parents_sub", edgeOf3("f1"), nodeOf3("f1")));
+        Check("血缘⑥：fork 计入父闭包（r2 后代含 f1 与 f2 ✓）", nodeOf3("r2").Descendants.Contains("f1") && nodeOf3("r2").Descendants.Contains("f2"));
+        Check("血缘⑥：fork 的子代理 f2 进 parents_sub ✓", Dsht.Domain.Services.SessionLineage.LevelAccept("parents_sub", edgeOf3("f2"), nodeOf3("f2")));
+        Check("血缘⑥：ForkCount=1（只数纯 fork ✓ 孤儿/多父不混入 ✓）", g3.ForkCount == 1);
+        // ⑦ 层级口径其余象限：根进 parents ✓ 子代理不进 parents ✓ 无血缘会话两档血缘口径都排除 ✓
+        Check("血缘⑦：根 r1 进 parents ✓ 子代理 c1 不进 parents ✓",
+            Dsht.Domain.Services.SessionLineage.LevelAccept("parents", edgeOf3("r1"), nodeOf3("r1"))
+            && !Dsht.Domain.Services.SessionLineage.LevelAccept("parents", edgeOf3("c1"), nodeOf3("c1")));
+        Check("血缘⑦：无血缘会话 noedge1 只进全局（血缘未知 ✗ 不猜 ✓）",
+            Dsht.Domain.Services.SessionLineage.LevelAccept("global", null, null)
+            && !Dsht.Domain.Services.SessionLineage.LevelAccept("parents", null, null)
+            && !Dsht.Domain.Services.SessionLineage.LevelAccept("parents_sub", null, null));
+        Check("血缘⑦：子代理判定唯一来源（origin==\"subagent\" 严格相等 ✓）",
+            Dsht.Domain.Services.SessionLineage.IsSubAgentOrigin("subagent")
+            && !Dsht.Domain.Services.SessionLineage.IsSubAgentOrigin(null)
+            && !Dsht.Domain.Services.SessionLineage.IsSubAgentOrigin("")
+            && !Dsht.Domain.Services.SessionLineage.IsSubAgentOrigin("Subagent"));
+        // 同 id 双写 ⇒ 先到为准（不猜 ✓ 不炸 ✓）
+        System.Collections.Generic.List<Dsht.Domain.Services.LineageEdge> dupEdges = new System.Collections.Generic.List<Dsht.Domain.Services.LineageEdge>();
+        dupEdges.Add(new Dsht.Domain.Services.LineageEdge { Id = "d1" });
+        dupEdges.Add(new Dsht.Domain.Services.LineageEdge { Id = "d1", Origin = "subagent", Parent = "zzz" });
+        dupEdges.Add(new Dsht.Domain.Services.LineageEdge { Id = "zzz" });
+        Dsht.Domain.Services.LineageGraph gDup = Dsht.Domain.Services.SessionLineage.Build(dupEdges, new System.Collections.Generic.HashSet<string>(new string[] { "d1", "zzz" }, StringComparer.Ordinal));
+        Check("血缘⑧：同 id 双写 ⇒ 先到为准（d1 仍是根 ✗ 不被后到边改成孤儿 ✓）", gDup.Nodes["d1"].Depth == 0 && !gDup.Nodes["d1"].IsOrphan && gDup.Orphans.Count == 0);
+        // —— ParseSnapshotLineage（快照 lineage 段 ✓ §11.7-A.5 ✓ additive 键 · formatVersion 恒 2 ✓）——
+        Dsht.Domain.Services.SnapshotLineage sl0 = Dsht.Domain.Services.SessionStats.ParseSnapshotLineage("{\"formatVersion\":2,\"sessions\":[]}");
+        Check("血缘段：缺 lineage 键 ⇒ Present=false（降级 ✗ 不猜 ✓）", !sl0.Present && sl0.Edges.Count == 0);
+        Dsht.Domain.Services.SnapshotLineage slBad = Dsht.Domain.Services.SessionStats.ParseSnapshotLineage("{\"lineage\":\"oops\"}");
+        Check("血缘段：形状不认 ⇒ Present=false", !slBad.Present);
+        Dsht.Domain.Services.SnapshotLineage slEmpty = Dsht.Domain.Services.SessionStats.ParseSnapshotLineage("{\"lineage\":{\"errors\":0,\"sessions\":{}}}");
+        Check("血缘段：0 条边也是「可用」（空血缘 ≠ 缺血缘 ✓✓）", slEmpty.Present && slEmpty.Edges.Count == 0 && slEmpty.Errors == 0);
+        Dsht.Domain.Services.SnapshotLineage sl1 = Dsht.Domain.Services.SessionStats.ParseSnapshotLineage(
+            "{\"formatVersion\":2,\"lineage\":{\"errors\":2,\"sessions\":{\"session-a\":{\"origin\":\"subagent\",\"parent\":\"session-r\",\"createdAt\":1759900000000},\"r\":{},\"session-f\":{\"parent\":\"r\"},\"session-m\":{\"parent\":[\"r\",\"a\"]}}}}");
+        Check("血缘段：解码失败计数照读（errors=2 ✓）", sl1.Present && sl1.Errors == 2);
+        Check("血缘段：id/parent 去 session- 前缀 + origin 透传", sl1.Edges.ContainsKey("a") && sl1.Edges["a"].Parent == "r" && sl1.Edges["a"].Origin == "subagent" && sl1.Edges.ContainsKey("r"));
+        Check("血缘段：无 origin 无 parent ⇒ 根边", sl1.Edges["r"].Parent == "" && sl1.Edges["r"].Origin == "" && !sl1.Edges["r"].Multiparent);
+        Check("血缘段：有 parent 无 origin ⇒ fork 边（不归多父）", sl1.Edges["f"].Parent == "r" && sl1.Edges["f"].Origin == "" && !sl1.Edges["f"].Multiparent);
+        Check("血缘段：防御数组形态 >1 id ⇒ 多父标记（取首个存证 ✓）", sl1.Edges["m"].Multiparent && sl1.Edges["m"].Parent == "r");
+        Dsht.Domain.Services.SnapshotLineage slArr1 = Dsht.Domain.Services.SessionStats.ParseSnapshotLineage("{\"lineage\":{\"sessions\":{\"x\":{\"parent\":[\"session-p\"]}}}}");
+        Check("血缘段：数组形态恰好 1 个 id ⇒ 单父正常边", slArr1.Present && !slArr1.Edges["x"].Multiparent && slArr1.Edges["x"].Parent == "p");
+        Dsht.Domain.Services.SnapshotLineage slNeg = Dsht.Domain.Services.SessionStats.ParseSnapshotLineage("{\"lineage\":{\"errors\":-5,\"sessions\":{}}}");
+        Check("血缘段：errors 负数 ⇒ 钳到 0（✗ 不猜 ✓）", slNeg.Present && slNeg.Errors == 0);
+        Dsht.Domain.Services.SnapshotLineage slDup = Dsht.Domain.Services.SessionStats.ParseSnapshotLineage("{\"lineage\":{\"sessions\":{\"d\":{\"parent\":\"p1\"}}}}");
+        Check("血缘段：同 id 快照键唯一 ⇒ 正常读入", slDup.Edges.Count == 1 && slDup.Edges["d"].Parent == "p1");
+        Dsht.Domain.Services.SnapshotLineage slNull = Dsht.Domain.Services.SessionStats.ParseSnapshotLineage(null);
+        Check("血缘段：null/空文本 ⇒ Present=false（不炸 ✓）", !slNull.Present && Dsht.Domain.Services.SessionStats.ParseSnapshotLineage("").Present == false);
+        Dsht.Domain.Services.SnapshotLineage slBroken = Dsht.Domain.Services.SessionStats.ParseSnapshotLineage("{oops");
+        Check("血缘段：JSON 坏 ⇒ Present=false（不炸 ✓）", !slBroken.Present);
+
         Console.WriteLine();
         Console.WriteLine("[25] start/stop 判定（纯函数：只有可观测事实能判定成功）");
         Check("启动前：已在运行 → 不重复启动（Ready）", Dsht.Domain.Services.ServiceControlPolicy.BeforeStart("Ready", 123) == Dsht.Domain.Services.StartDecision.AlreadyRunning);
