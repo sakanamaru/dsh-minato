@@ -22,7 +22,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             DoctorSummary d = host.Doctor;
 
-            StackPanel s = new StackPanel { Margin = PageMargin, Spacing = 14 };
+            StackPanel s = new StackPanel { Margin = PageMargin, Spacing = ShapeTokens.S16 };
 
             if (host.SubTab == 1) { s.Children.Add(new Border { Child = RawCard(host, "原始输出", "doctor 的标记行与分级条目原文") }); return s; }
 
@@ -30,11 +30,11 @@ namespace Dsht.Gui.Avalonia.Shells
 
             //   doctor 最长 6.5 秒（含 npm registry 探测 ✓）—— 每次进页自动跑是纯浪费 ✗ 上次的结果保留着 ✓
 
-            StackPanel runBar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+            StackPanel runBar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = ShapeTokens.S12 };
 
             runBar.Children.Add(PrimaryButton("运行体检", delegate { host.RunDoctorNow(); }));
 
-            runBar.Children.Add(T("进这一页**不再自动跑** doctor（它最长要 6.5 秒 ✓）；点按钮才跑、逐行出结果，上次的结果保留着 ✓", 11, Palette.TextDim));
+            runBar.Children.Add(T("进这一页**不再自动跑** doctor（它最长要 6.5 秒 ✓）；点按钮才跑、逐行出结果，上次的结果保留着 ✓", 11.5, Palette.TextDim));
 
             s.Children.Add(Card(runBar, new Thickness(0), new Thickness(16, 14)));
 
@@ -48,7 +48,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 IBrush b = d.Error > 0 ? Palette.Bad : (d.Warn > 0 ? Palette.Warn : Palette.Good);
 
-                StackPanel head = new StackPanel { Spacing = 6 };
+                StackPanel head = new StackPanel { Spacing = ShapeTokens.S8 };
 
                 StackPanel row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 12 };
 
@@ -58,7 +58,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 head.Children.Add(row);
 
-                head.Children.Add(T("错误 " + d.Error + " · 提醒 " + d.Warn + " · 通过 " + d.Pass + "（只依据工具箱自己的检查结果，不替它下别的结论）", 12, Palette.TextDim));
+                head.Children.Add(T("错误 " + d.Error + " · 提醒 " + d.Warn + " · 通过 " + d.Pass + "（只依据工具箱自己的检查结果，不替它下别的结论）", 11.5, Palette.TextDim));
 
                 s.Children.Add(Card(head, new Thickness(0), new Thickness(18, 16)));
 
@@ -76,7 +76,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             {
 
-                StackPanel list = new StackPanel { Spacing = 5 };
+                StackPanel list = new StackPanel { Spacing = ShapeTokens.S4 };
 
                 for (int i = 0; i < host.DoctorLive.Count; i++)
 
@@ -92,11 +92,11 @@ namespace Dsht.Gui.Avalonia.Shells
 
                     // 美学A3：行首级别色点 ✓ 扫读时一眼分级 ✓（不再只靠 [OK]/[WARN] 文本前缀 ✓）
 
-                    StackPanel lnRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 7 };
+                    StackPanel lnRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = ShapeTokens.S8 };
 
                     lnRow.Children.Add(new Ellipse { Width = 7, Height = 7, Fill = c, VerticalAlignment = VerticalAlignment.Center });
 
-                    TextBlock lt = T(ln, 12, c); lt.VerticalAlignment = VerticalAlignment.Center;
+                    TextBlock lt = T(ln, 11.5, c); lt.VerticalAlignment = VerticalAlignment.Center;
 
                     lnRow.Children.Add(lt);
 
@@ -106,7 +106,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 if (host.IsLoading)
 
-                    list.Children.Add(T("…其余项检测中（npm registry 可达性那项最慢，最长 4 秒）", 11, Palette.TextFaint));
+                    list.Children.Add(T("…其余项检测中（npm registry 可达性那项最慢，最长 4 秒）", 11.5, Palette.TextFaint));
 
                 s.Children.Add(Card(list, new Thickness(0), new Thickness(16, 14)));
 
@@ -118,11 +118,11 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 // 兜底：非流式数据源（防御 ✓）—— 保留旧渲染 ✓
 
-                StackPanel list = new StackPanel { Spacing = 6 };
+                StackPanel list = new StackPanel { Spacing = ShapeTokens.S8 };
 
-                for (int i = 0; i < d.ErrorLines.Count; i++) list.Children.Add(T(d.ErrorLines[i], 12, Palette.Bad));
+                for (int i = 0; i < d.ErrorLines.Count; i++) list.Children.Add(T(d.ErrorLines[i], 11.5, Palette.Bad));
 
-                for (int i = 0; i < d.WarnLines.Count; i++) list.Children.Add(T(d.WarnLines[i], 12, Palette.Warn));
+                for (int i = 0; i < d.WarnLines.Count; i++) list.Children.Add(T(d.WarnLines[i], 11.5, Palette.Warn));
 
                 s.Children.Add(Card(list, new Thickness(0), new Thickness(16, 14)));
 
@@ -134,7 +134,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             {
 
-                s.Children.Add(Card(T("还没有体检结果。点上面的「运行体检」跑一次（会检查网络，最长约 6.5 秒）。", 12, Palette.TextDim), new Thickness(0), new Thickness(16, 14)));
+                s.Children.Add(Card(T("还没有体检结果。点上面的「运行体检」跑一次（会检查网络，最长约 6.5 秒）。", 11.5, Palette.TextDim), new Thickness(0), new Thickness(16, 14)));
 
             }
 
@@ -148,7 +148,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
         {
 
-            StackPanel s = new StackPanel { Margin = PageMargin, Spacing = 14 };
+            StackPanel s = new StackPanel { Margin = PageMargin, Spacing = ShapeTokens.S16 };
 
             // 直接从 CLI 原文解析（不依赖外层装配，少一处可能失联的接线）
 
@@ -172,7 +172,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             for (int vi = 0; vi < items.Count; vi++) if (!items[vi].Invalid) validCount++;
 
-            bar.Children.Add(T("共 " + validCount + " 份（" + (host.Backups != null && host.Backups.Ok ? "backup-list 有效包" : "未读到清单") + "）", 12, Palette.TextDim));
+            bar.Children.Add(T("共 " + validCount + " 份（" + (host.Backups != null && host.Backups.Ok ? "backup-list 有效包" : "未读到清单") + "）", 11.5, Palette.TextDim));
 
             s.Children.Add(Card(bar, new Thickness(0), new Thickness(16, 14)));
 
@@ -192,9 +192,9 @@ namespace Dsht.Gui.Avalonia.Shells
 
             {
 
-                StackPanel loc = new StackPanel { Spacing = 6 };
+                StackPanel loc = new StackPanel { Spacing = ShapeTokens.S8 };
 
-                loc.Children.Add(T("备份位置", 12.5, Palette.Text, FontWeight.SemiBold));
+                loc.Children.Add(T("备份位置", 13, Palette.Text, FontWeight.SemiBold));
 
                 string bd = host.BackupDirText;
 
@@ -210,7 +210,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 loc.Children.Add(lb);
 
-                loc.Children.Add(T("已有备份**不会被移动** ✓ 仍在原处 ✓ 只有以后的备份写到新位置 ✓（放在安装目录之外更稳妥 ✓）", 11, Palette.TextFaint));
+                loc.Children.Add(T("已有备份**不会被移动** ✓ 仍在原处 ✓ 只有以后的备份写到新位置 ✓（放在安装目录之外更稳妥 ✓）", 11.5, Palette.TextFaint));
 
                 s.Children.Add(Card(loc, new Thickness(0), new Thickness(16, 14)));
 
@@ -240,21 +240,21 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 StackPanel mid = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
 
-                mid.Children.Add(T(b.Name, 12.5, Palette.Text, FontWeight.SemiBold));
+                mid.Children.Add(T(b.Name, 13, Palette.Text, FontWeight.SemiBold));
 
-                mid.Children.Add(T(b.SizeText + "　" + b.Time, 11, Palette.TextFaint));
+                mid.Children.Add(T(b.SizeText + "　" + b.Time, 11.5, Palette.TextFaint));
 
                 Grid.SetColumn(mid, 1);
 
-                StackPanel acts = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, VerticalAlignment = VerticalAlignment.Center };
+                StackPanel acts = new StackPanel { Orientation = Orientation.Horizontal, Spacing = ShapeTokens.S8, VerticalAlignment = VerticalAlignment.Center };
 
-                acts.Children.Add(GhostButton(T("导出", 11, Palette.Text), delegate { host.ExportBackup(b.Name); }, true));
+                acts.Children.Add(GhostButton(T("导出", 11.5, Palette.Text), delegate { host.ExportBackup(b.Name); }, true));
 
-                acts.Children.Add(GhostButton(T("预览", 11, Palette.Text), delegate { host.DryRunRestore(b.Name); }, true));
+                acts.Children.Add(GhostButton(T("预览", 11.5, Palette.Text), delegate { host.DryRunRestore(b.Name); }, true));
 
-                acts.Children.Add(GhostButton(T("恢复", 11, Palette.Text), delegate { host.ApplyRestore(b.Name); }, true));
+                acts.Children.Add(GhostButton(T("恢复", 11.5, Palette.Text), delegate { host.ApplyRestore(b.Name); }, true));
 
-                Button del = GhostButton(T("删除", 11, Palette.Warn), delegate { host.DeleteBackup(b.Name); }, true);
+                Button del = GhostButton(T("删除", 11.5, Palette.Warn), delegate { host.DeleteBackup(b.Name); }, true);
 
                 del.Background = Palette.WarnSoft;   // 删除仍是全行最显眼的一个 ✓（不可逆 ✓）
 
@@ -392,7 +392,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
         {
 
-            StackPanel s = new StackPanel { Margin = PageMargin, Spacing = 14 };
+            StackPanel s = new StackPanel { Margin = PageMargin, Spacing = ShapeTokens.S16 };
 
 
 
@@ -402,7 +402,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             StackPanel bar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
 
-            bar.Children.Add(T("级别", 11, Palette.TextFaint));
+            bar.Children.Add(T("级别", 11.5, Palette.TextFaint));
 
             string[] lvOpts = new string[] { "全部", "INFO", "WARN", "ERROR" };
 
@@ -420,7 +420,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             bar.Children.Add(lvCb);
 
-            bar.Children.Add(T("行数", 11, Palette.TextFaint));
+            bar.Children.Add(T("行数", 11.5, Palette.TextFaint));
 
             int[] lineOpts = new int[] { 100, 500, 2000 };
 
@@ -451,7 +451,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             find.Children.Add(GhostButton(T("清除", 11.5, Palette.Text), delegate { host.SetLogGrep(""); }, true));
 
-            find.Children.Add(T("当前：" + (string.IsNullOrEmpty(host.LogGrep) ? "（无过滤）" : host.LogGrep), 11, Palette.TextFaint));
+            find.Children.Add(T("当前：" + (string.IsNullOrEmpty(host.LogGrep) ? "（无过滤）" : host.LogGrep), 11.5, Palette.TextFaint));
 
             s.Children.Add(Card(find, new Thickness(0), new Thickness(16, 12)));
 
@@ -465,7 +465,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             {
 
-                StackPanel empty = new StackPanel { Spacing = 6 };
+                StackPanel empty = new StackPanel { Spacing = ShapeTokens.S8 };
 
                 empty.Children.Add(T("还没有日志", 13, Palette.TextDim, FontWeight.SemiBold));
 
@@ -535,7 +535,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             {
 
-                s.Children.Add(Card(T("筛选后没有匹配的日志行（换个级别或关键词试试）。", 12, Palette.TextDim), new Thickness(0), new Thickness(16, 16)));
+                s.Children.Add(Card(T("筛选后没有匹配的日志行（换个级别或关键词试试）。", 11.5, Palette.TextDim), new Thickness(0), new Thickness(16, 16)));
 
                 return s;
 
@@ -545,7 +545,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             logList.ItemsSource = logLines;
 
-            logList.ItemTemplate = new FuncDataTemplate<string>(delegate(string s2, INameScope ns2) { return Mono(s2, 11, LogLineBrush(s2)); });
+            logList.ItemTemplate = new FuncDataTemplate<string>(delegate(string s2, INameScope ns2) { return Mono(s2, 11.5, LogLineBrush(s2)); });
 
             logList.ItemsPanel = new global::Avalonia.Controls.Templates.FuncTemplate<Panel>(delegate { return new VirtualizingStackPanel(); });
 
@@ -579,13 +579,13 @@ namespace Dsht.Gui.Avalonia.Shells
 
         {
 
-            StackPanel s = new StackPanel { Margin = PageMargin, Spacing = 14 };
+            StackPanel s = new StackPanel { Margin = PageMargin, Spacing = ShapeTokens.S16 };
 
 
 
             // —— 顶部：检查按钮 + 一句说明 ——
 
-            StackPanel bar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+            StackPanel bar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = ShapeTokens.S12 };
 
             bar.Children.Add(PrimaryButton("检查更新", delegate { host.Refresh(); }));
 
@@ -617,19 +617,19 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 UpdItem it = items[i];
 
-                StackPanel card = new StackPanel { Spacing = 9 };
+                StackPanel card = new StackPanel { Spacing = ShapeTokens.S8 };
 
 
 
                 // 标题行：名称 + 状态徽章
 
-                StackPanel head = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+                StackPanel head = new StackPanel { Orientation = Orientation.Horizontal, Spacing = ShapeTokens.S12 };
 
                 head.Children.Add(T(it.Title, 13, Palette.Text, FontWeight.SemiBold));
 
                 head.Children.Add(Chip(it.StateText, it.StateBrush, it.StateBg));
 
-                head.Children.Add(T(it.KindText, 11, Palette.TextFaint));
+                head.Children.Add(T(it.KindText, 11.5, Palette.TextFaint));
 
                 card.Children.Add(head);
 
@@ -637,7 +637,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 // 版本行 ✓（取不到就写 unknown ✓ 不猜 ✗）
 
-                card.Children.Add(T("已装 " + it.Installed + "　→　最新 " + it.Latest, 12, Palette.TextDim));
+                card.Children.Add(T("已装 " + it.Installed + "　→　最新 " + it.Latest, 11.5, Palette.TextDim));
 
 
 
@@ -665,11 +665,11 @@ namespace Dsht.Gui.Avalonia.Shells
 
                     // U8：URL 可点（desktop 有按钮、webui/插件此前只是纯文本 ✗ affordance 断裂 ✓ 补上）
 
-                    StackPanel urlRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+                    StackPanel urlRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = ShapeTokens.S8 };
 
-                    urlRow.Children.Add(T(it.Url, 11, Palette.Accent));
+                    urlRow.Children.Add(T(it.Url, 11.5, Palette.Accent));
 
-                    urlRow.Children.Add(GhostButton(T("打开", 11, Palette.Text), delegate { host.OpenUrl(it.Url); }, true));
+                    urlRow.Children.Add(GhostButton(T("打开", 11.5, Palette.Text), delegate { host.OpenUrl(it.Url); }, true));
 
                     card.Children.Add(urlRow);
 
@@ -701,7 +701,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 {
 
-                    acts.Children.Add(T("本工具的更新不影响你的数据 ✓（不动 ~/.dsh、备份与配置 ✓）", 11, Palette.TextFaint));
+                    acts.Children.Add(T("本工具的更新不影响你的数据 ✓（不动 ~/.dsh、备份与配置 ✓）", 11.5, Palette.TextFaint));
 
                 }
 
@@ -709,7 +709,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 {
 
-                    acts.Children.Add(T("插件由各自作者维护 ✓ 本工具不替它更新、也不替它担保 ✓ 更新前请先看上面的风险说明 ✓", 11, Palette.TextFaint));
+                    acts.Children.Add(T("插件由各自作者维护 ✓ 本工具不替它更新、也不替它担保 ✓ 更新前请先看上面的风险说明 ✓", 11.5, Palette.TextFaint));
 
                 }
 
@@ -959,9 +959,9 @@ namespace Dsht.Gui.Avalonia.Shells
 
             StackPanel upd = new StackPanel { Spacing = 8 };
 
-            upd.Children.Add(T("更新", 12.5, Palette.Text, FontWeight.SemiBold));
+            upd.Children.Add(T("更新", 13, Palette.Text, FontWeight.SemiBold));
 
-            upd.Children.Add(T("检查更新是**只读**的 ✓（只查已装版本、更新通道、最新版本，不动任何东西）；更新会**先备份再更新** ✓ 并保留回滚点 ✓", 11, Palette.TextDim));
+            upd.Children.Add(T("检查更新是**只读**的 ✓（只查已装版本、更新通道、最新版本，不动任何东西）；更新会**先备份再更新** ✓ 并保留回滚点 ✓", 11.5, Palette.TextDim));
 
             StackPanel updRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
 
@@ -969,7 +969,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             updRow.Children.Add(ActionGhost(host, "执行更新（会先备份）", delegate { host.RunUpdate(); }));
 
-            updRow.Children.Add(T("更新通道：" + (UpdateChannelText(host.RawOutput)), 11, Palette.TextFaint));
+            updRow.Children.Add(T("更新通道：" + (UpdateChannelText(host.RawOutput)), 11.5, Palette.TextFaint));
 
             upd.Children.Add(updRow);
 
@@ -979,7 +979,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             if (host.ActionBusy)
 
-                upd.Children.Add(T("已有动作在进行：" + host.ActionBusyLabel + " —— 结束前上面的按钮不可点 ✓（同时只允许一个，避免多个更新互相踩 ✗）", 11, Palette.Warn));
+                upd.Children.Add(T("已有动作在进行：" + host.ActionBusyLabel + " —— 结束前上面的按钮不可点 ✓（同时只允许一个，避免多个更新互相踩 ✗）", 11.5, Palette.Warn));
 
             s.Children.Add(Card(upd, new Thickness(0), new Thickness(16, 14)));
 
@@ -987,7 +987,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             for (int ci = 0; ci < items.Count; ci++) { if (items[ci].ReadOnly) roCount++; else if (items[ci].IsSwitch) swCount++; }
 
-            StackPanel sum = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+            StackPanel sum = new StackPanel { Orientation = Orientation.Horizontal, Spacing = ShapeTokens.S12 };
 
             sum.Children.Add(Chip(items.Count + " 项", Palette.Accent, Palette.AccentSoft));
 
@@ -1133,9 +1133,9 @@ namespace Dsht.Gui.Avalonia.Shells
 
             StackPanel row = new StackPanel { Spacing = 8 };
 
-            StackPanel head = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+            StackPanel head = new StackPanel { Orientation = Orientation.Horizontal, Spacing = ShapeTokens.S12 };
 
-            head.Children.Add(T(c.Key, 12.5, Palette.Text, FontWeight.SemiBold));
+            head.Children.Add(T(c.Key, 13, Palette.Text, FontWeight.SemiBold));
 
             head.Children.Add(T(c.Desc, 11.5, Palette.TextDim));
 
@@ -1151,7 +1151,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 // 美学A5：CONFIGNOTE 从"每卡一条橙色长文"改为 ⓘ 悬停显示 ✓ 19 张卡不再满眼警示色 ✓
 
-                TextBlock info = T("ⓘ", 12, Palette.Warn);
+                TextBlock info = T("ⓘ", 11.5, Palette.Warn);
 
                 info.VerticalAlignment = VerticalAlignment.Center;
 
@@ -1169,7 +1169,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             {
 
-                edit.Children.Add(T(c.Value, 12, Palette.TextFaint));
+                edit.Children.Add(T(c.Value, 11.5, Palette.TextFaint));
 
             }
 
@@ -1273,7 +1273,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 if (hasKey) edit.Children.Add(ActionGhost(host, "清除（解除绑定）", delegate { host.SetConfig(c.Key, ""); }));
 
-                edit.Children.Add(T("⚠ key 以明文存在本机配置文件里，只在你自己的机器上 ✓ 不上传 ✓；未绑定则概览页不显示余额卡", 11, Palette.Warn));
+                edit.Children.Add(T("⚠ key 以明文存在本机配置文件里，只在你自己的机器上 ✓ 不上传 ✓；未绑定则概览页不显示余额卡", 11.5, Palette.Warn));
 
             }
 
@@ -1289,7 +1289,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 edit.Children.Add(save);
 
-                if (c.Key == "ws") edit.Children.Add(T("留空=自动探测；填了必须存在", 11, Palette.TextFaint));
+                if (c.Key == "ws") edit.Children.Add(T("留空=自动探测；填了必须存在", 11.5, Palette.TextFaint));
 
 
 
@@ -1309,7 +1309,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 edit.Opacity = 0.6;
 
-                row.Children.Add(T(deadNote, 11, Palette.Warn));
+                row.Children.Add(T(deadNote, 11.5, Palette.Warn));
 
             }
 
@@ -1401,7 +1401,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 Button ib = GhostButton(
 
-                    T(armed ? "再点一次确认安装" : "安装桥接插件", 12, armed ? Brushes.White : Palette.Accent),
+                    T(armed ? "再点一次确认安装" : "安装桥接插件", 11.5, armed ? Palette.OnAccent : Palette.Accent),   // 样式重构：armed 时底是 Accent → 字色跟 OnAccent ✗ 原写死 White（风格 C 浅青底下对比不足）
 
                     delegate
 
@@ -1421,7 +1421,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 bc.Children.Add(ib);
 
-                bc.Children.Add(T("需要 dsh 与 pnpm（dsh 不会替你装 pnpm，先 npm i -g pnpm）。装完重启 dsh 生效。结果如实显示，包括「包已 link 但 patch 缺行 → 不会加载」这种情形。", 11, Palette.TextFaint));
+                bc.Children.Add(T("需要 dsh 与 pnpm（dsh 不会替你装 pnpm，先 npm i -g pnpm）。装完重启 dsh 生效。结果如实显示，包括「包已 link 但 patch 缺行 → 不会加载」这种情形。", 11.5, Palette.TextFaint));
 
 
 
@@ -1461,13 +1461,13 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 catch { }
 
-                StackPanel tut = new StackPanel { Spacing = 6, Margin = new Thickness(0, 4, 0, 0) };
+                StackPanel tut = new StackPanel { Spacing = ShapeTokens.S8, Margin = new Thickness(0, 4, 0, 0) };
 
-                tut.Children.Add(T("怎么装进 desktop（由桌面端自己管理，本工具只能给你路径）", 12, Palette.Text, FontWeight.SemiBold));
+                tut.Children.Add(T("怎么装进 desktop（由桌面端自己管理，本工具只能给你路径）", 11.5, Palette.Text, FontWeight.SemiBold));
 
                 tut.Children.Add(T("在桌面端的「添加插件」对话框里，下面两条**任选一条**粘进去（它接受 npm 包名 / GitHub 地址 / 本地目录路径）：", 11.5, Palette.TextDim));
 
-                tut.Children.Add(T("A · 仓库地址（**直接填这个就行** ✓ 仓库根已有 package.json 并声明了 dsh.bundle）", 11, Palette.TextFaint));
+                tut.Children.Add(T("A · 仓库地址（**直接填这个就行** ✓ 仓库根已有 package.json 并声明了 dsh.bundle）", 11.5, Palette.TextFaint));
 
                 // ★ 更新（2026-10-02）：原来这里写"只填仓库根不行" ✗ —— 那在当时是事实 ✓
 
@@ -1511,7 +1511,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 catch { tut.Children.Add(T("github:sakanamaru/dsh-minato#path:plugin/dsh-minato-bridge", 11.5, Palette.Accent)); }
 
-                tut.Children.Add(T("B · 本地目录（不依赖网络，更稳）", 11, Palette.TextFaint));
+                tut.Children.Add(T("B · 本地目录（不依赖网络，更稳）", 11.5, Palette.TextFaint));
 
                 try
 
@@ -1543,7 +1543,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 catch { tut.Children.Add(T(selfPlugin, 11.5, Palette.Accent)); }
 
-                tut.Children.Add(T("⚠ 装完还要看一步：桌面端**不会**替你往 desktop profile 的 cordis.patch.yml 里加 shio-bridge 行，缺了插件**不会加载**而 dsh **不报错**。装完告诉我（或看工具箱的输出），我帮你核对并补上。", 11, Palette.TextFaint));
+                tut.Children.Add(T("⚠ 装完还要看一步：桌面端**不会**替你往 desktop profile 的 cordis.patch.yml 里加 shio-bridge 行，缺了插件**不会加载**而 dsh **不报错**。装完告诉我（或看工具箱的输出），我帮你核对并补上。", 11.5, Palette.TextFaint));
 
                 s.Children.Add(Card(tut, new Thickness(0), new Thickness(16, 12)));
 
@@ -1619,13 +1619,13 @@ namespace Dsht.Gui.Avalonia.Shells
 
             {
 
-                Spacing = 6,
+                Spacing = ShapeTokens.S8,
 
                 Children =
 
                 {
 
-                    T("这一页怎么读？", 13.5, Palette.Text, FontWeight.SemiBold),
+                    T("这一页怎么读？", 13, Palette.Text, FontWeight.SemiBold),
 
                     Line("• 形态来自每个 profile 的 package.json 里 dsh.profile.bundles：启用 dsh-web-app = Web，dsh-headless = Headless（没有端口），dsh-acp-app = ACP。"),
 
@@ -1651,7 +1651,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
         {
 
-            StackPanel s = new StackPanel { Spacing = 10 };
+            StackPanel s = new StackPanel { Spacing = ShapeTokens.S12 };
 
             Grid head = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto") };
 
@@ -1661,7 +1661,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             StackPanel tt = new StackPanel { Margin = new Thickness(12, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center, Spacing = 2 };
 
-            tt.Children.Add(T("健康检查 · profilecheck", 13.5, Palette.Text, FontWeight.SemiBold));
+            tt.Children.Add(T("健康检查 · profilecheck", 13, Palette.Text, FontWeight.SemiBold));
 
             tt.Children.Add(T("检查 profile 的语法 / 重复 id / 缺字段，并给出处方", 11.5, Palette.TextFaint));
 
@@ -1747,7 +1747,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             {
 
-                cardHost.Children.Add(Card(T("没有匹配的 profile —— 换个关键词或过滤条件试试。", 12, Palette.TextDim), new Thickness(0), new Thickness(18, 16)));
+                cardHost.Children.Add(Card(T("没有匹配的 profile —— 换个关键词或过滤条件试试。", 11.5, Palette.TextDim), new Thickness(0), new Thickness(18, 16)));
 
             }
 
@@ -1783,11 +1783,11 @@ namespace Dsht.Gui.Avalonia.Shells
 
         {
 
-            StackPanel card = new StackPanel { Spacing = 10 };
+            StackPanel card = new StackPanel { Spacing = ShapeTokens.S12 };
 
 
 
-            StackPanel head = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+            StackPanel head = new StackPanel { Orientation = Orientation.Horizontal, Spacing = ShapeTokens.S12 };
 
             head.Children.Add(new TextBlock { Text = p.Name, FontSize = 15, FontWeight = FontWeight.SemiBold, Foreground = Palette.Text, VerticalAlignment = VerticalAlignment.Center });
 
@@ -1795,7 +1795,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             head.Children.Add(Chip(p.FormText, Palette.OnAccent, fb));
 
-            TextBlock cnt = T(p.CountText, 12, Palette.TextDim);
+            TextBlock cnt = T(p.CountText, 11.5, Palette.TextDim);
 
             cnt.VerticalAlignment = VerticalAlignment.Center;
 
@@ -1809,7 +1809,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             {
 
-                StackPanel dis = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+                StackPanel dis = new StackPanel { Orientation = Orientation.Horizontal, Spacing = ShapeTokens.S8 };
 
                 SymbolIcon wic = Ic(Symbol.Warning, 13, Palette.Warn);
 
@@ -1817,7 +1817,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 dis.Children.Add(wic);
 
-                TextBlock dt = T(p.DisabledText, 12, Palette.Warn);
+                TextBlock dt = T(p.DisabledText, 11.5, Palette.Warn);
 
                 dt.VerticalAlignment = VerticalAlignment.Center;
 
@@ -1853,9 +1853,9 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 StackPanel idv = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, Margin = new Thickness(10, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center };
 
-                idv.Children.Add(Mono(it.Id, 12, disabled ? Palette.TextFaint : Palette.Text));
+                idv.Children.Add(Mono(it.Id, 11.5, disabled ? Palette.TextFaint : Palette.Text));
 
-                if (it.VersionText.Length > 0) idv.Children.Add(T(it.VersionText, 11, Palette.TextFaint));
+                if (it.VersionText.Length > 0) idv.Children.Add(T(it.VersionText, 11.5, Palette.TextFaint));
 
                 if (disabled) idv.Children.Add(Chip("已隔离", Palette.Warn, Palette.WarnSoft));
 
@@ -1925,7 +1925,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 row.Children.Add(Chip("已隔离", Palette.Warn, Palette.WarnSoft));
 
-                TextBlock idt = Mono(id, 12, Palette.TextFaint);
+                TextBlock idt = Mono(id, 11.5, Palette.TextFaint);
 
                 idt.VerticalAlignment = VerticalAlignment.Center;
 

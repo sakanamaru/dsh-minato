@@ -331,9 +331,9 @@ namespace Dsht.Gui.Avalonia.Shells
 
         {
 
-            StackPanel arBar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+            StackPanel arBar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = ShapeTokens.S12 };
 
-            TextBlock arLabel = T("自动刷新", 12, Palette.Text, FontWeight.SemiBold); arLabel.VerticalAlignment = VerticalAlignment.Center; arBar.Children.Add(arLabel);
+            TextBlock arLabel = T("自动刷新", 11.5, Palette.Text, FontWeight.SemiBold); arLabel.VerticalAlignment = VerticalAlignment.Center; arBar.Children.Add(arLabel);
 
             string[] arLabels = new string[] { "暂停", "实时 0.5 秒", "快 1 秒", "中 3 秒", "慢 5 秒", "自定义…" };
 
@@ -431,7 +431,7 @@ namespace Dsht.Gui.Avalonia.Shells
         ///   上方两段旧注释曾自相矛盾（指标/图表分标签 → 又合成单页）—— 现在是第二次拆分，以此段为准 ✓。</summary>
         private static Control BoardContent(MainWindow host)
         {
-            StackPanel s = new StackPanel { Margin = PageMargin, Spacing = 14 };
+            StackPanel s = new StackPanel { Margin = PageMargin, Spacing = ShapeTokens.S16 };
             // —— 子标签「图表」（§2-7 ✓✓）：筛选条 + 图 ✓ KPI / 总计卡 / 回执不在这里 ✓
             if (host.SubTab == 1)
             {
@@ -461,7 +461,7 @@ namespace Dsht.Gui.Avalonia.Shells
             return new Border
             {
                 Background = Palette.CardHover,
-                CornerRadius = new CornerRadius(6),
+                CornerRadius = new CornerRadius(ShapeTokens.RCtrl),
                 Padding = new Thickness(12, 6),
                 Child = T(text, 11.5, Palette.TextDim)
             };
@@ -474,7 +474,7 @@ namespace Dsht.Gui.Avalonia.Shells
         private static Control BoardFilterBar(MainWindow host)
         {
             StackPanel col = new StackPanel { Spacing = 8 };
-            StackPanel row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+            StackPanel row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = ShapeTokens.S8 };
             int[] opts = new int[] { 0, 7, 14, 30 };
             string[] names = new string[] { "总计", "近 7 天", "近 14 天", "近 30 天" };
             for (int oi = 0; oi < opts.Length; oi++)
@@ -486,7 +486,7 @@ namespace Dsht.Gui.Avalonia.Shells
                     Content = T(names[oi], 11.5, on ? Palette.OnAccent : Palette.TextDim),
                     Background = on ? Palette.Accent : Palette.CardHover,
                     BorderThickness = new Thickness(0),
-                    CornerRadius = new CornerRadius(6),
+                    CornerRadius = new CornerRadius(ShapeTokens.RCtrl),
                     Padding = new Thickness(12, 5)
                 };
                 rb.Click += delegate { host.BoardDays = dd; host.Refresh(); };   // 设档 ⇒ 自动清自定义区间（互斥 ✓）
@@ -501,7 +501,7 @@ namespace Dsht.Gui.Avalonia.Shells
                 Content = T(customOn ? "自定义：" + host.BoardFrom + "~" + host.BoardTo : "自定义…", 11.5, customOn ? Palette.OnAccent : Palette.TextDim),
                 Background = customOn ? Palette.Accent : Palette.CardHover,
                 BorderThickness = new Thickness(0),
-                CornerRadius = new CornerRadius(6),
+                CornerRadius = new CornerRadius(ShapeTokens.RCtrl),
                 Padding = new Thickness(12, 5)
             };
             cb.Click += async delegate
@@ -552,12 +552,12 @@ namespace Dsht.Gui.Avalonia.Shells
                     Background = Palette.CardHover,
                     BorderBrush = Palette.Accent,
                     BorderThickness = new Thickness(1),
-                    CornerRadius = new CornerRadius(6),
+                    CornerRadius = new CornerRadius(ShapeTokens.RCtrl),
                     Padding = new Thickness(10, 5),
                     VerticalAlignment = VerticalAlignment.Center
                 };
-                StackPanel fc = new StackPanel { Spacing = 6 };
-                fc.Children.Add(T("为什么「全局」和「父会话+子代理」数字不一样？", 12.5, Palette.Text, FontWeight.SemiBold));
+                StackPanel fc = new StackPanel { Spacing = ShapeTokens.S8 };
+                fc.Children.Add(T("为什么「全局」和「父会话+子代理」数字不一样？", 13, Palette.Text, FontWeight.SemiBold));
                 TextBlock ft = T(SessionsMarkers.ForkDiffText(bd0.ForkSessions), 11.5, Palette.TextDim);
                 ft.TextWrapping = TextWrapping.Wrap;
                 ft.MaxWidth = 460;
@@ -572,7 +572,7 @@ namespace Dsht.Gui.Avalonia.Shells
             col.Children.Add(row);
             SessionsSnapshot d = host.Data;
             if (d != null && d.HasWinMeta && d.WinTruth0)
-                col.Children.Add(T(SessionsMarkers.TruthFootnote, 11, Palette.TextFaint));
+                col.Children.Add(T(SessionsMarkers.TruthFootnote, 11.5, Palette.TextFaint));
             return Card(col, new Thickness(0), new Thickness(14, 10));
         }
 
@@ -582,7 +582,7 @@ namespace Dsht.Gui.Avalonia.Shells
             return new Border
             {
                 Background = active ? Palette.Accent : Palette.CardHover,
-                CornerRadius = new CornerRadius(6),
+                CornerRadius = new CornerRadius(ShapeTokens.RCtrl),
                 Padding = new Thickness(12, 5),
                 VerticalAlignment = VerticalAlignment.Center,
                 Child = T(text, 11.5, active ? Palette.OnAccent : Palette.TextFaint)
@@ -598,7 +598,7 @@ namespace Dsht.Gui.Avalonia.Shells
                 Content = T(text, 11.5, active ? Palette.OnAccent : Palette.TextDim),
                 Background = active ? Palette.Accent : Palette.CardHover,
                 BorderThickness = new Thickness(0),
-                CornerRadius = new CornerRadius(6),
+                CornerRadius = new CornerRadius(ShapeTokens.RCtrl),
                 Padding = new Thickness(12, 5)
             };
             b.Click += delegate { host.BoardLevel = level; host.Refresh(); };
@@ -675,7 +675,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             StatusSnapshot st = host.Status;
 
-            StackPanel s = new StackPanel { Margin = PageMargin, Spacing = 14 };
+            StackPanel s = new StackPanel { Margin = PageMargin, Spacing = ShapeTokens.S16 };
 
             if (st == null || !st.Ok)
 
@@ -843,7 +843,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 StackPanel bcard = new StackPanel { Spacing = 8 };
 
-                StackPanel bh = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+                StackPanel bh = new StackPanel { Orientation = Orientation.Horizontal, Spacing = ShapeTokens.S12 };
 
                 bh.Children.Add(T("DeepSeek 余额", 13, Palette.Text, FontWeight.SemiBold));
 
@@ -891,7 +891,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 }
 
-                if (ba.Note.Length > 0) bcard.Children.Add(T(ba.Note, 11, Palette.Warn));
+                if (ba.Note.Length > 0) bcard.Children.Add(T(ba.Note, 11.5, Palette.Warn));
 
                 s.Children.Add(Card(bcard, new Thickness(0), new Thickness(16, 14)));
 
@@ -907,9 +907,9 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 //   ✓ 现在：卡仍然隐藏 ✓（余额数字一个不显示 ✓）只给**一行入口** + 一键跳到设置页 ✓✓
 
-                StackPanel bh2 = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+                StackPanel bh2 = new StackPanel { Orientation = Orientation.Horizontal, Spacing = ShapeTokens.S12 };
 
-                bh2.Children.Add(T("DeepSeek 余额", 12, Palette.Text, FontWeight.SemiBold));
+                bh2.Children.Add(T("DeepSeek 余额", 11.5, Palette.Text, FontWeight.SemiBold));
 
                 bh2.Children.Add(T("未绑定 —— 在「设置」页填 balance_key（你自己的 DeepSeek API key）后，这里就会显示充值余额 / 活动赠送余额", 11.5, Palette.TextDim));
 
@@ -926,9 +926,9 @@ namespace Dsht.Gui.Avalonia.Shells
                 List<SessionRow> top = new List<SessionRow>(sv.Rows);
                 top.Sort(delegate(SessionRow a2, SessionRow b2) { return b2.In.CompareTo(a2.In); });
                 StackPanel tl = new StackPanel { Spacing = 8 };
-                StackPanel th = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+                StackPanel th = new StackPanel { Orientation = Orientation.Horizontal, Spacing = ShapeTokens.S12 };
                 th.Children.Add(T("最耗 token 的三条会话", 13, Palette.Text, FontWeight.SemiBold));
-                th.Children.Add(GhostButton(T("查看全部 →", 11, Palette.Accent), delegate { host.SetMainSection(2); }, true));
+                th.Children.Add(GhostButton(T("查看全部 →", 11.5, Palette.Accent), delegate { host.SetMainSection(2); }, true));
                 tl.Children.Add(th);
                 int showN = Math.Min(3, top.Count);
                 for (int ti = 0; ti < showN; ti++)
@@ -937,12 +937,12 @@ namespace Dsht.Gui.Avalonia.Shells
                     Grid row = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto,Auto") };
                     Ellipse dot = new Ellipse { Width = 8, Height = 8, Fill = Palette.StatusBrush(r.StatusKind), VerticalAlignment = VerticalAlignment.Center };
                     Grid.SetColumn(dot, 0);
-                    TextBlock tt = T(r.TitleText, 12, Palette.Text); tt.Margin = new Thickness(8, 0, 0, 0); tt.VerticalAlignment = VerticalAlignment.Center;
+                    TextBlock tt = T(r.TitleText, 11.5, Palette.Text); tt.Margin = new Thickness(8, 0, 0, 0); tt.VerticalAlignment = VerticalAlignment.Center;
                     tt.TextTrimming = TextTrimming.CharacterEllipsis;
                     Grid.SetColumn(tt, 1);
                     TextBlock tv = T(SessionRow.Human(r.In) + " · 命中 " + r.HitText, 11.5, Palette.TextDim); tv.VerticalAlignment = VerticalAlignment.Center; tv.Margin = new Thickness(12, 0, 0, 0);
                     Grid.SetColumn(tv, 2);
-                    TextBlock tc = T(r.Turns + " 轮", 11, Palette.TextFaint); tc.VerticalAlignment = VerticalAlignment.Center; tc.Margin = new Thickness(12, 0, 0, 0);
+                    TextBlock tc = T(r.Turns + " 轮", 11.5, Palette.TextFaint); tc.VerticalAlignment = VerticalAlignment.Center; tc.Margin = new Thickness(12, 0, 0, 0);
                     Grid.SetColumn(tc, 3);
                     row.Children.Add(dot); row.Children.Add(tt); row.Children.Add(tv); row.Children.Add(tc);
                     tl.Children.Add(row);
@@ -964,9 +964,9 @@ namespace Dsht.Gui.Avalonia.Shells
 
             {
 
-                StackPanel ex = new StackPanel { Spacing = 6 };
+                StackPanel ex = new StackPanel { Spacing = ShapeTokens.S8 };
 
-                ex.Children.Add(T("CLI 还报告了这些（未识别的标记原样展示）", 12, Palette.TextDim));
+                ex.Children.Add(T("CLI 还报告了这些（未识别的标记原样展示）", 11.5, Palette.TextDim));
 
                 for (int i = 0; i < st.Extras.Count; i++)
 
@@ -1104,13 +1104,13 @@ namespace Dsht.Gui.Avalonia.Shells
 
             SessionsSnapshot d = host.Data;
 
-            StackPanel s = new StackPanel { Spacing = 14 };
+            StackPanel s = new StackPanel { Spacing = ShapeTokens.S16 };
 
             if (d == null || !d.Ok)
 
             {
 
-                s.Children.Add(Card(T("没有可绘制的会话数据。", 12, Palette.TextDim), new Thickness(0), new Thickness(16, 14)));
+                s.Children.Add(Card(T("没有可绘制的会话数据。", 11.5, Palette.TextDim), new Thickness(0), new Thickness(16, 14)));
 
                 return s;
 
@@ -1130,7 +1130,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             // 日期范围切换 ✓（用户要求 ✓）
 
-            StackPanel range = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+            StackPanel range = new StackPanel { Orientation = Orientation.Horizontal, Spacing = ShapeTokens.S8 };
 
             int[] opts = new int[] { 7, 14, 30 };
 
@@ -1152,7 +1152,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
                     BorderThickness = new Thickness(0),
 
-                    CornerRadius = new CornerRadius(6),
+                    CornerRadius = new CornerRadius(ShapeTokens.RCtrl),
 
                     Padding = new Thickness(12, 5)
 
@@ -1226,7 +1226,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             c1.Children.Add(T("最高 " + max + " 个/天　合计 " + Sum(counts) + " 个（创建时间缺失的会话不计入，不猜）", 11.5, Palette.TextFaint));
 
-            c1.Children.Add(T("按会话创建日（本地）分桶" + (winFilter ? "；只统计上方窗口内有活动的会话" : ""), 11, Palette.TextFaint));   // 规格 §5.5/D-5 + §11.6-C3 ✓ 图 1 保留但明说分桶键 ✓ 第二批改本地日 ✓
+            c1.Children.Add(T("按会话创建日（本地）分桶" + (winFilter ? "；只统计上方窗口内有活动的会话" : ""), 11.5, Palette.TextFaint));   // 规格 §5.5/D-5 + §11.6-C3 ✓ 图 1 保留但明说分桶键 ✓ 第二批改本地日 ✓
 
             Control cardC1 = Card(c1, new Thickness(0), new Thickness(18, 16));   // ★ 重排 §2-8 ✓ 卡片存局部变量，末尾按「同排两图」装排 ✓
 
@@ -1409,7 +1409,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             {
 
-                TextBlock wl = T(wd[ri], 10, Palette.TextFaint);   // ★ 重排 §2-8 ✓ 9 → 10（格变大，字跟上 ✓）
+                TextBlock wl = T(wd[ri], 10.5, Palette.TextFaint);   // ★ 重排 §2-8 ✓ 9 → 10（格变大，字跟上 ✓）
 
                 wl.VerticalAlignment = VerticalAlignment.Center;
 
@@ -1439,7 +1439,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             ch.Children.Add(T("最高 " + maxCnt + " 个/天（与图 3 同一归日口径：各会话最后活动时间归本地日）", 11.5, Palette.TextFaint));
 
-            ch.Children.Add(T(string.Format(SessionsMarkers.HeatFootnote, missingH), 11, Palette.TextFaint));
+            ch.Children.Add(T(string.Format(SessionsMarkers.HeatFootnote, missingH), 11.5, Palette.TextFaint));
 
             Control cardHeat = Card(ch, new Thickness(0), new Thickness(18, 16));   // ★ 重排 §2-8 ✓
 
@@ -1482,7 +1482,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 ctm.Children.Add(T("窗口内 " + d.TimeRows.Count + " 个会话，" + knownT + " 个计入（缺 sessionStats 的 " + (d.TimeRows.Count - knownT) + " 个不计入）", 11.5, Palette.TextFaint));
 
-                ctm.Children.Add(T(SessionsMarkers.TimeFootnote, 11, Palette.TextFaint));
+                ctm.Children.Add(T(SessionsMarkers.TimeFootnote, 11.5, Palette.TextFaint));
 
                 // ★ 看板重排（§1 ✓✓）：卡内不再印第二遍 C.4 —— 筛选条已印、每屏恰好一次 ✓ 文案未动 ✓ 只去重复 ✓
 
@@ -1527,7 +1527,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 ccx.Children.Add(T("窗口内 " + d.CtxRows.Count + " 个会话，" + knownC + " 个计入（缺 contextBreakdown 的 " + (d.CtxRows.Count - knownC) + " 个不计入）", 11.5, Palette.TextFaint));
 
-                ccx.Children.Add(T(SessionsMarkers.CtxFootnote, 11, Palette.TextFaint));
+                ccx.Children.Add(T(SessionsMarkers.CtxFootnote, 11.5, Palette.TextFaint));
 
             }
 
@@ -1570,10 +1570,10 @@ namespace Dsht.Gui.Avalonia.Shells
 
         }
 
-        /// <summary>同排两图（★ 看板重排 §2-8 ✓✓）：三列 Grid，中列 14px 间隔 ✓ 两图等宽 ✓ 默认拉伸 ⇒ 同排等高 ✓。</summary>
+        /// <summary>同排两图（★ 看板重排 §2-8 ✓✓）：三列 Grid，中列 16px 间隔（样式重构：14 → S16 节奏 ✓）两图等宽 ✓ 默认拉伸 ⇒ 同排等高 ✓。</summary>
         private static Control PairRow(Control left, Control right)
         {
-            Grid g = new Grid { ColumnDefinitions = new ColumnDefinitions("*,14,*") };
+            Grid g = new Grid { ColumnDefinitions = new ColumnDefinitions("*,16,*") };
             Grid.SetColumn(left, 0);
             Grid.SetColumn(right, 2);
             g.Children.Add(left);
@@ -1601,15 +1601,15 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 //    现在居中说明 ✓ —— 而且**不假造数据** ✓ 与项目诚实原则一致 ✓
 
-                StackPanel es = new StackPanel { Spacing = 5, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center };
+                StackPanel es = new StackPanel { Spacing = ShapeTokens.S4, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Center };
 
-                es.Children.Add(T("暂无数据", 13.5, Palette.TextDim, FontWeight.SemiBold));
+                es.Children.Add(T("暂无数据", 13, Palette.TextDim, FontWeight.SemiBold));
 
                 // GUI final review: every caller passed a `unit` and this method never read it. Using it in the
 
                 // empty state makes that state say what is missing in the same unit the chart would have used.
 
-                es.Children.Add(T("这个区间里没有可统计的记录（单位：" + unit + "；是没有，不是 0）", 11, Palette.TextFaint));
+                es.Children.Add(T("这个区间里没有可统计的记录（单位：" + unit + "；是没有，不是 0）", 11.5, Palette.TextFaint));
 
                 return new Border { Height = height, Child = es };   // ★ 重排 §2-8 ✓ 空状态也等高 ✓
 
@@ -1651,9 +1651,9 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 double h = 4 + (v * (height - 44.0) / max);   // ★ 重排 §2-8 ✓ 默认 132 ⇒ v×88.0 与旧版一致 ✓
 
-                StackPanel col = new StackPanel { VerticalAlignment = VerticalAlignment.Bottom, Spacing = 3, Margin = new Thickness(2, 0) };
+                StackPanel col = new StackPanel { VerticalAlignment = VerticalAlignment.Bottom, Spacing = ShapeTokens.S4, Margin = new Thickness(2, 0) };
 
-                col.Children.Add(T(v == 0 ? "" : v.ToString(), 10, Palette.TextDim));
+                col.Children.Add(T(v == 0 ? "" : v.ToString(), 10.5, Palette.TextDim));
 
                 col.Children.Add(new Border { Height = h, CornerRadius = new CornerRadius(4), Background = v == 0 ? Palette.BarTrack : brush });
 
@@ -1661,7 +1661,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 bool showLabel = labels.Length <= 16 || (i % 3) == 0 || i == labels.Length - 1;
 
-                col.Children.Add(T(showLabel ? labels[i] : "", 9.5, Palette.TextFaint));
+                col.Children.Add(T(showLabel ? labels[i] : "", 10.5, Palette.TextFaint));
 
                 Grid.SetColumn(col, i);
 

@@ -22,7 +22,7 @@ namespace Dsht.Gui.Avalonia
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
             Background = Palette.PageBg;
 
-            StackPanel s = new StackPanel { Margin = new Thickness(20), Spacing = 14 };
+            StackPanel s = new StackPanel { Margin = new Thickness(20), Spacing = ShapeTokens.S16 };
             s.Children.Add(new TextBlock
             {
                 Text = message,
@@ -43,9 +43,9 @@ namespace Dsht.Gui.Avalonia
                 Content = "确认退出",
                 Padding = new Thickness(14, 6),
                 Background = Palette.Accent,
-                Foreground = Brushes.White,
+                Foreground = Palette.OnAccent,   // 样式重构：原写死 White ✗ 风格 C 是浅青底 → 必须跟 token
                 BorderThickness = new Thickness(0),
-                CornerRadius = new CornerRadius(7)
+                CornerRadius = new CornerRadius(ShapeTokens.RCtrl)
             };
             ok.Click += delegate { _yes = true; Close(); };
             acts.Children.Add(cancel); acts.Children.Add(ok);

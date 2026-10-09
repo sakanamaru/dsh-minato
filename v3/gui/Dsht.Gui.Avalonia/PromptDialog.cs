@@ -32,7 +32,7 @@ namespace Dsht.Gui.Avalonia
             WindowStartupLocation = WindowStartupLocation.CenterOwner;
             Background = Palette.PageBg;
 
-            StackPanel s = new StackPanel { Margin = new Thickness(20), Spacing = 10 };
+            StackPanel s = new StackPanel { Margin = new Thickness(20), Spacing = ShapeTokens.S12 };
             s.Children.Add(new TextBlock
             {
                 Text = caption,
@@ -53,7 +53,7 @@ namespace Dsht.Gui.Avalonia
             _box = new TextBox
             {
                 Text = initial ?? "",
-                FontSize = 14,
+                FontSize = 14,   // 输入框字号（有意比正文大 ✓ 聚焦录入；字阶例外，记录于样式重构文档）
                 FontFamily = new FontFamily("Consolas, Menlo, monospace"),
                 Padding = new Thickness(10, 8),
                 HorizontalAlignment = HorizontalAlignment.Stretch
@@ -84,9 +84,9 @@ namespace Dsht.Gui.Avalonia
                 Content = "确认",
                 Padding = new Thickness(14, 6),
                 Background = Palette.Accent,
-                Foreground = Brushes.White,
+                Foreground = Palette.OnAccent,   // 样式重构：原写死 White ✗ 风格 C 是浅青底 → 必须跟 token
                 BorderThickness = new Thickness(0),
-                CornerRadius = new CornerRadius(7)
+                CornerRadius = new CornerRadius(ShapeTokens.RCtrl)
             };
             ok.Click += delegate { _result = _box.Text; Close(); };
             acts.Children.Add(cancel); acts.Children.Add(ok);

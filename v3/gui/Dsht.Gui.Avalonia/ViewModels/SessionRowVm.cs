@@ -62,9 +62,9 @@ namespace Dsht.Gui.Avalonia.ViewModels
 
             if (kind == 2)
             {
-                // C · 深色紧凑：密度优先的控制台，青色 accent
-                Accent = new SolidColorBrush(Color.Parse("#2DD4BF"));
-                AccentHover = new SolidColorBrush(Color.Parse("#5FE3D0"));
+                // C · 深色紧凑：密度优先的控制台，青色 accent（样式重构：#2DD4BF 略降饱和 → 不那么霓虹）
+                Accent = new SolidColorBrush(Color.Parse("#2CC9B5"));
+                AccentHover = new SolidColorBrush(Color.Parse("#4BD4C2"));
                 AccentSoft = new SolidColorBrush(Color.Parse("#143B37"));
                 OnAccent = new SolidColorBrush(Color.Parse("#052622"));
                 PageBg = new SolidColorBrush(Color.Parse("#0A0C0E"));
@@ -105,7 +105,7 @@ namespace Dsht.Gui.Avalonia.ViewModels
                 BorderStrong = new SolidColorBrush(Color.Parse("#343D4B"));
                 Text = new SolidColorBrush(Color.Parse("#E8EAF0"));
                 TextDim = new SolidColorBrush(Color.Parse("#A6ADBB"));
-                TextFaint = new SolidColorBrush(Color.Parse("#9AA3B2"));
+                TextFaint = new SolidColorBrush(Color.Parse("#7E8798"));   // 样式重构：原 #9AA3B2 与 TextDim 仅 ~5% 明度差 ✗ 层级拉不开 → 压暗 ✓
                 Good = new SolidColorBrush(Color.Parse("#3FB97F"));
                 Warn = new SolidColorBrush(Color.Parse("#F0B35E"));
                 Bad = new SolidColorBrush(Color.Parse("#EF6A6A"));
@@ -145,7 +145,7 @@ namespace Dsht.Gui.Avalonia.ViewModels
                 BadSoft = new SolidColorBrush(Color.Parse("#FBE5E5"));
                 BarTrack = new SolidColorBrush(Color.Parse("#E6EBF3"));
                 FormAcp = new SolidColorBrush(Color.Parse("#8B5CF6"));
-                CardShadow = "0 1 2 0 #1B2A4A14";
+                CardShadow = "0 1 3 0 #1B2A4A10";   // 样式重构：更轻更柔的发丝投影
             }
             else
             {
@@ -174,7 +174,7 @@ namespace Dsht.Gui.Avalonia.ViewModels
                 BadSoft = new SolidColorBrush(Color.Parse("#FAE3E3"));
                 BarTrack = new SolidColorBrush(Color.Parse("#ECEEF2"));
                 FormAcp = new SolidColorBrush(Color.Parse("#7C5CFC"));
-                CardShadow = "0 1 2 0 #10182812";
+                CardShadow = "0 1 3 0 #10182810";   // 样式重构：更轻更柔的发丝投影
             }
         }
 

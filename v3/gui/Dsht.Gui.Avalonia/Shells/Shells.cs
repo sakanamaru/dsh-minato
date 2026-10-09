@@ -31,7 +31,7 @@ namespace Dsht.Gui.Avalonia.Shells
         public const int Hybrid = 4;
 
         private static readonly FontFamily MonoFont = new FontFamily("Cascadia Mono,Consolas,Noto Sans Mono CJK SC,Noto Sans CJK SC,WenQuanYi Zen Hei,Source Han Sans SC,DejaVu Sans Mono,monospace");   // 等宽字体普遍无 CJK 字形 → 补回退列表 ✓（缺字形时才回退，ASCII 仍是等宽 ✓）
-        private static readonly Thickness PageMargin = new Thickness(24, 18, 24, 16);
+        private static readonly Thickness PageMargin = ShapeTokens.PagePad;   // 样式重构：页面边距走 token（24,16,24,16）✓
 
         public static string Name(int id)
         {
@@ -90,15 +90,15 @@ namespace Dsht.Gui.Avalonia.Shells
             return new SymbolIcon { Symbol = s, IconVariant = IconVariant.Regular, FontSize = size, Foreground = fg };
         }
 
-        /// <summary>统一卡片：12px 圆角 + 发丝描边 + 浅色风格的极浅投影（深色靠描边分层）。</summary>
+        /// <summary>统一卡片：RCard 圆角 + 发丝描边 + 浅色风格的极浅投影（深色靠描边分层）。</summary>
         private static Border Card(Control child, Thickness margin, Thickness padding)
         {
             Border b = new Border
             {
                 Background = Palette.CardBg,
-                CornerRadius = new CornerRadius(12),
+                CornerRadius = new CornerRadius(ShapeTokens.RCard),
                 BorderBrush = Palette.Border,
-                BorderThickness = new Thickness(1),
+                BorderThickness = new Thickness(ShapeTokens.Stroke),
                 Margin = margin,
                 Padding = padding,
                 Child = child
@@ -115,13 +115,13 @@ namespace Dsht.Gui.Avalonia.Shells
                 ItemsSource = items,
                 SelectedIndex = selectedIndex,
                 MinWidth = minWidth,
-                Height = 30,   // 固定高 = 工具行按钮同高（用户两轮截图：MinHeight 会被内容/边距撑出 1-3px 差 ✗ 固定才严丝合缝）
-                FontSize = 11.5,
-                Padding = new Thickness(8, 2),
+                Height = ShapeTokens.CtrlH,   // 固定高 = 工具行按钮同高（用户两轮截图：MinHeight 会被内容/边距撑出 1-3px 差 ✗ 固定才严丝合缝）
+                FontSize = ShapeTokens.FsBody,
+                Padding = new Thickness(ShapeTokens.S8, 2),
                 Background = Palette.InsetBg,
                 BorderBrush = Palette.Border,
-                BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(7),
+                BorderThickness = new Thickness(ShapeTokens.Stroke),
+                CornerRadius = new CornerRadius(ShapeTokens.RCtrl),
                 VerticalContentAlignment = VerticalAlignment.Center
             };
         }
@@ -129,12 +129,12 @@ namespace Dsht.Gui.Avalonia.Shells
         /// <summary>统一空状态（美学B5）：图标 + 主句 + 下一步 —— 各页不再手写样式漂移 ✓。</summary>
         private static Control EmptyState(string main, string next)
         {
-            StackPanel es = new StackPanel { Spacing = 6 };
-            SymbolIcon ic = Ic(Symbol.Info, 16, Palette.TextFaint);
+            StackPanel es = new StackPanel { Spacing = ShapeTokens.S8 };
+            SymbolIcon ic = Ic(Symbol.Info, ShapeTokens.IcNav, Palette.TextFaint);
             es.Children.Add(ic);
-            es.Children.Add(T(main, 13, Palette.TextDim, FontWeight.SemiBold));
-            if (!string.IsNullOrEmpty(next)) es.Children.Add(T(next, 11.5, Palette.TextFaint));
-            return Card(es, new Thickness(0), new Thickness(18, 18));
+            es.Children.Add(T(main, ShapeTokens.FsEm, Palette.TextDim, FontWeight.SemiBold));
+            if (!string.IsNullOrEmpty(next)) es.Children.Add(T(next, ShapeTokens.FsBody, Palette.TextFaint));
+            return Card(es, new Thickness(0), ShapeTokens.CardPad);
         }
 
         private static Border Chip(string text, IBrush fg, IBrush bg)
@@ -142,10 +142,10 @@ namespace Dsht.Gui.Avalonia.Shells
             return new Border
             {
                 Background = bg,
-                CornerRadius = new CornerRadius(999),
-                Padding = new Thickness(8, 2),
+                CornerRadius = new CornerRadius(ShapeTokens.RPill),
+                Padding = new Thickness(ShapeTokens.S8, 2),
                 VerticalAlignment = VerticalAlignment.Center,
-                Child = T(text, 10.5, fg, FontWeight.SemiBold)
+                Child = T(text, ShapeTokens.FsFoot, fg, FontWeight.SemiBold)
             };
         }
 
@@ -156,7 +156,7 @@ namespace Dsht.Gui.Avalonia.Shells
             {
                 Width = size,
                 Height = size,
-                CornerRadius = new CornerRadius(9),
+                CornerRadius = new CornerRadius(ShapeTokens.RCtrl),   // 样式重构：9 → RCtrl 统一控件档
                 Background = bg,
                 Child = new SymbolIcon
                 {
@@ -208,9 +208,9 @@ namespace Dsht.Gui.Avalonia.Shells
                 Content = content,
                 Background = bordered ? Palette.CardBg : Brushes.Transparent,
                 BorderBrush = bordered ? Palette.Border : Brushes.Transparent,
-                BorderThickness = new Thickness(bordered ? 1 : 0),
-                CornerRadius = new CornerRadius(8),
-                Padding = new Thickness(12, 7)
+                BorderThickness = new Thickness(bordered ? ShapeTokens.Stroke : 0),
+                CornerRadius = new CornerRadius(ShapeTokens.RCtrl),
+                Padding = new Thickness(ShapeTokens.S12, 7)   // 竖 7 是有意的：撑满 30px 与下拉/工具行同高 ✗ 勿改 8
             };
             IBrush normal = bordered ? Palette.CardBg : Brushes.Transparent;
             Hover(b, normal, Palette.CardHover);
@@ -222,11 +222,11 @@ namespace Dsht.Gui.Avalonia.Shells
         {
             Button b = new Button
             {
-                Content = T(text, 12.5, Palette.OnAccent, FontWeight.SemiBold),
+                Content = T(text, ShapeTokens.FsEm, Palette.OnAccent, FontWeight.SemiBold),
                 Background = Palette.Accent,
                 BorderThickness = new Thickness(0),
-                CornerRadius = new CornerRadius(8),
-                Padding = new Thickness(14, 7)
+                CornerRadius = new CornerRadius(ShapeTokens.RCtrl),
+                Padding = new Thickness(ShapeTokens.S12, 7)   // 与 GhostButton 同 padding：两种按钮并排严格同高 ✓
             };
             Hover(b, Palette.Accent, Palette.AccentHover);
             b.Click += delegate { act(); };
@@ -243,10 +243,10 @@ namespace Dsht.Gui.Avalonia.Shells
                 bool act = idx == active;
                 Button b = new Button
                 {
-                    Content = T(items[i], 12, act ? Palette.Text : Palette.TextDim, act ? FontWeight.SemiBold : FontWeight.Normal),
+                    Content = T(items[i], ShapeTokens.FsBody, act ? Palette.Text : Palette.TextDim, act ? FontWeight.SemiBold : FontWeight.Normal),
                     Background = act ? Palette.CardBg : Brushes.Transparent,
                     BorderThickness = new Thickness(0),
-                    CornerRadius = new CornerRadius(7),
+                    CornerRadius = new CornerRadius(ShapeTokens.RCtrl),
                     Padding = new Thickness(12, 5)
                 };
                 b.Click += delegate { pick(idx); };
@@ -262,8 +262,8 @@ namespace Dsht.Gui.Avalonia.Shells
             {
                 Background = Palette.InsetBg,
                 BorderBrush = Palette.Border,
-                BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(9),
+                BorderThickness = new Thickness(ShapeTokens.Stroke),
+                CornerRadius = new CornerRadius(ShapeTokens.RInset),
                 Padding = new Thickness(3),
                 HorizontalAlignment = HorizontalAlignment.Left,
                 Child = inner
@@ -283,11 +283,11 @@ namespace Dsht.Gui.Avalonia.Shells
             bool pending = host.PendingPatch == key;
             Button b = new Button
             {
-                Content = T(pending ? confirmText : idleText, 11.5, pending ? Palette.Bad : Palette.TextDim, pending ? FontWeight.SemiBold : FontWeight.Normal),
+                Content = T(pending ? confirmText : idleText, ShapeTokens.FsBody, pending ? Palette.Bad : Palette.TextDim, pending ? FontWeight.SemiBold : FontWeight.Normal),
                 Background = pending ? Palette.BadSoft : Brushes.Transparent,
                 BorderBrush = pending ? Palette.Bad : Palette.BorderStrong,
-                BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(7),
+                BorderThickness = new Thickness(ShapeTokens.Stroke),
+                CornerRadius = new CornerRadius(ShapeTokens.RCtrl),
                 Padding = new Thickness(9, 3)
             };
             b.Click += delegate
@@ -405,12 +405,12 @@ namespace Dsht.Gui.Avalonia.Shells
             Border tabs = new Border { Margin = new Thickness(24, 14, 24, 0), Child = Segmented(host.SubTabs, host.SubTab, delegate(int i) { host.SetSubTab(i); }) };
             Grid.SetRow(tabs, 1);
 
-            StackPanel body = new StackPanel { Margin = PageMargin, Spacing = 14 };
+            StackPanel body = new StackPanel { Margin = PageMargin, Spacing = ShapeTokens.S16 };
             body.Children.Add(PageHeader(host, false));
             if (host.IsSessionsSection)
             {
                 body.Children.Add(KpiStrip(host));
-                body.Children.Add(T("会话明细", 14, Palette.Text, FontWeight.SemiBold));
+                body.Children.Add(T("会话明细", ShapeTokens.FsTitle, Palette.Text, FontWeight.SemiBold));   // 样式重构：14 → 卡题档 15
                 body.Children.Add(CardGridBody(host));
             }
             else
@@ -433,7 +433,7 @@ namespace Dsht.Gui.Avalonia.Shells
         {
             Grid g = new Grid { ColumnDefinitions = new ColumnDefinitions("300,*") };
 
-            StackPanel left = new StackPanel { Margin = new Thickness(14), Spacing = 10 };
+            StackPanel left = new StackPanel { Margin = new Thickness(14), Spacing = ShapeTokens.S12 };
             // ✓ 用户反馈：④ **会话页时左栏变成会话列表 → 主菜单消失** ✗✗
             //   → 现在：**主菜单永远在最上面** ✓ 会话列表放在它下面 ✓✓（不再互相顶掉 ✓）
             for (int i = 0; i < MainWindow.NavItems.Length; i++) left.Children.Add(NavItem(host, i));
@@ -561,7 +561,7 @@ namespace Dsht.Gui.Avalonia.Shells
         /// 用户要求："一键启动按钮底下可选默认启动 desktop 还是 webui" ✓✓</summary>
         private static Control StartModeRow(MainWindow host)
         {
-            StackPanel s = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Margin = new Thickness(12, 0, 12, 6) };
+            StackPanel s = new StackPanel { Orientation = Orientation.Horizontal, Spacing = ShapeTokens.S8, Margin = new Thickness(12, 0, 12, 6) };
             int cur = host.StartMode;
             string[] names = new string[] { "webui", "desktop" };
             for (int i = 0; i < names.Length; i++)
@@ -570,10 +570,10 @@ namespace Dsht.Gui.Avalonia.Shells
                 bool on = cur == i;
                 Button b = new Button
                 {
-                    Content = T(names[i] == "webui" ? "web" : names[i], 11, on ? Palette.OnAccent : Palette.TextDim),
+                    Content = T(names[i] == "webui" ? "web" : names[i], 11.5, on ? Palette.OnAccent : Palette.TextDim),
                     Background = on ? Palette.Accent : Palette.CardHover,
                     BorderThickness = new Thickness(0),
-                    CornerRadius = new CornerRadius(6),
+                    CornerRadius = new CornerRadius(ShapeTokens.RCtrl),
                     Padding = new Thickness(10, 4),
                     // ★★★ **N7 修复（复审 MAJOR —— 注释说了但代码没做）** ✓✓
                     //   ✗ 这里原来只有注释、**没有 MinWidth** ✗ → 每个按钮仍是**文字宽度** ✗
@@ -589,10 +589,10 @@ namespace Dsht.Gui.Avalonia.Shells
             }
             Button dep = new Button
             {
-                Content = T(cur == 1 ? "下载" : "安装", 11, Palette.Text),
+                Content = T(cur == 1 ? "下载" : "安装", 11.5, Palette.Text),
                 Background = Palette.CardHover,
                 BorderThickness = new Thickness(0),
-                CornerRadius = new CornerRadius(6),
+                CornerRadius = new CornerRadius(ShapeTokens.RCtrl),
                 Padding = new Thickness(10, 4),
                 MinWidth = ModeBtnW,   // N7 FIX: same row, same minimum width
                 HorizontalContentAlignment = global::Avalonia.Layout.HorizontalAlignment.Center,
@@ -607,7 +607,7 @@ namespace Dsht.Gui.Avalonia.Shells
             bool webOn = st2 != null && st2.Ok && st2.State == 0;
             if (deskOn && webOn)
             {
-                StackPanel both = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6, Margin = new Thickness(12, 0, 12, 6) };
+                StackPanel both = new StackPanel { Orientation = Orientation.Horizontal, Spacing = ShapeTokens.S8, Margin = new Thickness(12, 0, 12, 6) };
                 both.Children.Add(T("两个都在跑 →", 10.5, Palette.Warn));
                 Button sw = ActionGhost(host, "停 web", delegate { host.StopWebOnly(); });
         // F9 FIX (GUI audit MAJOR): ModeBtnW was declared and never used, so these buttons sized
@@ -692,7 +692,7 @@ namespace Dsht.Gui.Avalonia.Shells
             Grid g = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
             StackPanel s = new StackPanel { Spacing = 4 };
             if (withMargin) s.Margin = new Thickness(24, 18, 24, 12);
-            s.Children.Add(T(host.PageTitle, 20, Palette.Text, FontWeight.SemiBold));
+            s.Children.Add(T(host.PageTitle, ShapeTokens.FsPage, Palette.Text, FontWeight.SemiBold));
             s.Children.Add(new TextBlock { Text = StripMd(host.SubtitleText), Foreground = Palette.TextDim, FontSize = 12.5, TextWrapping = TextWrapping.Wrap });
             g.Children.Add(s);
             // 提案A：概览/看板页的「自动刷新」收进页眉行右侧 ✓（内容流不再被它占一整行 ✓）
@@ -721,7 +721,7 @@ namespace Dsht.Gui.Avalonia.Shells
         /// <summary>原始标记行：头部（图标+标题+说明）+ 凹陷等宽文本区（限高内滚）。</summary>
         private static Control RawCard(MainWindow host, string title, string caption)
         {
-            StackPanel s = new StackPanel { Spacing = 10 };
+            StackPanel s = new StackPanel { Spacing = ShapeTokens.S12 };
             Grid head = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto") };
             SymbolIcon ic = Ic(Symbol.Code, 15, Palette.TextDim);
             ic.VerticalAlignment = VerticalAlignment.Center;
@@ -730,7 +730,7 @@ namespace Dsht.Gui.Avalonia.Shells
             t.Margin = new Thickness(8, 0, 0, 0);
             t.VerticalAlignment = VerticalAlignment.Center;
             Grid.SetColumn(t, 1);
-            TextBlock cap = T(caption, 11, Palette.TextFaint);
+            TextBlock cap = T(caption, 11.5, Palette.TextFaint);
             cap.VerticalAlignment = VerticalAlignment.Center;
             Grid.SetColumn(cap, 2);
             head.Children.Add(ic); head.Children.Add(t); head.Children.Add(cap);
@@ -815,7 +815,7 @@ namespace Dsht.Gui.Avalonia.Shells
             sp.Children.Add(un);
             global::Avalonia.Controls.Border card = new global::Avalonia.Controls.Border();
             card.Padding = new global::Avalonia.Thickness(16);
-            card.CornerRadius = new global::Avalonia.CornerRadius(10);
+            card.CornerRadius = new global::Avalonia.CornerRadius(ShapeTokens.RCard);   // 样式重构：10 → RCard 统一卡片档
             card.Margin = PageMargin;
             card.Child = sp;
             return card;
@@ -845,7 +845,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
         private static Control SessionsContent(MainWindow host)
         {
-            StackPanel s = new StackPanel { Margin = PageMargin, Spacing = 14 };
+            StackPanel s = new StackPanel { Margin = PageMargin, Spacing = ShapeTokens.S16 };
             if (host.Data == null || !host.Data.Ok)
             {
                 string msg = host.Data == null
@@ -853,10 +853,10 @@ namespace Dsht.Gui.Avalonia.Shells
                     : (string.IsNullOrEmpty(host.Data.FailReason) ? "没有可显示的会话。" : host.Data.FailReason);
                 StackPanel err = new StackPanel { Spacing = 8 };
                 Grid eh = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*") };
-                SymbolIcon wic = Ic(Symbol.Warning, 16, Palette.Warn);
+                SymbolIcon wic = Ic(Symbol.Warning, 15, Palette.Warn);
                 wic.VerticalAlignment = VerticalAlignment.Center;
                 Grid.SetColumn(wic, 0);
-                TextBlock et = T("会话数据不可用", 13.5, Palette.Text, FontWeight.SemiBold);
+                TextBlock et = T("会话数据不可用", 13, Palette.Text, FontWeight.SemiBold);
                 et.Margin = new Thickness(8, 0, 0, 0);
                 et.VerticalAlignment = VerticalAlignment.Center;
                 Grid.SetColumn(et, 1);
@@ -939,25 +939,25 @@ namespace Dsht.Gui.Avalonia.Shells
             StackPanel s = new StackPanel { Spacing = 12 };
             if (d == null || !d.Ok)
             {
-                s.Children.Add(Card(T("没有可统计的会话数据。", 12, Palette.TextDim), new Thickness(0), new Thickness(16, 14)));
+                s.Children.Add(Card(T("没有可统计的会话数据。", 11.5, Palette.TextDim), new Thickness(0), new Thickness(16, 14)));
                 return s;
             }
             StackPanel sum = new StackPanel { Spacing = 8 };
-            sum.Children.Add(T("累计输入 token", 12, Palette.TextDim));
+            sum.Children.Add(T("累计输入 token", 11.5, Palette.TextDim));
             sum.Children.Add(T(SessionRow.Human(d.TotalIn), 34, Palette.Text, FontWeight.Bold));
             sum.Children.Add(T("新输入 " + SessionRow.Human(d.TotalIn - d.TotalCacheRead < 0 ? 0 : d.TotalIn - d.TotalCacheRead) + " · 输出 " + SessionRow.Human(d.TotalOut) + " · 缓存命中 " + SessionRow.Human(d.TotalCacheRead) + " · 会话 " + d.Count + " 个（非空 " + d.NonBlank + "）", 11.5, Palette.TextFaint));
             sum.Children.Add(Meter(d.TotalHitPercent < 0 ? 0 : d.TotalHitPercent, Palette.HitBrush(d.TotalHitPercent >= 90 ? 3 : (d.TotalHitPercent >= 70 ? 2 : 1)), 8));
-            sum.Children.Add(T("缓存命中率 " + PctText(d.TotalHitPercent) + "　解码速度 " + TpsText(d.TotalDecodeTps) + " tok/s", 12.5, Palette.TextDim));
+            sum.Children.Add(T("缓存命中率 " + PctText(d.TotalHitPercent) + "　解码速度 " + TpsText(d.TotalDecodeTps) + " tok/s", 13, Palette.TextDim));
             s.Children.Add(Card(sum, new Thickness(0), new Thickness(18, 16)));
 
             List<SessionRow> top = SessionsView.Sort(SessionsView.Filter(d.Rows, SessionsView.FilterAll), 1);
-            StackPanel list = new StackPanel { Spacing = 6 };
+            StackPanel list = new StackPanel { Spacing = ShapeTokens.S8 };
             list.Children.Add(T("输入 token 最多的会话", 13, Palette.Text, FontWeight.Bold));
             for (int i = 0; i < top.Count && i < 10; i++)
             {
                 SessionRow r = top[i];
                 string name = string.IsNullOrEmpty(r.Title) ? r.ShortId : r.Title;
-                list.Children.Add(T((i + 1) + ".　" + name + "　　" + r.InText + "　命中 " + r.HitText + "　" + r.DecodeText, 12, Palette.TextDim));
+                list.Children.Add(T((i + 1) + ".　" + name + "　　" + r.InText + "　命中 " + r.HitText + "　" + r.DecodeText, 11.5, Palette.TextDim));
             }
             s.Children.Add(Card(list, new Thickness(0), new Thickness(16, 14)));
             return s;

@@ -54,7 +54,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             sorts.Children.Add(LegendDot(Palette.Muted, "空/未知"));
 
-            TextBlock sl = T("排序", 12, Palette.TextDim);
+            TextBlock sl = T("排序", 11.5, Palette.TextDim);
 
             sl.VerticalAlignment = VerticalAlignment.Center;
 
@@ -70,7 +70,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
 
 
-            StackPanel rc = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 6 };
+            StackPanel rc = new StackPanel { Orientation = Orientation.Horizontal, Spacing = ShapeTokens.S8 };
 
             SymbolIcon ric = Ic(Symbol.ArrowClockwise, 14, Palette.TextDim);
 
@@ -78,7 +78,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             rc.Children.Add(ric);
 
-            TextBlock rt = T("刷新", 12.5, Palette.Text);
+            TextBlock rt = T("刷新", 13, Palette.Text);
 
             rt.VerticalAlignment = VerticalAlignment.Center;
 
@@ -191,7 +191,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 {
 
-                    StackPanel kids = new StackPanel { Spacing = 6, Margin = new Thickness(18, 4, 0, 0) };
+                    StackPanel kids = new StackPanel { Spacing = ShapeTokens.S8, Margin = new Thickness(18, 4, 0, 0) };
 
                     for (int k = 0; k < vm.Row.ChildIds.Count; k++)
 
@@ -229,7 +229,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
                     };
 
-                    StackPanel exBox = new StackPanel { Spacing = 6, Margin = new Thickness(16, 4, 0, 0), IsVisible = false };
+                    StackPanel exBox = new StackPanel { Spacing = ShapeTokens.S8, Margin = new Thickness(16, 4, 0, 0), IsVisible = false };
 
                     exBox.Children.Add(kids);
 
@@ -385,7 +385,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             Grid.SetColumn(l, 0);
 
-            TextBlock v = T(value, 12, valueBrush, FontWeight.SemiBold);
+            TextBlock v = T(value, ShapeTokens.FsEm, valueBrush, FontWeight.SemiBold);
 
             Grid.SetColumn(v, 1);
 
@@ -405,7 +405,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             Grid g = new Grid { ColumnDefinitions = new ColumnDefinitions("86,*,110,110,120,120"), VerticalAlignment = VerticalAlignment.Center };
 
-            TextBlock id = Mono(vm.ShortId, 11, Palette.TextFaint);
+            TextBlock id = Mono(vm.ShortId, 11.5, Palette.TextFaint);
 
             id.VerticalAlignment = VerticalAlignment.Center;
 
@@ -471,7 +471,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             Grid.SetColumn(title, 1);
 
-            TextBlock st = T(vm.StatusText, 11, Palette.TextDim);
+            TextBlock st = T(vm.StatusText, 11.5, Palette.TextDim);
 
             st.VerticalAlignment = VerticalAlignment.Center;
 
@@ -503,7 +503,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             Grid g = new Grid { ColumnDefinitions = new ColumnDefinitions("92,*,76") };
 
-            TextBlock l = T(label, 11, Palette.TextDim);
+            TextBlock l = T(label, 11.5, Palette.TextDim);
 
             l.VerticalAlignment = VerticalAlignment.Center;
 
@@ -559,7 +559,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             {
 
-                StackPanel s = new StackPanel { Spacing = 3 };
+                StackPanel s = new StackPanel { Spacing = ShapeTokens.S4 };
 
                 Grid row = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*") };
 
@@ -597,7 +597,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             host.DetailHost = s;
 
-            s.Children.Add(T("（左侧选一个会话）", 12, Palette.TextFaint));
+            s.Children.Add(T("（左侧选一个会话）", 11.5, Palette.TextFaint));
 
             return Card(s, new Thickness(0), new Thickness(18, 16));
 
@@ -615,7 +615,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             {
 
-                host.Children.Add(T("（左侧选一个会话）", 12, Palette.TextFaint));
+                host.Children.Add(T("（左侧选一个会话）", 11.5, Palette.TextFaint));
 
                 return;
 
@@ -623,11 +623,11 @@ namespace Dsht.Gui.Avalonia.Shells
 
             host.Children.Add(Mono(vm.ShortId, 20, Palette.Text));
 
-            StackPanel meta = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 10 };
+            StackPanel meta = new StackPanel { Orientation = Orientation.Horizontal, Spacing = ShapeTokens.S12 };
 
             meta.Children.Add(Chip(vm.StatusText, vm.StatusBrush, Palette.SoftOf(vm.StatusBrush)));
 
-            TextBlock mt = T(vm.MetaText, 12, Palette.TextDim);
+            TextBlock mt = T(vm.MetaText, 11.5, Palette.TextDim);
 
             mt.VerticalAlignment = VerticalAlignment.Center;
 
@@ -645,13 +645,13 @@ namespace Dsht.Gui.Avalonia.Shells
 
             host.Children.Add(new Border { Height = 1, Background = Palette.Border, Margin = new Thickness(0, 4, 0, 4) });
 
-            host.Children.Add(T("解码速度 " + vm.DecodeText + "　首 token " + vm.TtftText, 12, Palette.TextDim));
+            host.Children.Add(T("解码速度 " + vm.DecodeText + "　首 token " + vm.TtftText, 11.5, Palette.TextDim));
 
-            host.Children.Add(T("缓存读 " + vm.CacheReadText, 11, Palette.TextFaint));
+            host.Children.Add(T("缓存读 " + vm.CacheReadText, 11.5, Palette.TextFaint));
 
             // 「含子代理」小字行（第三批 · 2026-10-09 ✓✓ 规格 §11.7-E-3 ✓✓ 与列表卡同一出处 ✓）
             if (vm.SubLine != null && vm.SubLine.Length > 0)
-                host.Children.Add(T(vm.SubLine, 11, Palette.TextFaint));
+                host.Children.Add(T(vm.SubLine, 11.5, Palette.TextFaint));
 
         }
 
@@ -661,13 +661,13 @@ namespace Dsht.Gui.Avalonia.Shells
 
             Grid g = new Grid { ColumnDefinitions = new ColumnDefinitions("96,110,*") };
 
-            TextBlock l = T(label, 12, Palette.TextDim);
+            TextBlock l = T(label, 11.5, Palette.TextDim);
 
             l.VerticalAlignment = VerticalAlignment.Center;
 
             Grid.SetColumn(l, 0);
 
-            TextBlock v = T(value, 14, brush, FontWeight.SemiBold);
+            TextBlock v = T(value, ShapeTokens.FsEm, brush, FontWeight.SemiBold);
 
             v.VerticalAlignment = VerticalAlignment.Center;
 
@@ -697,7 +697,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             Grid.SetColumn(ic, 0);
 
-            TextBlock t = T("这些数字怎么读？", 13.5, Palette.Text, FontWeight.SemiBold);
+            TextBlock t = T("这些数字怎么读？", 13, Palette.Text, FontWeight.SemiBold);
 
             t.Margin = new Thickness(8, 0, 0, 0);
 

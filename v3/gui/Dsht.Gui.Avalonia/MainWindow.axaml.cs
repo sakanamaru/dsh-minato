@@ -805,7 +805,7 @@ namespace Dsht.Gui.Avalonia
             b.MinWidth = 30;   // ✓ 图标按钮用图标尺寸 ✓（用户之前报过"宽体普京" ✗ 教训 ✓）
             b.HorizontalContentAlignment = HorizontalAlignment.Center;
             b.Padding = new Thickness(8, 5);
-            b.CornerRadius = new CornerRadius(7);
+            b.CornerRadius = new CornerRadius(ShapeTokens.RCtrl);
             b.BorderThickness = new Thickness(0);
             b.Background = _alwaysOnTop ? Palette.AccentSoft : Brushes.Transparent;
             ToolTip.SetTip(b, _alwaysOnTop ? "窗口已置顶 ✓ 点一下取消 ✓" : "点一下让窗口始终置顶 ✓");
@@ -877,7 +877,7 @@ namespace Dsht.Gui.Avalonia
             }
             if (b == null) return;
             b.Padding = new Thickness(10, 5);
-            b.CornerRadius = new CornerRadius(7);
+            b.CornerRadius = new CornerRadius(ShapeTokens.RCtrl);
             b.BorderThickness = new Thickness(0);
             b.Background = active ? (IBrush)Palette.CardBg : Brushes.Transparent;
             IBrush fg = active ? Palette.Accent : Palette.TextDim;
@@ -1358,7 +1358,7 @@ namespace Dsht.Gui.Avalonia
         private Control ToastLayer()
         {
             _toastText = new TextBlock { Text = "", FontSize = 12, TextWrapping = TextWrapping.Wrap, Foreground = Palette.Text };
-            StackPanel sp = new StackPanel { Spacing = 6 };
+            StackPanel sp = new StackPanel { Spacing = ShapeTokens.S8 };
             sp.Children.Add(_toastText);
             sp.Children.Add(new TextBlock { Text = "点一下关闭", FontSize = 10.5, Foreground = Palette.TextFaint });
             _toast = new Border
@@ -1367,8 +1367,8 @@ namespace Dsht.Gui.Avalonia
                 MaxWidth = 460,
                 Background = Palette.CardBg,
                 BorderBrush = Palette.Warn,
-                BorderThickness = new Thickness(1),
-                CornerRadius = new CornerRadius(10),
+                BorderThickness = new Thickness(ShapeTokens.Stroke),
+                CornerRadius = new CornerRadius(ShapeTokens.RCard),   // 样式重构：10 → RCard 统一浮层/卡片档
                 Padding = new Thickness(14, 11),
                 Margin = new Thickness(0, 0, 20, 20),
                 HorizontalAlignment = HorizontalAlignment.Right,
@@ -1533,7 +1533,7 @@ namespace Dsht.Gui.Avalonia
         {
             if (HasRenderableData)
             {
-                StackPanel sp = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 7 };
+                StackPanel sp = new StackPanel { Orientation = Orientation.Horizontal, Spacing = ShapeTokens.S8 };
                 sp.Children.Add(Spinner(13, 2));
                 sp.Children.Add(new TextBlock { Text = "正在刷新…", FontSize = 11, Foreground = Palette.TextDim, VerticalAlignment = VerticalAlignment.Center });
                 return new Border
@@ -1552,7 +1552,7 @@ namespace Dsht.Gui.Avalonia
                 };
             }
             // 首次进入该页（还没有任何数据）：居中卡片，别让用户对着空白页猜
-            StackPanel card = new StackPanel { Spacing = 10 };
+            StackPanel card = new StackPanel { Spacing = ShapeTokens.S12 };
             Control ringBig = Spinner(28, 3);
             ringBig.HorizontalAlignment = HorizontalAlignment.Center;
             card.Children.Add(ringBig);
