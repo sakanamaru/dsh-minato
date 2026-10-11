@@ -599,6 +599,26 @@ namespace Dsht.Gui.Avalonia.Shells
 
             List<UpdItem> items = UpdParse(raw);
 
+            try
+            {
+                string tp = Environment.GetEnvironmentVariable("DSHT_TRACE_RAW");
+                if (!string.IsNullOrEmpty(tp))
+                {
+                    System.Text.StringBuilder tb = new System.Text.StringBuilder();
+                    tb.Append("rawLen=").Append(raw == null ? -1 : raw.Length).Append(" items=").Append(items.Count).Append("\r\n");
+                    for (int ti = 0; ti < items.Count; ti++) tb.Append("  item[").Append(ti).Append("] id=").Append(items[ti].Id).Append(" kind=").Append(items[ti].Kind).Append("\r\n");
+                    System.IO.File.WriteAllText(tp, tb.ToString());
+                }
+            }
+            catch { }
+
+            try
+            {
+                string rp = Environment.GetEnvironmentVariable("DSHT_TRACE_RAWOUT");
+                if (!string.IsNullOrEmpty(rp)) System.IO.File.WriteAllText(rp, raw == null ? "" : raw);
+            }
+            catch { }
+
             if (items.Count == 0)
 
             {
@@ -905,8 +925,15 @@ namespace Dsht.Gui.Avalonia.Shells
         }
 
         /// <summary>同一个 id 的多行（**每个 profile 一行** ✓）合并成**一张卡** ✓：
-        /// 标题 + 整体状态徽章（取最需要你看一眼的那一行 ✓）→ 每个 profile **一行**（profile 名 ✓
-        /// 该行"已装 → 工具箱自带" ✓ 该行状态 ✓ 该行**独有**的下一步 ✓）→ 共用的地址 / 说明 ✓。
+        /// ★★ 2026-10-11（表格化 + 短文案 ✓ 维护者实测「读起来费劲 ✗」）：
+        ///   卡头 = `桥接插件（dsh-minato-bridge）` ＋ 右侧**小汇总**（`有更新 1 · 已是最新 1 · 未安装 1` ✓
+        ///   例：`桥接插件（dsh-minato-bridge）· 有更新 1 · 已是最新 1 · 未安装 1` ✓ 一行 ✓
+        ///   ✗ 不再写「· 有更新 · 每个 profile 一行，共 3 行」那种长卡头 ✗）。
+        ///   卡身 = **固定五列的表格** ✓（`profile ｜ 已装 ｜ 工具箱自带 ｜ 状态 ｜ 下一步` ✓ 见 `UpdateCenterMarkers.TableHeaders` ✓）
+        ///   —— 每格短 ✓（状态 ≤ 6 字 ✓ 下一步 = 一条命令或 ≤20 字短句 ✓）；列对齐用**现有 Grid** ✓（✗ 不新造控件 ✗）；
+        ///   窄窗口时每格**折行** ✓ 但列语义不变 ✗（同一列的格永远在同一列 ✓）。
+        ///   ★ 长路径与整段机制说明**已搬去「说明」页** ✓（`Shells.cs` 的 PluginBridgeExplain ✓ ✗ 内容一个字没丢 ✗）
+        ///   —— 卡片里只剩**一句短的**共用说明（CLI 的 NOTE ✓ 指向说明页 ✓）＋ 地址 ＋ 诊断行 ✓。
         /// ✗ 一行都不许丢 ✗；✗ 也不靠"哪条 NOTE 排在第几个"来配对（按 id 归组 ✓ 见 UpdParse ✓）。</summary>
         private static void RenderPluginGroup(MainWindow host, StackPanel page, List<UpdItem> group)
 
@@ -918,47 +945,116 @@ namespace Dsht.Gui.Avalonia.Shells
 
             head.Children.Add(T("桥接插件（" + group[0].Title + "）", 13, Palette.Text, FontWeight.SemiBold));
 
-            string overall = UpdateCenterMarkers.OverallState(ToMarkers(group));
+            List<UpdateCenterMarkers.Item> mg = ToMarkers(group);
+
+            string overall = UpdateCenterMarkers.OverallState(mg);
 
             head.Children.Add(Chip(UpdateDiagnosis.StateText("plugin", overall, group[0].Latest, group[0].Installed),
                 group[0].BrushFor(overall), group[0].BgFor(overall)));
 
-            head.Children.Add(T("每个 profile 一行，共 " + group.Count + " 行", 11.5, Palette.TextFaint));
+            // ★ 右侧小汇总 ✓（短 ✓ 按状态计数 ✓ ✗ 不再写"每个 profile 一行，共 N 行"那种说明 ✗）
+            head.Children.Add(T(UpdateCenterMarkers.SummaryText(mg), 11.5, Palette.TextFaint));
 
             card.Children.Add(head);
 
-            // —— 每个 profile 一行 ✓（profile 名单独一列 ✓ 行文换了行也仍然对得上是谁 ✓）——
-            //   ★ 文本本身由纯函数给出（`UpdateCenterMarkers.RowsText` ✓ 有单测 ✓ —— 断言的正是"三行都在" ✓）
-            string[] rows = UpdateCenterMarkers.RowsText(ToMarkers(group)).Replace("\r\n", "\n").Split('\n');
-            StackPanel grid = new StackPanel { Spacing = 4 };
-            for (int i = 0; i < rows.Length; i++)
-            {
-                string r = rows[i];
-                int tab = r.IndexOf('\t');
-                string who = tab >= 0 ? r.Substring(0, tab) : "";
-                string rest = tab >= 0 ? r.Substring(tab + 1) : r;
-                StackPanel row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = ShapeTokens.S8 };
-                row.Children.Add(T(who, 11.5, Palette.TextFaint));
-                TextBlock body = T(rest, 11.5, Palette.TextDim);
-                body.TextWrapping = TextWrapping.Wrap;
-                body.MaxWidth = 560;   // 长行（半旧说明 ✓ 指引 ✓）换行 ✓ 不把卡片撑破 ✓
-                row.Children.Add(body);
-                grid.Children.Add(row);
-            }
-            card.Children.Add(grid);
+            // ★★ 卡身 = 固定五列的表格 ✓（表头一格不落 ✓ 每个 profile 一行 ✓）
+            card.Children.Add(PluginTable(mg));
 
             // —— 诊断行（共用 ✓ 去重 ✓：同一个原因原先每个 profile 各打一条 ✗）——
             foreach (string h in Distinct(SelectHints(group))) AddWrapped(card, h, 11.5, Palette.Warn);
 
             // —— 共用的地址 / 说明 / 日志（同一个 id 只有一份 ✓ 原先重复 N 遍 ✗）——
-            AddUrlRow(host, card, UpdateCenterMarkers.UrlOf(ToMarkers(group)));
-            AddWrapped(card, UpdateCenterMarkers.NoteOf(ToMarkers(group)), 11.5, Palette.Warn);
-            string lg = UpdateCenterMarkers.LogOf(ToMarkers(group));
+            //   ★ 那句说明现在**只有一句**（基准 = 工具箱自带的那一份、离线可判 ✓ 完整机制在「说明」页 ✓）
+            AddUrlRow(host, card, UpdateCenterMarkers.UrlOf(mg));
+            AddWrapped(card, UpdateCenterMarkers.NoteOf(mg), 11.5, Palette.Warn);
+            string lg = UpdateCenterMarkers.LogOf(mg);
             if (!string.IsNullOrEmpty(lg)) AddWrapped(card, "更新日志：" + lg, 11.5, Palette.TextFaint);
 
             card.Children.Add(RenderUpdActs(host, group[0]));
 
             page.Children.Add(Card(card, new Thickness(0), new Thickness(16, 14)));
+
+        }
+
+        /// <summary>★ 插件合并卡的五列表格（2026-10-11 ✓）：列名固定 = `UpdateCenterMarkers.TableHeaders` ✓
+        /// （`profile ｜ 已装 ｜ 工具箱自带 ｜ 状态 ｜ 下一步` ✓）—— 值与列名都来自**纯函数** ✓（有单测 ✓）。
+        /// 列宽：前四列按内容 `Auto` ✓（列对齐 = 同一列的格落在同一个 Grid 列 ✓ 天然对齐 ✓）；
+        /// 最后一列吃剩余宽度 `*` ✓（那条命令/短句最长 ✓）。
+        /// ★ 窄窗口：每格都开 `TextWrapping` ✓ → **折行** ✓ 而不是裁字 ✗；
+        ///   折行不会串列 ✗（每格都显式 `Grid.SetColumn` ✓ 谁家的字还在谁家列里 ✓）。</summary>
+        private static Control PluginTable(List<UpdateCenterMarkers.Item> mg)
+
+        {
+
+            string[] hd = UpdateCenterMarkers.TableHeaders;
+
+            // ★ 行定义**必须有** ✗：少了它，所有格都会落回第 0 行 → 整张表叠成一行（实测过一次 ✓）
+            //   行 0 = 表头 ✓ 行 1..N = 每个 profile 一行 ✓ 全 `Auto` ✓
+            //   ★ 行数**按真实行数建**（表头 + N ✓）—— 固定写死几行的话，profile 多于那个数就会被静默挤掉 ✗
+            Grid g = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,Auto,Auto,Auto,*") };
+            g.RowDefinitions.Add(new RowDefinition(GridLength.Auto));   // 表头
+            for (int r = 0; r < mg.Count; r++) g.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
+
+            for (int c = 0; c < hd.Length; c++)
+
+            {
+
+                TextBlock th = T(hd[c], 11, Palette.TextFaint);
+
+                th.TextWrapping = TextWrapping.Wrap;
+
+                th.Margin = new Thickness(0, 0, 14, 2);   // ★ 这个 Avalonia 版本的 Grid 没有 ColumnSpacing ✓ 用格边距出列间距 ✓
+
+                Grid.SetRow(th, 0); Grid.SetColumn(th, c);
+
+                g.Children.Add(th);
+
+            }
+
+            for (int i = 0; i < mg.Count; i++)
+
+            {
+
+                string[] cells = UpdateCenterMarkers.TableRow(mg[i]);
+
+                for (int c = 0; c < cells.Length; c++)
+
+                {
+
+                    // 状态列（第 3 列）用**文字色**，✗ 不用徽章色 ✗ —— 徽章前景色是 `OnAccent`（白底上 = 白字，
+                    // 实测**看不见** ✓ 修过一次）；这里只让"半旧"用警示色挑出来 ✓ 其余保持常规文字 ✓
+                    IBrush fg = c == 3 ? StateCellBrush(mg[i].State) : (c == 0 ? Palette.TextFaint : Palette.TextDim);
+
+                    TextBlock cell = T(cells[c], 11.5, fg);
+
+                    cell.TextWrapping = TextWrapping.Wrap;
+
+                    cell.Margin = new Thickness(0, 1, 14, 1);
+
+                    cell.VerticalAlignment = VerticalAlignment.Center;
+
+                    Grid.SetRow(cell, i + 1); Grid.SetColumn(cell, c);
+
+                    g.Children.Add(cell);
+
+                }
+
+            }
+
+            return g;
+
+        }
+
+        /// <summary>表格「状态」那一格的**文字色** ✓（2026-10-11 ✓ 实测修过一次）：
+        /// ✗ 不能用 `UpdItem.BrushFor` ✗ —— 那是**徽章底上的前景色**（`OnAccent` = 白 ✓ 白底卡片上等于隐形 ✗）；
+        /// ✓ 这里只有"半旧"用警示色挑出来 ✓（它只看版本号看不出来 ✓ 最该被看见 ✓），其余一律常规文字 ✓。</summary>
+        private static IBrush StateCellBrush(string state)
+
+        {
+
+            if (state == "content-mismatch") return Palette.Warn;
+
+            return Palette.TextDim;
 
         }
 

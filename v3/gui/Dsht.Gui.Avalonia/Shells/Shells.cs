@@ -858,6 +858,15 @@ namespace Dsht.Gui.Avalonia.Shells
             arch.TextWrapping = global::Avalonia.Media.TextWrapping.Wrap;
             arch.Opacity = 0.7;
             sp.Children.Add(arch);
+            // ★★★ 2026-10-11（插件卡可读性）：**插件更新的基准与判定**——整段机制说明从更新页的插件卡
+            //   搬到这里 ✓（维护者：卡片里那条 NOTE 是一整段机制说明 ✗ 读起来费劲 ✗；长路径也抢注意力 ✗）。
+            //   ✗ 内容一个字都没丢 ✗：基准是什么、路径在哪、双比对是什么、为什么没有独立版本渠道、
+            //     desktop 为什么装不进、更新前的风险与备份、作者维护不担保 —— **逐条都在下面可读到** ✓。
+            //   这里是整段文字天然该待的地方 ✓（架构说明本来就在这一页 ✓）。
+            //   ★ 正文本身在 `Markers/UpdateBaselineExplain.cs` ✓（纯函数 ✓ LogicTests 与
+            //     `verify_plugin_update_baseline.ps1` 都直接断言它**真的还在** ✓）。
+            AddAboutExplain(sp, UpdateBaselineExplain.Title(), UpdateBaselineExplain.Text());
+            AddAboutExplain(sp, UpdateBaselineExplain.PathsTitle(), UpdateBaselineExplain.PathsText());
             global::Avalonia.Controls.Border card = new global::Avalonia.Controls.Border();
             card.Padding = new global::Avalonia.Thickness(16);
             card.CornerRadius = new global::Avalonia.CornerRadius(ShapeTokens.RCard);   // 样式重构：10 → RCard 统一卡片档
@@ -865,6 +874,26 @@ namespace Dsht.Gui.Avalonia.Shells
             card.Child = sp;
             return card;
         }
+
+        /// <summary>说明页里的一小节（小标题 + 会换行的正文 ✓ 2026-10-11 插件卡可读性 ✓）。
+        /// 用全限定名 —— 这个文件里 `Avalonia.*` 前缀会被解析成 `Dsht.Gui.Avalonia.*` ✗（踩过）。</summary>
+        private static void AddAboutExplain(global::Avalonia.Controls.StackPanel sp, string title, string body)
+        {
+            global::Avalonia.Controls.TextBlock h = new global::Avalonia.Controls.TextBlock();
+            h.Text = title;
+            h.FontWeight = global::Avalonia.Media.FontWeight.SemiBold;
+            h.Margin = new global::Avalonia.Thickness(0, 10, 0, 0);
+            h.TextWrapping = global::Avalonia.Media.TextWrapping.Wrap;
+            sp.Children.Add(h);
+            global::Avalonia.Controls.TextBlock t = new global::Avalonia.Controls.TextBlock();
+            t.Text = body;
+            t.TextWrapping = global::Avalonia.Media.TextWrapping.Wrap;
+            t.Opacity = 0.8;
+            sp.Children.Add(t);
+        }
+
+        /// <summary>「插件基准的完整路径」那一节的正文在 `Markers/UpdateBaselineExplain.cs`（纯函数 ✓ 可测 ✓
+        /// 2026-10-11 插件卡可读性：与机制说明一起从更新页卡片搬到说明页 ✓）。</summary>
         private static Control SectionInner(MainWindow host)
         {
             if (host.IsSessionsSection) return SessionsContent(host);

@@ -17,6 +17,20 @@ namespace Dsht.Gui.LogicTests
             else { _fail++; Console.WriteLine("  [FAIL] " + name); }
         }
 
+        /// <summary>测试里手搓一个解析层条目 ✓（只为断言合并卡那几个纯函数 ✓ —— 表格的列值测试不想先拼一遍标记行 ✓）。</summary>
+        private static UpdateCenterMarkers.Item MkItem(string profile, string installed, string latest, string state, string next)
+        {
+            UpdateCenterMarkers.Item it = new UpdateCenterMarkers.Item();
+            it.Id = "plugin:dsh-minato-bridge";
+            it.Kind = "plugin";
+            it.Profile = profile;
+            it.Installed = installed;
+            it.Latest = latest;
+            it.State = state;
+            it.Next = UpdateCenterMarkers.DecodeNext(next);
+            return it;
+        }
+
         private static int Main()
         {
             Console.WriteLine("== GUI 呈现层逻辑测试（标记行解析）==");
@@ -483,11 +497,11 @@ namespace Dsht.Gui.LogicTests
             //   → GUI：**按 id 归组**成一张卡 ✓（✗ 不再靠"第 n 条 NOTE 配第 n 行"这种脆弱约定 ✗）
             //   下面这些断言盯的就是这两件事：**一条都不丢** ✓ 且**合并成一张卡 ✓ 三行都在** ✓
             string pluginRaw =
-                "UPDATECENTER_ITEM plugin:dsh-minato-bridge kind=plugin installed=0.1.0 latest=0.2.0 state=update-available profile=desktop next=由%20dsh%20桌面端管理\n" +
-                "UPDATECENTER_ITEM plugin:dsh-minato-bridge kind=plugin installed=unknown latest=0.2.0 state=not-installed profile=headless next=该%20profile%20未安装\n" +
+                "UPDATECENTER_ITEM plugin:dsh-minato-bridge kind=plugin installed=0.1.0 latest=0.2.0 state=update-available profile=desktop next=在桌面端插件机制里更新\n" +
+                "UPDATECENTER_ITEM plugin:dsh-minato-bridge kind=plugin installed=unknown latest=0.2.0 state=not-installed profile=headless next=未安装\n" +
                 "UPDATECENTER_ITEM plugin:dsh-minato-bridge kind=plugin installed=0.2.0 latest=0.2.0 state=up-to-date profile=web next=bridge-install%20--profile%20web%20--yes\n" +
                 "UPDATECENTER_URL plugin:dsh-minato-bridge https://github.com/sakanamaru/dsh-minato\n" +
-                "UPDATECENTER_NOTE plugin:dsh-minato-bridge 基准 = 你这份工具箱自带的插件（C:\\t\\plugin\\dsh-minato-bridge）\n" +
+                "UPDATECENTER_NOTE plugin:dsh-minato-bridge 基准 = 你这份工具箱自带的那一份插件，离线可判（判定方式与路径见 GUI「说明」页）。\n" +
                 "UPDATECENTER_ITEM webui kind=webui installed=0.1.5-rc.2 latest=0.2.0-rc.2 state=update-available profile=-\n" +
                 "UPDATECENTER_URL webui https://github.com/deepseek-ai/deepseek-harness\n";
             List<UpdateCenterMarkers.Item> pu = UpdateCenterMarkers.Parse(pluginRaw);
@@ -498,7 +512,7 @@ namespace Dsht.Gui.LogicTests
                 pu[0].Urls.Count == 1 && pu[1].Urls.Count == 1 && pu[2].Urls.Count == 1
                 && pu[1].Urls[0] == "https://github.com/sakanamaru/dsh-minato" && pu[1].Notes.Count == 1 && pu[1].Notes[0].StartsWith("基准"));
             Check("更新页·解析：每行**自己**的指引 `next=`（空格按 `%20` 编 ✓ 解回来是人话 ✓ ✗ 不拿别人的 NOTE 顶 ✗）",
-                pu[0].Next == "由 dsh 桌面端管理" && pu[1].Next == "该 profile 未安装"
+                pu[0].Next == "在桌面端插件机制里更新" && pu[1].Next == "未安装"
                 && pu[2].Next == "bridge-install --profile web --yes"
                 && UpdateCenterMarkers.DecodeNext("a%20b") == "a b" && UpdateCenterMarkers.DecodeNext("-") == "" && UpdateCenterMarkers.DecodeNext(null) == "");
             Check("更新页·归组：同一个 id 的多行进**同一组** ✓ 顺序可复现 ✓ 别的组件不掺进来 ✓",
@@ -509,18 +523,66 @@ namespace Dsht.Gui.LogicTests
                 && UpdateCenterMarkers.NoteOf(UpdateCenterMarkers.GroupById(pu)[0]).Split('\n').Length == 1
                 && UpdateCenterMarkers.Parse("UPDATECENTER_ITEM plugin:x kind=plugin installed=1 latest=1 state=up-to-date profile=a\nUPDATECENTER_NOTE plugin:x 甲\nUPDATECENTER_NOTE plugin:x 乙\nUPDATECENTER_NOTE plugin:x 甲\n")[0].Notes.Count == 2);
             // ★★★ 这一条就是维护者要的"合并成一张卡、profile 分行"——**三行都要渲染出来** ✓（✗ 不许只显示第一条 ✗）
+            //   ★★ 2026-10-11（可读性）：正文改成了**固定五列的小表** ✓（profile ｜ 已装 ｜ 工具箱自带 ｜ 状态 ｜ 下一步 ✓）
             string rows3 = UpdateCenterMarkers.RowsText(UpdateCenterMarkers.GroupById(pu)[0]);
+            string[] rows3l = rows3.Replace("\r\n", "\n").Split('\n');
             Check("更新页·合并卡：三个 profile **各一行都在** ✓（desktop / headless / web ✓ ✗ 只显示第一条 ✗）",
-                rows3.Split('\n').Length == 3
-                && rows3.Split('\n')[0].StartsWith("desktop\t") && rows3.Split('\n')[1].StartsWith("headless\t")
-                && rows3.Split('\n')[2].StartsWith("web\t"));
-            Check("更新页·合并卡·每行的**状态**都在那一行上：已装 0.1.0 → 工具箱自带 0.2.0 · 有更新 / 未安装 / 已是最新",
-                rows3.Split('\n')[0] == "desktop\t已装 v0.1.0　→　工具箱自带 v0.2.0　·　有更新　　由 dsh 桌面端管理"
-                && rows3.Split('\n')[1] == "headless\t未安装　·　未安装　　该 profile 未安装"
-                && rows3.Split('\n')[2] == "web\t已装 v0.2.0　→　工具箱自带 v0.2.0　·　已是最新　　bridge-install --profile web --yes");
-            Check("更新页·合并卡·每行的**指引**都在那一行上：web = bridge-install ✓ desktop = 由桌面端管 ✓（✗ 不串行 ✗）",
-                rows3.Split('\n')[0].Contains("由 dsh 桌面端管理") && !rows3.Split('\n')[0].Contains("bridge-install")
-                && rows3.Split('\n')[2].Contains("bridge-install --profile web --yes") && !rows3.Split('\n')[2].Contains("桌面端"));
+                rows3l.Length == 4
+                && rows3l[0] == "profile\t已装\t工具箱自带\t状态\t下一步"
+                && rows3l[1].StartsWith("desktop\t") && rows3l[2].StartsWith("headless\t")
+                && rows3l[3].StartsWith("web\t"));
+            Check("更新页·表格：表头**逐字固定五列** ✓（profile ｜ 已装 ｜ 工具箱自带 ｜ 状态 ｜ 下一步 ✓ ✗ 列语义不许乱 ✗）",
+                UpdateCenterMarkers.TableHeaders.Length == 5
+                && UpdateCenterMarkers.TableHeaders[0] == "profile" && UpdateCenterMarkers.TableHeaders[1] == "已装"
+                && UpdateCenterMarkers.TableHeaders[2] == "工具箱自带" && UpdateCenterMarkers.TableHeaders[3] == "状态"
+                && UpdateCenterMarkers.TableHeaders[4] == "下一步");
+            Check("更新页·表格·每行的**状态**都在那一行上：已装 v0.1.0 / 工具箱自带 v0.2.0 / 有更新；未安装；已是最新",
+                rows3l[1] == "desktop\tv0.1.0\tv0.2.0\t有更新\t在桌面端插件机制里更新"
+                && rows3l[2] == "headless\t未安装\tv0.2.0\t未安装\t未安装"
+                && rows3l[3] == "web\tv0.2.0\tv0.2.0\t已是最新\tbridge-install --profile web --yes");
+            Check("更新页·表格：每格都**短** ✓（状态 ≤ 6 字 ✓ 下一步 = 一条命令或 ≤ 20 字短句 ✓）",
+                UpdateCenterMarkers.CellState(new UpdateCenterMarkers.Item { State = "update-available" }) == "有更新"
+                && UpdateCenterMarkers.CellState(new UpdateCenterMarkers.Item { State = "up-to-date" }) == "已是最新"
+                && UpdateCenterMarkers.CellState(new UpdateCenterMarkers.Item { State = "not-installed" }) == "未安装"
+                && UpdateCenterMarkers.CellState(new UpdateCenterMarkers.Item { State = "content-mismatch" }) == "内容不一致"
+                && UpdateCenterMarkers.CellState(new UpdateCenterMarkers.Item { State = "newer-than-bundled" }) == "比自带新"
+                && UpdateCenterMarkers.CellState(new UpdateCenterMarkers.Item { State = "unknown" }) == "未知"
+                && "内容不一致".Length <= 6 && "比自带新".Length <= 6
+                && UpdateCenterMarkers.CellNext(MkItem("web", "0.2.0", "0.2.0", "up-to-date", "bridge-install%20--profile%20web%20--yes")) == "bridge-install --profile web --yes"
+                && UpdateCenterMarkers.CellNext(MkItem("desktop", "0.1.0", "0.2.0", "update-available", "在桌面端插件机制里更新")) == "在桌面端插件机制里更新"
+                && rows3l[1].Length < 200 && rows3l[2].Length < 200 && rows3l[3].Length < 200);
+            Check("更新页·表格：卡片里那句共用说明也已**压短**（< 120 字 ✓ 读得完 ✓）",
+                UpdateCenterMarkers.NoteOf(UpdateCenterMarkers.GroupById(pu)[0]).Length < 120
+                && UpdateCenterMarkers.NoteOf(UpdateCenterMarkers.GroupById(pu)[0]).StartsWith("基准"));
+            Check("更新页·卡头小汇总：逐字 `有更新 1 · 未安装 1 · 已是最新 1` ✓（同状态合并计数 ✓ 最需要看一眼的在前 ✓ ✗ 不写「共 N 行」✗）",
+                UpdateCenterMarkers.SummaryText(UpdateCenterMarkers.GroupById(pu)[0]) == "有更新 1 · 未安装 1 · 已是最新 1"
+                && UpdateCenterMarkers.SummaryText(new List<UpdateCenterMarkers.Item>()) == ""
+                && UpdateCenterMarkers.SummaryText(null) == "");
+            Check("更新页·表格·每行的**指引**都在那一行上：web = bridge-install ✓ desktop = 桌面端机制 ✓（✗ 不串行 ✗）",
+                rows3l[1].Contains("桌面端插件机制") && !rows3l[1].Contains("bridge-install")
+                && rows3l[3].Contains("bridge-install --profile web --yes") && !rows3l[3].Contains("桌面端"));
+            // ★★ 2026-10-11（可读性）：从卡片**搬去「说明」页**的那段机制说明 —— 直接断言它**真的还在** ✓
+            //   ✗ 不留一堆只有截图才能证明的文字 ✗（这段文字是纯函数 ✓ 说明页只是把它交给一个会换行的 TextBlock ✓）
+            string aboutTxt = UpdateBaselineExplain.Text();
+            Check("说明页·搬走的机制说明**还在**：基准 = 工具箱自带那一份 + 离线可判 + 零新渠道 ✓",
+                UpdateBaselineExplain.Title() == "插件更新的基准与判定"
+                && aboutTxt.Contains("工具箱自带") && aboutTxt.Contains("离线") && aboutTxt.Contains("新的版本渠道")
+                && aboutTxt.Contains("plugin\\dsh-minato-bridge\\"));
+            Check("说明页·双比对（版本号 + snapshot.js / index.js 的 SHA-256）与「半旧」那一态逐条可读 ✓",
+                aboutTxt.Contains("VersionComparer") && aboutTxt.Contains("SHA-256")
+                && aboutTxt.Contains("snapshot.js") && aboutTxt.Contains("index.js")
+                && aboutTxt.Contains("半旧") && aboutTxt.Contains("latest"));
+            Check("说明页·desktop 的完整口径（桌面端独占管理 / 命令行装不进也卸不掉 / 它接受本地目录路径）✓",
+                aboutTxt.Contains("桌面端独占管理") && aboutTxt.Contains("命令行装不进也卸不掉") && aboutTxt.Contains("本地目录路径"));
+            Check("说明页·风险与备份、作者维护不担保（卡片里也不再重复）✓",
+                aboutTxt.Contains("风险") && aboutTxt.Contains("备份") && aboutTxt.Contains("不替它担保"));
+            Check("说明页·长路径那一节：给出基准目录（本程序旁边的 plugin\\dsh-minato-bridge\\）与本机候选位置 ✓",
+                UpdateBaselineExplain.PathsTitle().Contains("完整路径")
+                && UpdateBaselineExplain.PathsText().Contains("plugin")
+                && UpdateBaselineExplain.PathsText().Contains("dsh-minato-bridge"));
+            Check("说明页·★长路径**真的搬走了**：更新页那张卡里既没有盘符路径也没有哈希/版本比较术语 ✓",
+                !rows3.Contains(":\\") && !rows3.Contains("SHA-256") && !rows3.Contains("VersionComparer")
+                && !rows3.Contains("package.json"));
             Check("更新页·合并卡·整体状态取**最需要看一眼**的那一行（有更新 > 未安装 > 已是最新 ✓ 半旧 > 有更新 ✓）",
                 UpdateCenterMarkers.OverallState(UpdateCenterMarkers.GroupById(pu)[0]) == "update-available"
                 && UpdateCenterMarkers.OverallState(new List<UpdateCenterMarkers.Item> {
@@ -539,7 +601,8 @@ namespace Dsht.Gui.LogicTests
             Check("更新页·老 CLI（每个 profile 各发 URL/NOTE ✓ 没有 next=）：两条不同说明**都不丢** ✓ URL 只取第一条可用地址 ✓",
                 oldg.Count == 2 && UpdateCenterMarkers.NoteOf(oldg).Contains("甲说明") && UpdateCenterMarkers.NoteOf(oldg).Contains("乙说明")
                 && UpdateCenterMarkers.UrlOf(oldg) == "https://example.invalid/a"
-                && UpdateCenterMarkers.GroupById(oldg).Count == 1 && UpdateCenterMarkers.RowsText(oldg).Split('\n').Length == 2);
+                && UpdateCenterMarkers.GroupById(oldg).Count == 1
+                && UpdateCenterMarkers.RowsText(oldg).Split('\n').Length == 3);   // ★ 表头 1 行 + 两个 profile 各 1 行 ✓
             Check("更新页·脏数据：没有 ITEM 的 URL/NOTE 行安全忽略 ✓ 认不出的标记行不掺进条目 ✓ 不抛 ✓",
                 UpdateCenterMarkers.Parse("UPDATECENTER_URL nobody https://x\nUPDATECENTER_OK 0\nUPDATECENTER_BEGIN\n垃圾\n").Count == 0
                 && UpdateCenterMarkers.Parse(null).Count == 0 && UpdateCenterMarkers.RowsText(null) == "" && UpdateCenterMarkers.UrlOf(null) == "");

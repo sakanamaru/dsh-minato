@@ -549,32 +549,35 @@ namespace Dsht.Cli
         }
 
         /// <summary>桥接插件的**共用 NOTE**：只在第一行发一次 ✓（原先每个 profile 各发一遍完全相同的长文 ✗）。
-        /// 内容 = ① 基准是什么 ② 为什么仍然"没有独立版本渠道" ③ 判定 = 双比对 ④ 更新前的风险与确认 ✓
+        /// ★★ 2026-10-11（可读性）：**缩到一句** ✓ —— 只说"基准是工具箱自带的那一份、离线可判" ✓。
+        ///   为什么改：维护者实测「一条 NOTE 仍是一整段机制说明 ✗」；那一整段**搬到了 GUI 的「说明」页** ✓
+        ///   （`Shells/Shells.cs` 的 `PluginBaselineExplain` ✓）—— 基准是什么、双比对（版本号 + 内容哈希）、
+        ///   随包路径在哪、更新前的风险与备份、作者维护不担保，**逐条都在说明页可读到** ✓ ✗ 一个字都没丢 ✗。
         /// ✗ 不含任何**按 profile 不同**的修复指引 ✗ —— 那已经随每行的 `next=` 给出 ✓</summary>
         private static string BridgeNoteShared(BridgeBaseline b)
         {
-            System.Text.StringBuilder sb = new System.Text.StringBuilder();
-            sb.Append(T("基准 = 你这份工具箱自带的插件（", "baseline = the plugin bundled with THIS toolkit ("));
-            sb.Append(b.DirExists ? b.Dir : T("工具箱自带的目录缺失，见诊断行", "bundled folder missing - see the diagnostic line"));
-            sb.Append(T("；离线可判，零新渠道）：latest 取的是工具箱自带那一份的版本，不是网上的最新版；插件仍然没有独立的版本渠道，它的版本号与工具箱 tag（如 v3.0.7）不在一个序列上，因此本工具不会拿工具箱 tag 当插件的 latest。判定 = 双比对：版本号（VersionComparer）+ 内容哈希（snapshot.js 与 index.js 各算 SHA-256，两个都相同才算内容一致；版本相同但哈希不同 = 半旧，单独一态，只看版本号抓不住）。",
-                        " offline, no new channel): latest is the version of the copy bundled with this toolkit - NOT the newest version online. The plugin still has no independent release channel, so the toolkit tag is never passed off as the plugin's latest. The verdict uses a double comparison: version (VersionComparer) plus content hashes (SHA-256 of snapshot.js and index.js; both must match for the content to count as identical, and same-version-different-hash is reported as a state of its own). "));
-            sb.Append(T("每一行的实测结论只在那一行上：该行 `state=` 那一列和该行末尾的 `next=` 就是它们的更新方式。插件更新先描述风险再确认；更新前自动备份。插件由各自作者维护，本工具不替它担保。",
-                        "the measured verdict lives on each row itself: that row's state= field plus its next= field say how it is updated. plugin updates describe the risk and ask first; the data root is backed up before updating; plugins are maintained by their authors and this tool does not vouch for them."));
-            return sb.ToString();
+            return T("基准 = 你这份工具箱自带的那一份插件，离线可判（判定方式与路径见 GUI「说明」页）。",
+                     "baseline = the copy of the plugin bundled with THIS toolkit, decided offline (see the GUI's About page for how it is decided and where it lives).");
         }
 
         /// <summary>桥接插件**该行独有**的修复指引（→ ITEM 行的 `next=` ✓ 一行一句 ✓ 保证"每行的指引唯一对应该行" ✓）。
         /// ★ 值里**不能有空格** ✗（标记行按空格分词 ✓）→ 先写成人话，再由 EncodeNext 按 `%20` 编回来 ✓
         ///   （GUI 侧 DecodeNext 还原 ✓ 显示出来仍是人话 ✓；老解析器整行收进 Unknown 也不会被截断 ✓）。
         /// ★ 实测：desktop profile **由 dsh 桌面端独占管理** ✗ 命令行装不进也卸不掉 ✗。</summary>
+        /// <summary>★★ 2026-10-11（可读性）：值**一律是一句短话 / 一条命令** ✓（✗ 不再是一整段机制说明 ✗）。
+        ///   为什么改：维护者实测「每行是一句长话 ✗ 读起来费劲 ✗」—— 卡片那一列只能容下
+        ///   一条命令或二十字以内的短句 ✓；机制说明（基准是什么、双比对是什么、路径在哪）已经搬到
+        ///   GUI 的「说明」页 ✓（那里有整段文字的位置 ✓ ✗ 内容一个字都没丢 ✗）。
+        ///   ★ 仍然**只用一个词**表示"见说明页" ✓ ✗ 不把路径塞回来 ✗。</summary>
         private static string NextOf(string profile, string state, string installedVer, BridgeBaseline b, string why)
         {
-            // ★ 半旧（版本号相同、内容哈希不同 ✓）那一态**必须说出是哪个文件不一样** ✓
-            //   —— 原先这句在 NOTE 里 ✓ 现在 NOTE 每个 id 只发一次 ✓ 于是它随**该行**发出 ✓（✗ 信息不丢 ✗）
-            if (state == "content-mismatch")
+            // ★ desktop 那一行**任何状态都只说这一句** ✓（实测：桌面端独占管理 ✗ 命令行装不进也卸不掉 ✗）
+            //   —— 所以它排在**最前** ✓（否则 content-mismatch 会抢走这一行 ✓）
+            if (profile == "desktop")
             {
-                return EncodeNext(T("版本号与工具箱自带相同，但内容哈希不同：本条该行比的是 snapshot.js 与 index.js，原因见下（半旧或被改过，只看版本号看不出来）",
-                                    "same version as the bundled copy but a different content hash: this row compares snapshot.js and index.js - see the reason below"));
+                // ★ 短句 ✓（"命令行装不进也卸不掉""它接受本地目录路径"两条口径在说明页 ✓）
+                return EncodeNext(T("在桌面端插件机制里更新",
+                                    "update it in the desktop app's plugin mechanism"));
             }
             if (profile == "web")
             {
@@ -583,25 +586,29 @@ namespace Dsht.Cli
                 //   "这一行到底能不能按空格切"变成看情况的 ✗ 而这句话本身整句都要人读得懂 ✓）
                 return EncodeNext("bridge-install --profile web --yes");
             }
-            if (profile == "desktop")
+            if (state == "content-mismatch")
             {
-                // 实测：desktop 由桌面端独占管理 ✗ 命令行装不进也卸不掉 ✗（所以这里绝不提 bridge-install）
-                return EncodeNext(T("由 dsh 桌面端自己管理，命令行装不进也卸不掉：请在桌面端的插件机制里更新（它接受本地目录路径）",
-                                    "managed by the dsh desktop app itself - the command line cannot install or remove it; update it through the desktop app's plugin mechanism (it accepts a local folder path)"));
+                // 半旧那一态**必须让人知道是哪个文件不一样** ✓（整句解释在说明页 ✓）
+                // ★ 短到 20 字以内 ✓（"内容哈希与 .js 不一致" = 13 字 ✓）
+                return EncodeNext(T("内容哈希与 .js 不一致",
+                                    "content hash differs - see the .js files"));
             }
             if (state == "not-installed")
-                return EncodeNext(T("该 profile 未安装：如需安装请在对应客户端的插件机制里加，本工具不替它装",
-                                    "not installed in this profile: add it through that client's plugin mechanism; this tool does not install it for you"));
-            return EncodeNext(T("本工具只报状态，更新请在对应客户端 / 插件机制里做",
-                                "this tool only reports the state; update it through the matching client or plugin mechanism"));
+                return EncodeNext(T("未安装",
+                                    "not installed"));
+            if (state == "unknown")
+                return EncodeNext(T("见诊断行",
+                                    "see the diagnostic line"));
+            return EncodeNext(T("在对应客户端插件机制里更新",
+                                "update it in the matching client's plugin mechanism"));
         }
 
-        /// <summary>其余插件（✗ 不是桥接插件）该行独有的一句指引 ✓（那些行确实是每个 profile 一份 ✓
-        /// 于是各自带上自己那份 ✓ 原先它们一行指引都没有 ✗）。</summary>
+        /// <summary>其余插件（✗ 不是桥接插件）该行独有的一句指引 ✓ —— 同样**短** ✓（可读性：卡片那一列只放一条短句 ✓
+        /// ✗ 不再写"本工具只报状态；请在 profile「X」…"那种整句旁白 ✗）。</summary>
         private static string NextGenericOf(string profile)
         {
-            return EncodeNext(T("本工具只报状态；请在 profile「" + profile + "」对应的客户端 / 插件机制里更新",
-                                "this tool only reports the state; update it through the client or plugin mechanism for profile '" + profile + "'"));
+            return EncodeNext(T("在对应客户端插件机制里更新",
+                                "update it in the matching client's plugin mechanism"));
         }
 
         /// <summary>把 `next=` 的值编成**不含空格**的一小段 ✓（只换这一个字符 ✓ 其余原样保留 ✓）：

@@ -365,6 +365,26 @@ namespace Dsht.Gui.Avalonia.Markers
             return "";
         }
 
+        /// <summary>★★ 2026-10-11（表格化）：**表格「状态」那一列的短标签** ✓（每个都不超过 6 个字 ✓）。
+        /// 为什么单开一个：`StateText` 是**长句**（"内容与工具箱自带不一致" ✓ 9 字 ✓）——
+        ///   合并卡改成**固定五列表格**后，那一列只能容下短标签 ✓（✗ 长句会把列冲垮 ✗）。
+        ///   ✗ 语义一个字没改 ✗：这里的每个短标签与 `StateText` 说的是**同一件事**（同一套 state 判定 ✓）。
+        ///   `unknown` 在 CLI 侧有两种真实来源（随包基准不可用 / 老 CLI 不比对 ✓ 见 HintText）→ 短标签只写「未知」✓，
+        ///   具体原因仍由那一行的**诊断行**给出 ✓（✗ 不在这里编一个原因 ✗）。</summary>
+        public static string ShortState(string state)
+        {
+            if (state == "up-to-date") return "已是最新";
+            if (state == "update-available") return "有更新";
+            if (state == "not-installed") return "未安装";
+            if (state == "content-mismatch") return "内容不一致";
+            if (state == "newer-than-bundled") return "比自带新";
+            if (state == "newer-than-latest") return "比最新新";
+            if (state == "external") return "官方页更新";
+            // CLI 报了个 GUI 不认识的状态值 → 贴原值 ✓（✗ 不许吞成「未知」✗ 也不许硬塞 ✗）
+            if (!string.IsNullOrEmpty(state) && state != "unknown") return state;
+            return "未知";
+        }
+
         /// <summary>更新页读不到任何 `UPDATECENTER_ITEM` 时的**标题**（纯函数 ✓ 可测 ✓）。
         /// ★ 第三种情况（老 CLI 没有对应标记行）就在这里说清 ✗ 不许笼统写「未知」✗。</summary>
         public static string EmptyTitle(string raw, bool loading)

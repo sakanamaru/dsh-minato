@@ -97,6 +97,14 @@ function SharedNote([string]$out) {
     if ($n.Count -gt 0) { return $n[0].Trim() }
     return ''
 }
+# The NOTE *value* = the line minus its `UPDATECENTER_NOTE <id> ` prefix. The check below asserts on the
+# value (it starts with "baseline = ..."), NOT on the whole line (which starts with the marker).
+function SharedNoteValue([string]$out) {
+    $n = SharedNote $out
+    $p = 'UPDATECENTER_NOTE plugin:dsh-minato-bridge '
+    if ($n.StartsWith($p)) { return $n.Substring($p.Length) }
+    return $n
+}
 function HasDiag([string]$out) {
     return (@(LinesOf $out | Where-Object { $_.Trim().StartsWith('UPDATECENTER_DIAG plugin:') }).Count -gt 0)
 }
@@ -147,13 +155,26 @@ New-Item -ItemType Directory -Path $bare -Force | Out-Null
 
 # Expected CLI phrases (Chinese text) built from code points, so this file stays pure ASCII and
 # needs no UTF-8 BOM (the repo gates on "non-ASCII .ps1 must carry a BOM"). Decoded:
-#   $zhManaged      = U+7531 + " dsh " + U+684C U+9762 U+7AEF + U+81EA U+5DF1 + U+7BA1 U+7406
-#                     = "managed by the dsh desktop app itself" (the desktop guidance wording, 2026-10-11)
+#   $zhManageTail   = U+7BA1 U+7406 U+673A U+5236 U+91CC U+66F4 U+65B0 = "management" + "mechanism" + "updates"
+#                     (desktop guidance tail; wording shortened on 2026-10-11 for the table card)
+#   $zhDesktopSentence = the exact short desktop guidance sentence (assembled in section A below)
 #   $zhNotInstalled = U+672A U+5B89 U+88C5  = "not installed" (the state word we require)
 #   $zhInstalled    = U+5DF2 U+88C5         = "installed" (must NOT be claimed when the plugin is absent)
-$zhManaged = -join ([char]0x7531, ' dsh ', [char]0x684C, [char]0x9762, [char]0x7AEF, [char]0x81EA, [char]0x5DF1, [char]0x7BA1, [char]0x7406)
-$zhNotInstalled = -join ([char]0x672A, [char]0x5B89, [char]0x88C5)
-$zhInstalled = -join ([char]0x5DF2, [char]0x88C5)
+#   $zhBaselineWord = U+57FA U+51C6 + U+0020 U+003D U+0020 = "baseline = " (the shared NOTE's opening)
+#   $zhDesktopWord  = U+684C U+9762 U+7AEF = "desktop" (About page wording)
+#   $zhCliNoInstall = U+547D U+4EE4 U+884C U+88C5 U+4E0D U+8FDB = "command line cannot install"
+#   $zhOffline      = U+79BB U+7EBF = "offline"
+#   $zhBaseline     = U+57FA U+51C6 = "baseline"
+# NOTE: `-join ([char]..,[char]..)` is WRONG in Windows PowerShell 5.1 - that overload's separator
+# defaults to a SPACE, so it silently produces "管 理" instead of "管理". [string]::Join('', ...) is the fix.
+$zhManageTail = [string]::Join('', [string[]]@([char]0x7BA1, [char]0x7406, [char]0x673A, [char]0x5236, [char]0x91CC, [char]0x66F4, [char]0x65B0))
+$zhNotInstalled = [string]::Join('', [string[]]@([char]0x672A, [char]0x5B89, [char]0x88C5))
+$zhInstalled = [string]::Join('', [string[]]@([char]0x5DF2, [char]0x88C5))
+$zhBaselineWord = [string]::Join('', [string[]]@([char]0x57FA, [char]0x51C6, [char]0x20, [char]0x3D, [char]0x20))
+$zhDesktopWord = [string]::Join('', [string[]]@([char]0x684C, [char]0x9762, [char]0x7AEF))
+$zhCliNoInstall = [string]::Join('', [string[]]@([char]0x547D, [char]0x4EE4, [char]0x884C, [char]0x88C5, [char]0x4E0D, [char]0x8FDB))
+$zhOffline = [string]::Join('', [string[]]@([char]0x79BB, [char]0x7EBF))
+$zhBaseline = [string]::Join('', [string[]]@([char]0x57FA, [char]0x51C6))
 
 function New-Profile([string]$name) {
     $d = Join-Path (Join-Path $root 'profiles') $name
@@ -221,16 +242,37 @@ Check 'ONE shared NOTE and ONE shared URL for the whole id (6 rows, 1 note, 1 ur
 Check 'every row carries its own next= guidance (one per row, so a row can never pick up another row''s guidance)' `
     (@(ItemLines $out | Where-Object { (FieldOf $_ 'next') -eq '' }).Count -eq 0) `
     ((ItemLines $out | Where-Object { (FieldOf $_ 'next') -eq '' }) -join ' | ')
-Check 'the shared NOTE still states what the baseline is (it is now emitted once for the whole id, not dropped)' `
-    ($sharedNote.Contains('plugin\dsh-minato-bridge') -or $sharedNote.Contains('plugin/dsh-minato-bridge')) $sharedNote
-Check 'web guidance names: bridge-install --profile web --yes' `
+Check 'the shared NOTE still states what the baseline is (one short sentence, emitted once for the whole id)' `
+    ((SharedNoteValue $out).StartsWith($zhBaselineWord)) (SharedNoteValue $out)
+Check 'the shared NOTE is now SHORT (readability pass: it is no longer a whole paragraph of mechanism prose)' `
+    ($sharedNote.Length -lt 120) ('len=' + $sharedNote.Length)
+Check 'the card no longer carries the bundled plugin path or the hashing recipe (they moved to the About page of the GUI)' `
+    ((-not $sharedNote.Contains('snapshot.js')) -and (-not $sharedNote.Contains('index.js')) -and (-not $sharedNote.Contains('SHA-256')) -and (-not $sharedNote.Contains('VersionComparer')) -and (-not $sharedNote.Contains('\plugin\'))) `
+    $sharedNote
+Check 'web guidance is one short command: bridge-install --profile web --yes' `
     ((NextOf $out 'web') -eq 'bridge-install --profile web --yes') (NextOf $out 'web')
-Check 'desktop guidance says the profile is managed by the dsh desktop app, and does NOT promise a bridge-install command' `
-    ((NextOf $out 'desktop').Contains($zhManaged) -and (-not (NextOf $out 'desktop').Contains('bridge-install'))) (NextOf $out 'desktop')
+# The desktop row's guidance must be exact: the short sentence, and never a bridge-install promise.
+# (Exact equality is used, not a suffix search: an EndsWith on a value built from code points is a
+#  fragile assertion - if the code points are ever wrong it fails *silently* as a "missing word".)
+$dbgDesk = NextOf $out 'desktop'
+$zhDeskExpected = [string]::Join('', [string[]]@([char]0x5728, [char]0x684C, [char]0x9762, [char]0x7AEF, [char]0x63D2, [char]0x4EF6, [char]0x673A, [char]0x5236, [char]0x91CC, [char]0x66F4, [char]0x65B0))
+Check 'desktop guidance is the exact short sentence about the desktop plugin mechanism, and does NOT promise a bridge-install command' `
+    (($dbgDesk -eq $zhDeskExpected) -and (-not $dbgDesk.Contains('bridge-install'))) ('[' + $dbgDesk + ']')
+# Every next= value must be EITHER a command OR a short Chinese sentence of at most 20 characters.
+# A "command" is a value whose FIRST WORD is pure ASCII (bridge-install, ...). Anything else is prose.
+# Computed once, then asserted and reported.
+$longNext = @(ItemLines $out | Where-Object {
+    $v = DecodeNext (FieldOf $_ 'next')
+    $head = ($v -split ' ')[0]
+    $isAsciiCmd = ($v.IndexOf(' ') -gt 0) -and ($head -match '^[A-Za-z][A-Za-z0-9_.-]*$')
+    (-not $isAsciiCmd) -and ($v.Length -gt 20)
+})
+Check 'every next= value is either a command (first word is an ASCII command name) or a short sentence of at most 20 characters' `
+    ($longNext.Count -eq 0) (($longNext | ForEach-Object { DecodeNext (FieldOf $_ 'next') }) -join ' | ')
 Check 'per-profile guidance really differs (desktop next != web next)' `
     ((NextOf $out 'desktop') -ne (NextOf $out 'web')) 'identical next text'
-Check 'the content-mismatch row points at the hashed file in its own next= (snapshot.js)' `
-    ((NextOf $out 'stale').Contains('snapshot.js')) (NextOf $out 'stale')
+Check 'the content-mismatch row points at the hashed file in its own next= (it names the .js files)' `
+    ((NextOf $out 'stale').Contains('.js')) (NextOf $out 'stale')
 Check 'the not-installed row says not-installed and never claims an installed version' `
     ((NextOf $out 'none').Contains($zhNotInstalled) -and (-not (NextOf $out 'none').Contains($zhInstalled + ' '))) (NextOf $out 'none')
 Check 'a not-installed profile is not told to run the web command' `
@@ -259,6 +301,35 @@ foreach ($r in $realRoots) {
     if (($items -join '|') -ne $r.snap) { $dirty += ($r.path + ' ') }
 }
 Check 'the real data root was never touched (snapshot before/after)' ($dirty -eq '') $dirty
+
+# ---- C. information conservation: what left the card must be READABLE somewhere (2026-10-11) ----
+# The readability pass moved the mechanism prose and the bundled path out of the update-page card and
+# into the GUI's About page. That is only honest if the moved text really exists there - so grep the GUI
+# source itself. Two notes:
+#   * the About prose lives in Markers\UpdateBaselineExplain.cs as a PURE function, so LogicTests asserts
+#     it too (this static grep is the second, independent witness);
+#   * the file is read as UTF-8 EXPLICITLY: the .ps1 itself is pure ASCII (no BOM), so the default
+#     encoding of Windows PowerShell 5.1 would mangle the Chinese text and produce a false failure.
+# The rendered page is proven by shots\gui-work\pluginread-*.png.
+Write-Host ''
+Write-Host '== C. the moved explanation is really present in the GUI About page =='
+function ReadUtf8([string]$path) {
+    if (-not (Test-Path -LiteralPath $path)) { return '' }
+    $bytes = [System.IO.File]::ReadAllBytes($path)
+    $enc = New-Object System.Text.UTF8Encoding($false)
+    return $enc.GetString($bytes)
+}
+$explainPath = Join-Path $Repo 'v3\gui\Dsht.Gui.Avalonia\Markers\UpdateBaselineExplain.cs'
+$explain = ReadUtf8 $explainPath
+Check 'GUI About-page text source was found (Markers\UpdateBaselineExplain.cs)' ($explain.Length -gt 0) $explainPath
+Check 'About page still explains the baseline (the bundled copy, decided offline, no new channel)' `
+    ($explain.Contains('plugin\dsh-minato-bridge') -and $explain.Contains($zhOffline) -and $explain.Contains($zhBaseline)) 'About text lost the baseline paragraph'
+Check 'About page still explains the double comparison (version + content hash of snapshot.js / index.js)' `
+    ($explain.Contains('VersionComparer') -and $explain.Contains('SHA-256') -and $explain.Contains('snapshot.js') -and $explain.Contains('index.js')) 'About text lost the double-comparison paragraph'
+Check 'About page still gives the full path of the bundled baseline (exe dir + plugin folder)' `
+    ($explain.Contains('PathsText') -and $explain.Contains('"plugin", "dsh-minato-bridge"')) 'About text lost the path paragraph'
+Check 'About page still says the desktop profile is managed by the desktop app and cannot be installed from the command line' `
+    ($explain.Contains($zhDesktopWord) -and $explain.Contains($zhCliNoInstall)) 'About text lost the desktop-managed wording'
 
 if (-not $Keep) {
     foreach ($d in @($root, $bare)) { Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }

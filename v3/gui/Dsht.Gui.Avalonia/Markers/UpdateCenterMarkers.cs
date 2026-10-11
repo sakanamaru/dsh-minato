@@ -211,10 +211,81 @@ namespace Dsht.Gui.Avalonia.Markers
             return string.Join("\n", all.ToArray());
         }
 
-        // ================================================================ 每个 profile 一行的显示
+        // ================================================================ 每个 profile 一行（★ 2026-10-11 起 = 一张小表的行）
+
+        /// <summary>★★ 2026-10-11（维护者实测「读起来费劲 ✗」）：合并卡的每一行**不再是一句长话** ✗，
+        ///   而是一张**固定五列的小表** ✓：`profile ｜ 已装 ｜ 工具箱自带 ｜ 状态 ｜ 下一步` ✓。
+        ///   为什么把列名做成常量、把行做成字符串数组：
+        ///   · 列名与每格的值都是**纯函数**产出 → LogicTests 能直接断言"列语义" ✓（✗ 不是断言"某处 UI 像在循环" ✗）
+        ///   · 渲染侧（`Shells.Pages.Operations.cs`）照这五列建 Grid ✓（✗ 不新造控件 ✗ 用现有 Grid ✓）
+        ///   ★ 每格一律短 ✓：状态 ≤ 6 字 ✓、下一步 = 一条命令或 ≤20 字短句 ✓；
+        ///   ★ 长路径与整段机制说明**已搬去「说明」页** ✓（✗ 一个字都没丢 ✗ 见 `Shells.cs` 的说明章节 ✓）。</summary>
+        public static readonly string[] TableHeaders = new string[] { "profile", "已装", "工具箱自带", "状态", "下一步" };
+
+        /// <summary>表格「已装」那一格 ✓（认不出 → 「未安装」✓ ✗ 不编一个版本号 ✗）。</summary>
+        public static string CellInstalled(Item it)
+        {
+            if (it == null) return "";
+            bool ok = !string.IsNullOrEmpty(it.Installed) && it.Installed != "unknown";
+            return ok ? VersionMarkers.TagOf(it.Installed) : "未安装";
+        }
+
+        /// <summary>表格「工具箱自带」那一格 ✓（基准 = 你这份工具箱自带的那一份 ✓ 不是网上的最新版 ✓）。
+        /// 基准读不到（CLI 报 `latest=unknown`）→ 「未知」✓（✗ 不编一个版本号 ✗；原因在诊断行 ✓）。</summary>
+        public static string CellBundled(Item it)
+        {
+            if (it == null) return "";
+            bool ok = !string.IsNullOrEmpty(it.Latest) && it.Latest != "unknown";
+            return ok ? VersionMarkers.TagOf(it.Latest) : "未知";
+        }
+
+        /// <summary>表格「状态」那一格 ✓（短标签 ≤ 6 字 ✓ 语义与 `UpdateDiagnosis.StateText` 同一套 ✓）。</summary>
+        public static string CellState(Item it)
+        {
+            if (it == null) return "";
+            return UpdateDiagnosis.ShortState(it.State);
+        }
+
+        /// <summary>表格「下一步」那一格 ✓ —— **该行独有** ✓（CLI 的 `next=` ✓ 已解码 ✓）。
+        /// ★ 短：CLI 现在给的是一条命令（web ✓）或一句 ≤20 字的短句（desktop / 未安装 / 半旧 ✓）；
+        ///   ★ **老 CLI 没有 `next=`** → 如实写一句短的兜底 ✓（✗ 不留空让人以为"没有下一步" ✗
+        ///     也✗ 不把别人的指引借过来 ✗）。</summary>
+        public static string CellNext(Item it)
+        {
+            if (it == null) return "";
+            string n = DecodeNext(it.Next);
+            if (HasNext(n)) return n;
+            if (it.State == "content-mismatch") return "内容哈希不一致";
+            if (it.State == "not-installed") return "未安装";
+            if (it.State == "unknown") return "见诊断行";
+            return "在对应客户端插件机制里更新";
+        }
+
+        /// <summary>一张表的**一行**（五格 ✓ 顺序 = `TableHeaders` ✓）。</summary>
+        public static string[] TableRow(Item it)
+        {
+            return new string[] { ProfileOf(it), CellInstalled(it), CellBundled(it), CellState(it), CellNext(it) };
+        }
+
+        /// <summary>合并卡的**正文 = 整张表** ✓：`表头` ＋ 每个 profile 一行 ✓（每行五格用 `\t` 分隔 ✓）。
+        /// ★ 这就是"同一插件三行都要渲染出来、列语义不乱"的那段文本本身 ✓（LogicTests 直接断言它 ✓）。</summary>
+        public static string RowsText(List<Item> group)
+        {
+            if (group == null || group.Count == 0) return "";
+            StringBuilder sb = new StringBuilder();
+            sb.Append(string.Join("\t", TableHeaders));
+            for (int i = 0; i < group.Count; i++)
+            {
+                sb.Append('\n');
+                sb.Append(string.Join("\t", TableRow(group[i])));
+            }
+            return sb.ToString();
+        }
 
         /// <summary>某一行"已装 → 基准"的**版本段** ✓（基准 = 工具箱自带那一份 ✓ 不是网上的最新版 ✓）。
-        /// 三种真实情形分开说 ✓：基准不可用（latest=unknown ✓ 不编 ✗）/ 未安装 / 已装：</summary>
+        /// ⚠ 2026-10-11（表格化）：**合并卡已经不用它了** ✗（合并卡走五列表格 ✓ 短格 ✓）；
+        ///   它还留着是因为**单行的插件卡**（只有一个 profile 的插件 ✓ 走 `RenderUpdCard` ✓）
+        ///   与 LogicTests 仍按它给出完整的版本句 ✓ —— **口径与措辞一字未改** ✓。</summary>
         public static string RowVersionText(string installed, string latest, string state)
         {
             bool baseOk = !string.IsNullOrEmpty(latest) && latest != "unknown";
@@ -233,7 +304,8 @@ namespace Dsht.Gui.Avalonia.Markers
         }
 
         /// <summary>某一行**显示的整句** ✓（版本段 · 状态 · 该行独有的下一步 ✓ 三样都要看得见 ✓）。
-        /// profile 名字**不在这里** ✗ —— 它由合并卡的第一列单独显示 ✓。</summary>
+        /// ⚠ 2026-10-11（表格化）：**合并卡已经不用它了** ✗（合并卡走五列表格 ✓）；
+        ///   单行的插件卡仍用它（那里有整行宽度 ✓ 长句读得下 ✓）。</summary>
         public static string RowText(Item it)
         {
             if (it == null) return "";
@@ -246,19 +318,35 @@ namespace Dsht.Gui.Avalonia.Markers
             return sb.ToString();
         }
 
-        /// <summary>合并卡的**正文**：每个 profile 一行 ✓（`profile &lt;tab&gt; 整句` ✓）。
-        /// ★ 这就是"同一插件三行都要渲染出来"的那段文本本身 ✓（LogicTests 直接断言它 ✓
-        ///   ✗ 不是断言"某处的 UI 代码看起来像在循环" ✗）。</summary>
-        public static string RowsText(List<Item> group)
+        /// <summary>卡头右侧的小汇总 ✓（例：`有更新 1 · 已是最新 1 · 未安装 1` ✓）。
+        /// 语法：只列**这个 id 真实出现过的**状态 ✓；同一个状态的几行**合成一个计数** ✓（✗ 不每行报一次 ✗）；
+        /// 顺序 = 固定优先级（最需要你看一眼的在前 ✓ 与 `OverallState` 同一套优先级 ✓ 可复现 ✓）；
+        /// 一个状态都没有（理论上不会 ✓）→ 空串 ✓（✗ 不编一个 ✗）。</summary>
+        public static string SummaryText(List<Item> group)
         {
             if (group == null || group.Count == 0) return "";
-            StringBuilder sb = new StringBuilder();
+            string[] order = new string[] { "unknown", "content-mismatch", "update-available", "newer-than-bundled", "not-installed", "up-to-date" };
+            List<string> parts = new List<string>();
+            for (int k = 0; k < order.Length; k++)
+            {
+                int n = 0;
+                for (int i = 0; i < group.Count; i++) if (group[i].State == order[k]) n++;
+                if (n > 0) parts.Add(UpdateDiagnosis.ShortState(order[k]) + " " + n);
+            }
+            // GUI 不认识的状态值（CLI 以后新增的 ✓）也要出现在汇总里 ✓（✗ 不吞 ✗ 排在最后 ✓）
             for (int i = 0; i < group.Count; i++)
             {
-                if (i > 0) sb.Append('\n');
-                sb.Append(ProfileOf(group[i])).Append('\t').Append(RowText(group[i]));
+                bool known = false;
+                for (int k = 0; k < order.Length; k++) if (group[i].State == order[k]) { known = true; break; }
+                if (known) continue;
+                string label = UpdateDiagnosis.ShortState(group[i].State);
+                int n = 0;
+                for (int j = 0; j < group.Count; j++) if (group[j].State == group[i].State) n++;
+                bool dup = false;
+                for (int p = 0; p < parts.Count; p++) if (parts[p].StartsWith(label + " ", StringComparison.Ordinal)) { dup = true; break; }
+                if (!dup) parts.Add(label + " " + n);
             }
-            return sb.ToString();
+            return string.Join(" · ", parts.ToArray());
         }
 
         /// <summary>这一行的 profile 名 ✓（认不出 → 如实写出来 ✓ 不编一个名字 ✗）。</summary>
