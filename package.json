@@ -16,6 +16,9 @@
     "plugin/dsh-minato-bridge/README.md"
   ],
   "license": "MIT",
+  "engines": {
+    "node": ">=22.15.0 <23.0.0 || >=23.8.0"
+  },
   "keywords": [
     "dsh-plugin",
     "deepseek-harness",

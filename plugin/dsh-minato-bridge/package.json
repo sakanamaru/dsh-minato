@@ -14,6 +14,9 @@
     "README.md"
   ],
   "license": "MIT",
+  "engines": {
+    "node": ">=22.15.0 <23.0.0 || >=23.8.0"
+  },
   "homepage": "https://github.com/sakanamaru/dsh-minato",
   "repository": {
     "type": "git",

@@ -126,6 +126,38 @@ dsh-minato profilepatch --profile web --id shio-bridge --yes
 **可核对性**：本插件只 `import` node 内置的 `node:fs` / `node:path` / `node:zlib`（`snapshot.js` 头几行即可核对）
 —— 没有网络、没有第三方包。
 
+## 兼容性与验证 / Compatibility & verification
+
+### 兼容性（只写**实测过**的；未验证的版本不写范围 ✗）
+
+| 依赖 | 已实测 ✓ | 说明 |
+|---|---|---|
+| DSH | **0.2.0-rc.2**（nightly 桌面版） | 装载 + 启动：2026-09-28 隔离 `$DSH_HOME` + 端口 3999 ✓（见文末验证记录）；端到端血缘快照：2026-10-09 真实桌面实例，与 node 独立扫描器对拍 MATCH ✓。其它版本**未验证**；`0.1.5-rc.2` 判定**不兼容**（见下） |
+| Node.js | **v24.19.0**（本插件测试机）· **24.21.0**（DSH 0.2.0-rc.2 桌面版内嵌运行时） | `engines`：`>=22.15.0 <23.0.0 \|\| >=23.8.0` —— 下限 = 血缘段使用的 `node:zlib.zstdDecompressSync` 的引入版本（官方 API 文档「Added in: v22.15.0 / v23.8.0」：[v22 文档](https://nodejs.org/docs/latest-v22.x/api/zlib.html#zlibzstddecompresssyncbuffer-options) · [v23 文档](https://nodejs.org/docs/latest-v23.x/api/zlib.html#zlibzstddecompresssyncbuffer-options)；v20 无此 API，23.0–23.7 也没有，所以范围故意绕开这段空窗）。更老的 Node **不是装不上，而是血缘段会降级**（见下），其余功能照常 |
+
+**`0.1.5-rc.2`（旧版全局 CLI）：不兼容（静默不工作）。** 2026-10-11 探针（临时 `$DSH_HOME` + 端口 3997，只读，未改动任何安装）：插件**装得上、宿主起得来、无报错**，但 0.1.5 的依赖树里**找不到 `sessionQuery` / `sessionProjections` 的 provide 方**（只有 `sessions`）→ 插件声明的 inject 凑不齐 → `apply()` 不执行 → 永远不写快照、也不报错。这正是「Known limits」说的「dsh 改内部接口时静默降级」—— 所以判定不兼容、不计入已实测。
+
+**降级行为（按代码核实，`snapshot.js`）**：宿主 Node 没有 `zstdDecompressSync` 时**不会崩** ——
+逐会话解码失败 ⇒ 该会话无血缘条目、`lineage.errors` +1（`:280-293`）；整段扫描失败 ⇒ 快照不写 `lineage` 键、
+工具侧如实显示「血缘未知」（`:618-628`）。快照其余部分（会话清单 / token / 统计）照常。
+
+### 验证记录（谁、何时、怎么复验）
+
+| 日期 | 验证 | 结果 |
+|---|---|---|
+| 每次改动（任何人可复跑） | `node test/snapshot.test.js` | **41 passed, 0 failed** |
+| 2026-09-28 | 隔离 `$DSH_HOME` 装载 + 启动（端口 3999） | ✓（第一次因 schemastery 导入失败 → 改零依赖后通过，见文末记录） |
+| 2026-10-08 | 全库复验：283 投影 + 319 原始日志 | header `origin==="subagent"` ⟺ 投影 `identity` 非空 **283/283 完全一致** |
+| 2026-10-08 | 最大 v4 日志（43,756,264 B）整文件切帧 | **9,859 帧 / 0 失败**，帧边界扫描与全量解压逐帧 MATCH（差 0） |
+| 2026-10-09 | 真实桌面端到端：血缘边 283 = 199 subagent + 18 fork + 66 root | errors=0；node 独立扫描器 vs 桥插件**双引擎对拍 MATCH ×2** |
+| 2026-10-11 | 真实库血缘不变量 I1–I9（只读脚本复跑） | **全 PASS**（290 投影；26 条未认领按既有降级方案走） |
+| 2026-10-11 | 真实库血缘扫描（插件自身 `scanSessionsLineage`，只读） | 293 个会话目录 / 326 个 zstd 文件 / **290 个 header 成功 / 3 个无 header 如实计 / 0 解码错误** / 83 ms |
+
+### 不涉及（只读承诺，与上文「What it reads / writes」一致）
+
+**不调用模型 ✗ · 不联网 ✗ · 不写 dsh 状态 / 配置 / 会话文件 ✗ · 不读凭据、不读会话正文 ✗**
+（原始日志也只解首帧 header，正文帧一帧不解）。唯一写入 = 每 3 秒一份小 JSON 快照。
+
 ## Snapshot format (v2，工具箱侧 `SessionStats.ParseSnapshot` 按此解析)
 
 ```json
