@@ -34,7 +34,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             runBar.Children.Add(PrimaryButton("运行体检", delegate { host.RunDoctorNow(); }));
 
-            runBar.Children.Add(T("进这一页**不再自动跑** doctor（它最长要 6.5 秒 ✓）；点按钮才跑、逐行出结果，上次的结果保留着 ✓", 11.5, Palette.TextDim));
+            runBar.Children.Add(T("进这一页不再自动跑 doctor（它最长要 6.5 秒）；点按钮才跑，逐行出结果，上次的结果保留着", 11.5, Palette.TextDim));
 
             s.Children.Add(Card(runBar, new Thickness(0), new Thickness(16, 14)));
 
@@ -210,7 +210,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 loc.Children.Add(lb);
 
-                loc.Children.Add(T("已有备份**不会被移动** ✓ 仍在原处 ✓ 只有以后的备份写到新位置 ✓（放在安装目录之外更稳妥 ✓）", 11.5, Palette.TextFaint));
+                loc.Children.Add(T("已有备份不会被移动，仍在原处；只有以后的备份写到新位置（放在安装目录之外更稳妥）", 11.5, Palette.TextFaint));
 
                 s.Children.Add(Card(loc, new Thickness(0), new Thickness(16, 14)));
 
@@ -220,7 +220,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             if (items.Count == 0)
 
-                s.Children.Add(EmptyState("还没有备份", "点「立即备份」创建第一份（空数据根不会被算作有效备份，这是刻意的规则）。"));
+                s.Children.Add(EmptyState("还没有备份", "点「立即备份」创建第一份（空数据根不会被算作有效备份，这是有意的规则）。"));
 
             // 美学A1：一份备份**一行**（原来是每份一张大卡 + 4 个按钮 ✗ 5 份滚 5 屏 ✗）
 
@@ -288,7 +288,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             wipe.Children.Add(T("清除数据（已改为手动）", 13, Palette.Warn, FontWeight.SemiBold));
 
-            wipe.Children.Add(T("**本工具不再提供清除数据** —— 按用户要求删掉了这个操作 ✓ 避免误点造成不可逆的丢失 ✓。", 11.5, Palette.TextDim));
+            wipe.Children.Add(T("本工具不再提供清除数据 —— 这个操作已删除，避免误点造成不可逆的丢失。", 11.5, Palette.TextDim));
 
             // ✓✓ **用户要求（2026-09-30）**：「删除中排除备份文件夹且无法选择，要删自己删」✓✓
 
@@ -296,13 +296,13 @@ namespace Dsht.Gui.Avalonia.Shells
 
             //   · 界面上：**没有删除备份文件夹的选项** ✓✓（这里是说明 ✓ 不是按钮 ✓）
 
-            wipe.Children.Add(T("备份文件夹**不在删除范围内** ✓ 本工具**不会**删它 ✓ 想删请**自己**去删（路径见下面的按钮 ✓）。", 11.5, Palette.TextDim));
+            wipe.Children.Add(T("备份文件夹不在删除范围内，本工具不会删它；想删请自己去删（路径见下面的按钮）。", 11.5, Palette.TextDim));
 
-            wipe.Children.Add(T("界面上**没有**删除备份文件夹的选项 ✓ 这是刻意的 —— 备份是你最后的退路 ✓ 不该被一键清掉 ✓。", 11.5, Palette.TextFaint));
+            wipe.Children.Add(T("界面上没有删除备份文件夹的选项，这是刻意的 —— 备份是你最后的退路。", 11.5, Palette.TextFaint));
 
             StackPanel wacts = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
 
-            wacts.Children.Add(GhostButton(T("显示手动删除路径（只读 ✓ 不删任何东西 ✓）", 11.5, Palette.Text), delegate { host.WipePlan(); }, true));
+            wacts.Children.Add(GhostButton(T("显示手动删除路径（只读，不删任何东西）", 11.5, Palette.Text), delegate { host.WipePlan(); }, true));
 
             // ★★★ **用户要求（2026-09-30）**：「删除 GUI 备份里的清除数据操作按钮，点击只弹出手动删除路径」✓✓
 
@@ -589,7 +589,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             bar.Children.Add(PrimaryButton("检查更新", delegate { host.Refresh(); }));
 
-            bar.Children.Add(T("只读检查 ✓ 不动任何东西；更新前会**自动备份**并保留回滚点 ✓", 11.5, Palette.TextDim));
+            bar.Children.Add(T("只读检查，不动任何东西；更新前会自动备份并保留回滚点", 11.5, Palette.TextDim));
 
             s.Children.Add(Card(bar, new Thickness(0), new Thickness(16, 14)));
 
@@ -739,7 +739,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 {
 
-                    acts.Children.Add(T("本工具的更新不影响你的数据 ✓（不动 ~/.dsh、备份与配置 ✓）", 11.5, Palette.TextFaint));
+                    acts.Children.Add(T("本工具的更新不影响你的数据（不动 ~/.dsh、备份与配置）", 11.5, Palette.TextFaint));
 
                 }
 
@@ -747,7 +747,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 {
 
-                    acts.Children.Add(T("插件由各自作者维护 ✓ 本工具不替它更新、也不替它担保 ✓ 更新前请先看上面的风险说明 ✓", 11.5, Palette.TextFaint));
+                    acts.Children.Add(T("插件由各自作者维护，本工具不替它更新、也不替它担保；更新前请先看上面的风险说明", 11.5, Palette.TextFaint));
 
                 }
 
@@ -769,7 +769,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
 
 
-            s.Children.Add(Card(T("纪律：**检查是只读的** ✓；**更新前一律自动备份** ✓（本工具自己的更新除外 —— 它不碰数据 ✓）；**desktop 只去官方安装页** ✓；**插件更新由你自行决定** ✓ 本工具只如实展示版本与地址 ✓", 11.5, Palette.TextFaint), new Thickness(0), new Thickness(16, 12)));
+            s.Children.Add(Card(T("纪律：检查是只读的；更新前一律自动备份（本工具自己的更新除外 —— 它不碰数据）；desktop 只去官方安装页；插件更新由你自行决定，本工具只展示版本与地址", 11.5, Palette.TextFaint), new Thickness(0), new Thickness(16, 12)));
 
             return s;
 
@@ -1046,7 +1046,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             upd.Children.Add(T("更新", 13, Palette.Text, FontWeight.SemiBold));
 
-            upd.Children.Add(T("检查更新是**只读**的 ✓（只查已装版本、更新通道、最新版本，不动任何东西）；更新会**先备份再更新** ✓ 并保留回滚点 ✓", 11.5, Palette.TextDim));
+            upd.Children.Add(T("检查更新是只读的（只查已装版本、更新通道、最新版本，不动任何东西）；更新会先备份再更新，并保留回滚点", 11.5, Palette.TextDim));
 
             StackPanel updRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
 
@@ -1064,7 +1064,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             if (host.ActionBusy)
 
-                upd.Children.Add(T("已有动作在进行：" + host.ActionBusyLabel + " —— 结束前上面的按钮不可点 ✓（同时只允许一个，避免多个更新互相踩 ✗）", 11.5, Palette.Warn));
+                upd.Children.Add(T("已有动作在进行：" + host.ActionBusyLabel + " —— 结束前上面的按钮不可点（同时只允许一个动作）", 11.5, Palette.Warn));
 
             s.Children.Add(Card(upd, new Thickness(0), new Thickness(16, 14)));
 
@@ -1352,13 +1352,13 @@ namespace Dsht.Gui.Avalonia.Shells
 
                     if (nv.Length > 0) host.SetConfig(c.Key, nv);
 
-                    else host.ShowToast("留空 = 保持当前 key 不变 ✓ 要解除绑定请点「清除」");
+                    else host.ShowToast("留空 = 保持当前 key 不变；要解除绑定请点「清除」");
 
                 }));
 
                 if (hasKey) edit.Children.Add(ActionGhost(host, "清除（解除绑定）", delegate { host.SetConfig(c.Key, ""); }));
 
-                edit.Children.Add(T("⚠ key 以明文存在本机配置文件里，只在你自己的机器上 ✓ 不上传 ✓；未绑定则概览页不显示余额卡", 11.5, Palette.Warn));
+                edit.Children.Add(T("⚠ key 以明文存在本机配置文件里，只在你自己的机器上，不上传；未绑定则概览页不显示余额卡", 11.5, Palette.Warn));
 
             }
 
@@ -1519,7 +1519,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 bc.Children.Add(ib);
 
-                bc.Children.Add(T("需要 dsh 与 pnpm（dsh 不会替你装 pnpm，先 npm i -g pnpm）。装完重启 dsh 生效。结果如实显示，包括「包已 link 但 patch 缺行 → 不会加载」这种情形。", 11.5, Palette.TextFaint));
+                bc.Children.Add(T("需要 dsh 与 pnpm（dsh 不会替你装 pnpm，先 npm i -g pnpm）。装完重启 dsh 生效。结果会完整显示，包括「包已 link 但 patch 缺行 → 不会加载」这种情形。", 11.5, Palette.TextFaint));
 
 
 
@@ -1565,7 +1565,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 tut.Children.Add(T("在桌面端的「添加插件」对话框里，下面两条**任选一条**粘进去（它接受 npm 包名 / GitHub 地址 / 本地目录路径）：", 11.5, Palette.TextDim));
 
-                tut.Children.Add(T("A · 仓库地址（**直接填这个就行** ✓ 仓库根已有 package.json 并声明了 dsh.bundle）", 11.5, Palette.TextFaint));
+                tut.Children.Add(T("A · 仓库地址（直接填这个就行；仓库根已有 package.json 并声明了 dsh.bundle）", 11.5, Palette.TextFaint));
 
                 // ★ 更新（2026-10-02）：原来这里写"只填仓库根不行" ✗ —— 那在当时是事实 ✓
 
@@ -1619,7 +1619,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
                     {
 
-                        Text = selfPlugin.Length > 0 ? selfPlugin : "(随包分发的 plugin/dsh-minato-bridge 目录)",
+                        Text = selfPlugin.Length > 0 ? selfPlugin : "(工具箱自带的 plugin/dsh-minato-bridge 目录)",
 
                         FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Foreground = Palette.Accent
 
@@ -1635,7 +1635,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
                     try { exists = selfPlugin.Length > 0 && System.IO.Directory.Exists(selfPlugin); } catch { }
 
-                    if (!exists) tut.Children.Add(T("（上面这条路径在**开发构建**里不存在 —— 发布包里 plugin/ 就在 exe 旁边 ✓ 以发布包为准；源码运行时请用仓库里的 plugin/dsh-minato-bridge ✓）", 10.5, Palette.TextFaint));
+                    if (!exists) tut.Children.Add(T("（上面这条路径在开发构建里不存在 —— 发布包里 plugin/ 就在 exe 旁边，以发布包为准；源码运行时请用仓库里的 plugin/dsh-minato-bridge）", 10.5, Palette.TextFaint));
 
                 }
 

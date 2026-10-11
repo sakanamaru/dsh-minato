@@ -168,7 +168,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
                     return "非空 " + (d == null ? "—" : a.NonBlank.ToString()) + " · dsh 活跃 " + (d == null ? "—" : a.Live.ToString())
 
-                        + "（在动看每行状态 ✓「挂着」= 还在 dsh 里但没动 ✓） · 子代理 " + (d == null ? "—" : a.Subs.ToString())
+                        + "（在动看每行状态；「挂着」= 还在 dsh 里但没动） · 子代理 " + (d == null ? "—" : a.Subs.ToString())
 
                         + " / 根 " + (d == null ? "—" : (a.Count - a.Subs).ToString());
 
@@ -362,7 +362,7 @@ namespace Dsht.Gui.Avalonia.Shells
             ComboBox arCb = SlimCombo(arLabels, sel, 118); arCb.VerticalAlignment = VerticalAlignment.Center;
 
             // ★ 先设 SelectedIndex、后挂事件 ✓ —— 初始化那一拍不会触发一次多余的写盘 ✓
-            ToolTip.SetTip(arCb, "只在概览/看板生效 ✓ 0.5 秒档 = 每拍起一个 CLI 进程（有真实成本 ✓）自定义可输 0.5–3600 秒");
+            ToolTip.SetTip(arCb, "只在概览/看板生效。0.5 秒档 = 每拍起一个 CLI 进程（有真实成本），自定义可输 0.5–3600 秒");
 
             arCb.SelectionChanged += async delegate
 
@@ -557,7 +557,7 @@ namespace Dsht.Gui.Avalonia.Shells
                 string f2; string t2; string err2;
                 if (!SessionsMarkers.TryParseCustomRange(typed, out f2, out t2, out err2))
                 {
-                    host.NoteBoard("自定义日期区间未生效：" + err2 + "（✗ 不默认补端点 ✗ 不猜 ✓ 重新点「自定义…」再输 ✓）");
+                    host.NoteBoard("自定义日期区间未生效：" + err2 + "（不会自动补端点；重新点「自定义…」再输）");
                     host.RefreshBoard();   // ★ 体验修复：回执条/toast 即时 ✓ 不再整页重建 ✓
                     return;
                 }
@@ -749,9 +749,9 @@ namespace Dsht.Gui.Avalonia.Shells
             {
                 SessionsSnapshot d = host.Data;
                 string span = (d != null && d.AggFirstDay.Length > 0 && d.AggFirstDay != "unknown" && d.AggLastDay.Length > 0 && d.AggLastDay != "unknown")
-                    ? d.AggFirstDay + " ~ " + d.AggLastDay : "未知（不猜）";
+                    ? d.AggFirstDay + " ~ " + d.AggLastDay : "未知";
                 return "非空会话 " + (d != null ? d.AggNonBlank : 0) + " 个 · 活动跨度（本地日期）" + span
-                    + " · token 未知的会话未计入求和（不假装 0）";
+                    + " · token 未知的会话未计入求和";
             }));
             Border secTHost = new Border { Child = secT, IsVisible = hasTotal0 };
             host.Live(delegate
@@ -796,11 +796,11 @@ namespace Dsht.Gui.Avalonia.Shells
                 if (d == null) return "";
                 string range = (d.WinFrom != "-" && d.WinTo != "-") ? d.WinFrom + " ~ " + d.WinTo + "（右端不含 · 时区 " + (d.WinTz.Length > 0 ? d.WinTz : "未知") + "）" : "窗口范围未知";
                 string miss = d.WinUnknownLast > 0
-                    ? " · 另有 " + d.WinUnknownLast + " 个会话没有最后活动时间 → 不进窗口（不猜日期 ✓ 已计入上方总计卡 ✓）"
+                    ? " · 另有 " + d.WinUnknownLast + " 个会话没有最后活动时间 → 不进窗口（已计入上方总计卡）"
                     : "";
                 BoardMetrics.LevelSum s = BoardMetrics.SumOwnRows(d);
                 string unk = s.TokUnknown > 0
-                    ? " · " + s.TokUnknown + " 个会话 token 未知（未计入求和 ✓ 不假装 0 ✓）"
+                    ? " · " + s.TokUnknown + " 个会话 token 未知（未计入求和）"
                     : "";
                 return "窗口：" + range + miss + unk;
             }));
@@ -868,7 +868,7 @@ namespace Dsht.Gui.Avalonia.Shells
                 AddLvCell(g, note, row, 4);
             }
             c.Children.Add(g);
-            TextBlock fn = T("数字 = SESSAGG_SESSION bucket=own 求和 · token 未知的会话未计入（不假装 0 ✓）· 范围 = 当前窗口 eligible 集；「读取中…」= 该档正在后台拉取 ✗ 不编数 ✓", 10.5, Palette.TextFaint);
+            TextBlock fn = T("数字 = SESSAGG_SESSION bucket=own 求和 · token 未知的会话未计入 · 范围 = 当前窗口 eligible 集；「读取中…」= 该档正在后台拉取", 10.5, Palette.TextFaint);
             fn.TextWrapping = TextWrapping.Wrap;
             c.Children.Add(fn);
             return Card(c, new Thickness(0), new Thickness(18, 8));
@@ -892,12 +892,12 @@ namespace Dsht.Gui.Avalonia.Shells
             if (lv != "global" && !cur.LineageOk) return LvRowDeg("—", "需桥插件血缘");
             SessionsSnapshot d = host.LevelSnap(lv);
             if (d == null) return LvRowDeg("读取中…", "");
-            if (!d.Ok || !d.HasWinMeta) return LvRowDeg("—", "未知（不猜 ✓）");
+            if (!d.Ok || !d.HasWinMeta) return LvRowDeg("—", "未知");
             BoardMetrics.LevelSum s = BoardMetrics.SumOwnRows(d);
             string note;
             if (lv == "global") note = "—";
             else if (lv == "parents") note = "不含子代理";
-            else note = d.ForkSessions >= 0 ? "fork " + d.ForkSessions + " 个已排除" : "fork 数未知（不猜 ✓）";
+            else note = d.ForkSessions >= 0 ? "fork " + d.ForkSessions + " 个已排除" : "fork 数未知";
             if (s.TokUnknown > 0) note = (note == "—" ? "" : note + "；") + s.TokUnknown + " 个 token 未知未计入";
             return new string[] {
                 s.Sessions + "",
@@ -924,7 +924,7 @@ namespace Dsht.Gui.Avalonia.Shells
                 if (sg != sig0) { sig0 = sg; rows.Children.Clear(); BuildTop5Rows(host, rows); }   // ★ 只在榜变才重建 ✓✓
             });
             c.Children.Add(rows);
-            TextBlock fn = T("按输入降序 · 仅列数值完整的会话（token 或轮次未知的不进榜 ✓ 不猜 ✓）· 范围 = 当前窗口 eligible 集", 10.5, Palette.TextFaint);
+            TextBlock fn = T("按输入降序 · 仅列数值完整的会话（token 或轮次未知的不进榜）· 范围 = 当前窗口 eligible 集", 10.5, Palette.TextFaint);
             fn.TextWrapping = TextWrapping.Wrap;
             c.Children.Add(fn);
             return Card(c, new Thickness(0), new Thickness(18, 8));
@@ -935,7 +935,7 @@ namespace Dsht.Gui.Avalonia.Shells
             List<BoardMetrics.TopRow> top = BoardMetrics.Top5ByInput(host.Data);
             if (top == null || top.Count == 0)
             {
-                rows.Children.Add(T("暂无数值完整的会话（token 或轮次未知的不进榜 ✓ 不猜 ✓）", 11.5, Palette.TextDim));
+                rows.Children.Add(T("暂无数值完整的会话（token 或轮次未知的不进榜）", 11.5, Palette.TextDim));
                 return;
             }
             Grid g = new Grid { ColumnDefinitions = new ColumnDefinitions("*,90,90,70") };
@@ -1011,7 +1011,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             {
 
-                Text = "依据只来自可观测事实：本地端口是否监听 + 进程是否存在。dsh 换了形态（例如 headless 没有端口）时，这里会如实显示未运行，而不是假装就绪。",
+                Text = "依据只有可观测事实：本地端口是否监听 + 进程是否存在。dsh 换了形态（例如 headless 没有端口）时，这里显示未运行。",
 
                 Foreground = Palette.TextDim,
 
@@ -1177,7 +1177,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 {
 
-                    bcard.Children.Add(T("暂未取到余额 ✗ 不猜数字 ✓（" + (ba.Unavailable.Length > 0 ? ba.Unavailable : "原因未知") + "）", 11.5, Palette.Warn));
+                    bcard.Children.Add(T("暂未取到余额（" + (ba.Unavailable.Length > 0 ? ba.Unavailable : "原因未知") + "）", 11.5, Palette.Warn));
 
                 }
 
@@ -1526,7 +1526,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             c1.Children.Add(BarChart(labels, counts, max, Palette.Accent, "个", 200));   // ★ 重排 §2-8 ✓ 图高归一 180–220 → 200 ✓
 
-            c1.Children.Add(T("最高 " + max + " 个/天　合计 " + Sum(counts) + " 个（创建时间缺失的会话不计入，不猜）", 11.5, Palette.TextFaint));
+            c1.Children.Add(T("最高 " + max + " 个/天　合计 " + Sum(counts) + " 个（创建时间缺失的会话不计入）", 11.5, Palette.TextFaint));
 
             c1.Children.Add(T("按会话创建日（本地）分桶" + (winFilter ? "；只统计上方窗口内有活动的会话" : ""), 11.5, Palette.TextFaint));   // 规格 §5.5/D-5 + §11.6-C3 ✓ 图 1 保留但明说分桶键 ✓ 第二批改本地日 ✓
 
@@ -1566,7 +1566,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             c2.Children.Add(BarChart(hl, hc, Math.Max(Math.Max(low, mid), Math.Max(high, unknown)), Palette.Good, "个", 200));   // ★ 重排 §2-8 ✓
 
-            c2.Children.Add(T("命中率越高越省钱；unknown 表示该会话没有这个字段（空会话），我们不会把它算成 0%。", 11.5, Palette.TextFaint));
+            c2.Children.Add(T("命中率越高越省钱；unknown 表示该会话没有这个字段（空会话），不会把它算成 0%。", 11.5, Palette.TextFaint));
 
             Control cardC2 = Card(c2, new Thickness(0), new Thickness(18, 16));   // ★ 重排 §2-8 ✓
 
@@ -1644,7 +1644,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             c3.Children.Add(BarChart(labelsLoc, dayTokK, maxTok / tokDiv, Palette.Warn, maxTok >= 1000 ? "k tok" : "tok", 200));   // F11 FIX: unit follows the data  // ★ 重排 §2-8 ✓
 
-            c3.Children.Add(T("合计 " + SessionRow.Human(Sum(dayTok)) + " token　最高 " + SessionRow.Human(maxTok) + "/天（按最后活动时间归**本地日**；缺失 " + missingLast3 + " 个不计入，不猜）", 11.5, Palette.TextFaint));
+            c3.Children.Add(T("合计 " + SessionRow.Human(Sum(dayTok)) + " token　最高 " + SessionRow.Human(maxTok) + "/天（按最后活动时间归本地日；缺失 " + missingLast3 + " 个不计入）", 11.5, Palette.TextFaint));
 
             // ★ 看板重排（§1 ✓✓）：卡内不再印第二遍 C.4 —— 筛选条已印、每屏恰好一次 ✓ 文案未动 ✓ 只去重复 ✓
 
@@ -1758,7 +1758,7 @@ namespace Dsht.Gui.Avalonia.Shells
             {
 
                 // 旧 CLI 没有 SESSTIME_SESSION 行 → 如实说明 ✗ 不画空图 ✗ 不猜 ✓
-                ctm.Children.Add(T("当前数据源未提供逐会话计时（旧版 CLI 没有 SESSTIME_SESSION 行）—— 不画空图，不猜。", 11.5, Palette.TextFaint));
+                ctm.Children.Add(T("当前数据源未提供逐会话计时（旧版 CLI 没有 SESSTIME_SESSION 行），因此这里不出图。", 11.5, Palette.TextFaint));
 
             }
 
@@ -1803,7 +1803,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             {
 
-                ccx.Children.Add(T("当前数据源未提供上下文构成（旧版 CLI 没有 SESSCTX_SESSION 行）—— 不画空图，不猜。", 11.5, Palette.TextFaint));
+                ccx.Children.Add(T("当前数据源未提供上下文构成（旧版 CLI 没有 SESSCTX_SESSION 行），因此这里不出图。", 11.5, Palette.TextFaint));
 
             }
 
@@ -1853,7 +1853,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             c4.Children.Add(T(dsum == null || !dsum.Ok
 
-                ? "还没有体检结果 —— 进「体检」页会自动跑一次 doctor。这里**不显示 0**，因为没跑过和跑过且全过是两件事（不猜）。"
+                ? "还没有体检结果 —— 进「体检」页会自动跑一次 doctor。这里不显示 0：没跑过和跑过且全过是两件事。"
 
                 : "来自 doctor 的分级条目；错误项在「体检」页可以逐条看到原因。", 11.5, Palette.TextFaint));
 

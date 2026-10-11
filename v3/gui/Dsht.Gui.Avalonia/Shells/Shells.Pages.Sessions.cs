@@ -719,7 +719,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             s.Children.Add(Line("• 输入 token 的条形是相对最长的那条会话画的，用来横向对比，不是绝对刻度。"));
 
-            s.Children.Add(Line("• 显示 unknown 表示 dsh 投影里没有这个字段（例如空会话没有命中率）—— 我们不会用 0 冒充它。"));
+            s.Children.Add(Line("• 显示 unknown 表示 dsh 投影里没有这个字段（例如空会话没有命中率），不会用 0 代替。"));
 
             return Card(s, new Thickness(0), new Thickness(18, 16));
 

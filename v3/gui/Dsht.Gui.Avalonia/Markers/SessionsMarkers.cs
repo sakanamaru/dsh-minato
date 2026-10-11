@@ -449,15 +449,15 @@ namespace Dsht.Gui.Avalonia.Markers
         /// <summary>耗时分解卡：标题。</summary>
         public const string TimeTitle = "耗时分解（窗口内会话 · 整会话累计）";
         /// <summary>耗时分解卡：口径脚注（C.4 之外**追加**的口径说明 ✓ 不是替代 ✓）。</summary>
-        public const string TimeFootnote = "llmMs = 等首 token + 流式解码 + llm 其他（dsh 源码口径：ttft/decode 是 llmMs 的子集）；工具执行与 llmMs 不相交。缺 sessionStats 的会话不计入，不猜。";
+        public const string TimeFootnote = "llmMs = 等首 token + 流式解码 + llm 其他（dsh 源码口径：ttft/decode 是 llmMs 的子集）；工具执行与 llmMs 不相交。缺 sessionStats 的会话不计入。";
         /// <summary>Token 分类卡：标题。</summary>
         public const string CtxTitle = "上下文构成 · Token 分类（窗口内会话 · 当前快照合计）";
         /// <summary>Token 分类卡：口径脚注（启发式折算必标「估算」✓ D3 不拆 ✓）。</summary>
-        public const string CtxFootnote = "上下文构成是 dsh 启发式折算（估算）口径（4 字符 ≈ 1 token），取各会话当前上下文快照，非提供方计费数字，也非整会话累计；messageTokens 一桶不拆（决策 D3）。缺 contextBreakdown 的会话不计入，不猜。";
+        public const string CtxFootnote = "上下文构成是 dsh 启发式折算（估算）口径（4 字符 ≈ 1 token），取各会话当前上下文快照，非提供方计费数字，也非整会话累计；messageTokens 一桶不拆。缺 contextBreakdown 的会话不计入。";
         /// <summary>热力图：标题固定模板（{0} = ChartDays）。</summary>
         public const string HeatTitle = "近 {0} 天会话最后活动日 · 会话数（本地日）";
         /// <summary>热力图：脚注固定模板（{0} = 缺 lastPromptAt 的会话数）。</summary>
-        public const string HeatFootnote = "按会话最后活动时间归本地日；投影只含最后活动时间，这不是逐日活跃轨迹（逐日真值须读原始日志 → 第三批）；缺失 {0} 个不计入，不猜。";
+        public const string HeatFootnote = "按会话最后活动时间归本地日；投影只含最后活动时间，这不是逐日活跃轨迹（逐日真值须读原始日志）；缺失 {0} 个不计入。";
 
         // —— 看板第三批（2026-10-09 ✓✓ 规格 §11.7-E ✓✓）——
         /// <summary>B.5 口径差说明（§B.5 :285-292 固定模板 ✓ **一字不许改** ✓ LogicTests 逐字符断言 ✓✓）。
@@ -502,7 +502,7 @@ namespace Dsht.Gui.Avalonia.Markers
             if (sub == null) return "";
             string core = sub.HasTokens
                 ? "含子代理：输入 " + SessionRow.Human(sub.In) + " · 输出 " + SessionRow.Human(sub.Output)
-                : "含子代理：用量未知（该口径 token 未知 ✗ 不猜 ✓）";
+                : "含子代理：用量未知（该口径 token 未知）";
             if (sub.HasChildren && sub.Children == 0) core += "（无子会话 ⇒ 两口径相等）";
             if (sub.SubUnknown > 0) core += "（其中 " + sub.SubUnknown + " 个会话用量未知，未计入）";
             return core;

@@ -84,7 +84,7 @@ namespace Dsht.Cli
                     dshState = dshInstalled == dshLatest ? "up-to-date" : (Dsht.Domain.Services.VersionComparer.Compare(dshInstalled, dshLatest) < 0 ? "update-available" : "newer-than-latest");   // ★ 审查抓到：原来用字典序 ✗ → 1.9.0 会被判成比 1.10.0 新 ✗✓
                 part.Add("UPDATECENTER_ITEM webui kind=webui installed=" + dshInstalled + " latest=" + dshLatest + " state=" + dshState);
                 part.Add("UPDATECENTER_URL webui https://github.com/deepseek-ai/deepseek-harness");
-                part.Add("UPDATECENTER_NOTE webui " + T("更新前会**自动备份**数据根 ✓ 并保留回滚点 ✓；需要你确认后才执行 ✓",
+                part.Add("UPDATECENTER_NOTE webui " + T("更新前会自动备份数据根并保留回滚点；需要你确认后才执行",
                     "updating backs up the data root first and keeps a rollback point; it runs only after you confirm"));
                 return part;
             });
@@ -106,7 +106,7 @@ namespace Dsht.Cli
             List<string> deskPart = new List<string>();
             deskPart.Add("UPDATECENTER_ITEM desktop kind=desktop installed=" + deskVer + " latest=unknown state=" + (deskPath == null ? "unknown" : "external"));
             deskPart.Add("UPDATECENTER_URL desktop https://www.deepseek.com/en/harness/");
-            deskPart.Add("UPDATECENTER_NOTE desktop " + T("官方桌面端**不在本工具里更新** ✓ —— 去官方安装页自己下 ✓（本工具不重打包、也不改它 ✓）",
+            deskPart.Add("UPDATECENTER_NOTE desktop " + T("官方桌面端不在本工具里更新 —— 去官方安装页自己下（本工具不重打包、也不改它）",
                 "the desktop app is not updated here; download it from the official page"));
             AddPart(lines, emit, deskPart);
 
@@ -138,7 +138,7 @@ namespace Dsht.Cli
             }
             minatoPart.Add("UPDATECENTER_ITEM minato kind=minato installed=" + selfVer + " latest=" + minatoLatest + " state=" + minatoState);
             minatoPart.Add("UPDATECENTER_URL minato https://github.com/sakanamaru/dsh-minato");
-            minatoPart.Add("UPDATECENTER_NOTE minato " + T("本工具的更新**不碰你的数据** ✓（不动 ~/.dsh、不动备份、不动配置 ✓）；**只报告、不自动更新** ✓（下载入口见上面的地址 ✓）需要你确认 ✓",
+            minatoPart.Add("UPDATECENTER_NOTE minato " + T("本工具的更新不碰你的数据（不动 ~/.dsh、不动备份、不动配置）；只报告、不自动更新（下载入口见上面的地址），需要你确认",
                 "updating this tool does not touch your data; report only, never auto-updates; runs only after you confirm"));
             // ★ 失败/异常**单独一行说原因** ✓（✗ 不塞进 NOTE ✗ —— NOTE 是"更新前风险" ✓ 语义不同 ✓）
             //   · GUI 只解析 ITEM/URL/NOTE/LOG ✓ 这一行它**不认识 → 安全忽略** ✓（不破坏解析 ✓）
@@ -146,11 +146,11 @@ namespace Dsht.Cli
             string minatoDiag = null;
             if (!string.IsNullOrEmpty(minatoWhy))
             {
-                minatoDiag = T("没取到最新版（只报告 ✓ 不假装「已是最新」✗）：", "could not fetch the latest version (report only; it does not pretend to be up to date): ") + minatoWhy;
+                minatoDiag = T("没取到最新版（只报告，因此无法判断是否有更新）：", "could not fetch the latest version (report only, so it cannot tell whether an update exists): ") + minatoWhy;
             }
             else if (string.IsNullOrEmpty(minatoTag) && selfVer == "unknown")
             {
-                minatoDiag = T("连本工具自己的版本都没读出来（编译期常量不可用 ✗）→ 无法比对谁更新 ✓", "this tool's own version could not be read, so there is nothing to compare against");
+                minatoDiag = T("连本工具自己的版本都没读出来，无法比对是否有更新", "this tool's own version could not be read, so there is nothing to compare against");
             }
             if (minatoDiag != null) minatoPart.Add("UPDATECENTER_DIAG minato " + minatoDiag);
             AddPart(lines, emit, minatoPart);
@@ -206,7 +206,7 @@ namespace Dsht.Cli
                             // 只在缺字段时才问 ✓（npm view 每次要 1~2 秒 ✗ 不能对每个插件都问 ✓）
                             if (string.IsNullOrEmpty(repo)) repo = NpmRepoOf(name);
                             plugPart.Add("UPDATECENTER_URL " + pid + " " + (string.IsNullOrEmpty(repo) ? "unknown" : repo));
-                            plugPart.Add("UPDATECENTER_NOTE " + pid + " " + T("**没有独立的版本渠道** ✓ —— 插件随工具箱发布，它的版本号（package.json 的 version ✓）与工具箱 tag（如 v3.0.7 ✓）不在一个序列上 → **无可比的 latest** ✓ 所以这里 `latest=unknown` 是**事实** ✗ 不是「还没查」✗；本工具也**不会拿工具箱 tag 当插件的 latest** ✗（那是编 ✗）。插件更新**先描述风险再确认** ✓（版本变化可能改行为 ✓）；更新前**自动备份** ✓ 插件由各自作者维护 ✓ 本工具不替它担保 ✓",
+                            plugPart.Add("UPDATECENTER_NOTE " + pid + " " + T("没有独立的版本渠道：插件随工具箱发布，它的版本号（package.json 的 version）与工具箱 tag（如 v3.0.7）不在一个序列上，因此没有可比的 latest —— 这里 `latest=unknown` 是事实，不是「还没查」；本工具也不会拿工具箱 tag 当插件的 latest。插件更新先描述风险再确认（版本变化可能改行为）；更新前自动备份。插件由各自作者维护，本工具不替它担保。",
                                 "no independent release channel: this plugin ships with the toolkit, so its version (package.json) and the toolkit tag (e.g. v3.0.7) are not the same series - there is no comparable latest, so latest=unknown is a FACT, not a pending lookup, and this tool will not pass the toolkit tag off as the plugin's latest. plugin updates describe the risk and ask first; the data root is backed up"));
                             AddPart(lines, emit, plugPart);
                         }
@@ -241,7 +241,7 @@ namespace Dsht.Cli
                 webuiPart = new List<string>();
                 webuiPart.Add("UPDATECENTER_ITEM webui kind=webui installed=unknown latest=unknown state=unknown");
                 webuiPart.Add("UPDATECENTER_URL webui https://github.com/deepseek-ai/deepseek-harness");
-                webuiPart.Add("UPDATECENTER_NOTE webui " + T("更新前会**自动备份**数据根 ✓ 并保留回滚点 ✓；需要你确认后才执行 ✓",
+                webuiPart.Add("UPDATECENTER_NOTE webui " + T("更新前会自动备份数据根并保留回滚点；需要你确认后才执行",
                     "updating backs up the data root first and keeps a rollback point; it runs only after you confirm"));
             }
             lines.InsertRange(0, webuiPart);   // ★ 默认行序：webui 仍在**最前** ✓ 逐字不变 ✓✓
@@ -347,7 +347,7 @@ namespace Dsht.Cli
                 if (!b.DirExists)
                 {
                     // ★ 这是**常见**情形（dotnet build / csc 全量编译 / 单独复制 exe ✓）→ 如实说 ✓ 不编 ✗
-                    b.Why = T("随包缺 plugin 目录（开发构建常见 ✓）：", "the bundled plugin folder is missing (normal for a source build): ") + b.Dir;
+                    b.Why = T("工具箱自带的一份缺 plugin 目录（源码构建常见）：", "the bundled plugin folder is missing (normal for a source build): ") + b.Dir;
                     return b;
                 }
                 string pj = System.IO.Path.Combine(b.Dir, "package.json");
@@ -355,13 +355,13 @@ namespace Dsht.Cli
                 try { if (System.IO.File.Exists(pj)) txt = System.IO.File.ReadAllText(pj); } catch { }
                 if (string.IsNullOrEmpty(txt))
                 {
-                    b.Why = T("随包插件的 package.json 读不到：", "the bundled plugin's package.json cannot be read: ") + pj;
+                    b.Why = T("工具箱自带插件的 package.json 读不到：", "the bundled plugin's package.json cannot be read: ") + pj;
                     return b;
                 }
                 string v = JsonStr(txt, "version");
                 if (string.IsNullOrEmpty(v))
                 {
-                    b.Why = T("随包插件的 package.json 里没有 version 字段：", "the bundled plugin's package.json has no version field: ") + pj;
+                    b.Why = T("工具箱自带插件的 package.json 里没有 version 字段：", "the bundled plugin's package.json has no version field: ") + pj;
                     return b;
                 }
                 b.Version = v;
@@ -370,13 +370,13 @@ namespace Dsht.Cli
                 b.ShaSnapshot = Sha256Hex(System.IO.Path.Combine(b.CodeDir, "snapshot.js"));
                 b.ShaIndex = Sha256Hex(System.IO.Path.Combine(b.CodeDir, "index.js"));
                 if (b.ShaSnapshot.Length == 0 || b.ShaIndex.Length == 0)
-                    b.HashWhy = T("随包插件的内容文件读不到（只比 snapshot.js 与 index.js 这两个 ✓）：",
+                    b.HashWhy = T("工具箱自带插件的内容文件读不到（只比 snapshot.js 与 index.js 两个文件）：",
                                   "the bundled plugin's content files cannot be read (only snapshot.js and index.js are compared): ") + b.CodeDir;
                 return b;
             }
             catch (Exception ex)
             {
-                b.Why = T("读随包插件时出错：" + ex.Message, "error while reading the bundled plugin: " + ex.Message);
+                b.Why = T("读工具箱自带插件时出错：" + ex.Message, "error while reading the bundled plugin: " + ex.Message);
                 return b;
             }
         }
@@ -426,7 +426,7 @@ namespace Dsht.Cli
         /// <summary>哈希前缀（**显示用** ✓ 8 位 ✓ 只为让人一眼看出一致/不一致 ✗ 不是可校验的完整值 ✗）。</summary>
         private static string ShortHash(string h)
         {
-            if (string.IsNullOrEmpty(h)) return T("（无 ✓）", "(none)");
+            if (string.IsNullOrEmpty(h)) return T("（无）", "(none)");
             return h.Length <= 8 ? h : h.Substring(0, 8);
         }
 
@@ -439,7 +439,7 @@ namespace Dsht.Cli
         {
             why = "";
             if (!string.IsNullOrEmpty(b.HashWhy)) { why = b.HashWhy; return -1; }
-            if (string.IsNullOrEmpty(installedCodeDir)) { why = T("拿不到已装插件的代码目录 ✓", "the installed plugin's code folder is unknown"); return -1; }
+            if (string.IsNullOrEmpty(installedCodeDir)) { why = T("拿不到已装插件的代码目录", "the installed plugin's code folder is unknown"); return -1; }
             string[] files = new string[] { "snapshot.js", "index.js" };
             for (int i = 0; i < files.Length; i++)
             {
@@ -450,19 +450,19 @@ namespace Dsht.Cli
                 if (!ie && !be) continue;   // 两边都没有这个文件 → 这一项一致 ✓（没什么可比 ✓ 也不因此误报 ✗）
                 if (ie != be)
                 {
-                    why = T("文件集不同：" + files[i] + "（随包 " + (be ? "有" : "没有") + " ✓ 已装 " + (ie ? "有" : "没有") + " ✓）",
+                    why = T("文件集不同：" + files[i] + "（工具箱自带 " + (be ? "有" : "没有") + "，已装 " + (ie ? "有" : "没有") + "）",
                             "different file sets: " + files[i] + " (bundled " + (be ? "present" : "absent") + ", installed " + (ie ? "present" : "absent") + ")");
                     return 0;
                 }
                 string hs = Sha256Hex(ip), hb = Sha256Hex(bp);
                 if (hs.Length == 0 || hb.Length == 0)
                 {
-                    why = T("内容读不到（文件在但 IO 出错 ✓）：" + ip, "content unreadable (the file exists but IO failed): " + ip);
+                    why = T("内容读不到（文件在但 IO 出错）：" + ip, "content unreadable (the file exists but IO failed): " + ip);
                     return -1;
                 }
                 if (!string.Equals(hs, hb, StringComparison.OrdinalIgnoreCase))
                 {
-                    why = T("内容哈希不同：" + files[i] + "（随包 " + ShortHash(hb) + " ≠ 已装 " + ShortHash(hs) + " ✓ 两边都是 SHA-256 ✓）",
+                    why = T("内容哈希不同：" + files[i] + "（工具箱自带 " + ShortHash(hb) + " ≠ 已装 " + ShortHash(hs) + "，两边都是 SHA-256）",
                             "content hash differs: " + files[i] + " (bundled " + ShortHash(hb) + " != installed " + ShortHash(hs) + ", both SHA-256)");
                     return 0;
                 }
@@ -516,39 +516,39 @@ namespace Dsht.Cli
         private static string BridgeNote(BridgeBaseline b, string profile, string state, string installedVer, string latest, string why)
         {
             System.Text.StringBuilder sb = new System.Text.StringBuilder();
-            sb.Append(T("**基准 = 你这份工具箱自带的插件** ✓（", "baseline = the plugin bundled with THIS toolkit ("));
-            sb.Append(b.DirExists ? b.Dir : T("随包目录缺失 ✓ 见诊断行 ✓", "bundled folder missing - see the diagnostic line"));
-            sb.Append(T(" ✓ 离线可判 ✓ 零新渠道 ✓）：latest 取的是**随包那一份的版本** ✓ ✗ 不是网上的最新版 ✗；插件仍然**没有独立的版本渠道** ✓ 它的版本号与工具箱 tag（如 v3.0.7）不在一个序列上 → 本工具**不会拿工具箱 tag 当插件的 latest** ✗（那是编 ✗）。判定 = **双比对**：版本号（VersionComparer ✓）+ **内容哈希**（snapshot.js 与 index.js 各算 SHA-256 ✓ **两个都相同才算内容一致** ✓；版本相同但哈希不同 = **半旧** ✓ 单独一态 ✓ 只看版本号抓不住 ✓）。",
+            sb.Append(T("基准 = 你这份工具箱自带的插件（", "baseline = the plugin bundled with THIS toolkit ("));
+            sb.Append(b.DirExists ? b.Dir : T("工具箱自带的目录缺失，见诊断行", "bundled folder missing - see the diagnostic line"));
+            sb.Append(T("；离线可判，零新渠道）：latest 取的是工具箱自带那一份的版本，不是网上的最新版；插件仍然没有独立的版本渠道，它的版本号与工具箱 tag（如 v3.0.7）不在一个序列上，因此本工具不会拿工具箱 tag 当插件的 latest。判定 = 双比对：版本号（VersionComparer）+ 内容哈希（snapshot.js 与 index.js 各算 SHA-256，两个都相同才算内容一致；版本相同但哈希不同 = 半旧，单独一态，只看版本号抓不住）。",
                         " offline, no new channel): latest is the version of the copy bundled with this toolkit - NOT the newest version online. The plugin still has no independent release channel, so the toolkit tag is never passed off as the plugin's latest. The verdict uses a double comparison: version (VersionComparer) plus content hashes (SHA-256 of snapshot.js and index.js; both must match for the content to count as identical, and same-version-different-hash is reported as a state of its own). "));
             if (state == "not-installed")
-                sb.Append(T("本次实测：profile「" + profile + "」里**找不到**这个插件 ✓ → **未安装** ✓。",
+                sb.Append(T("这台机器上：profile「" + profile + "」里找不到这个插件 → 未安装。",
                             "measured: the plugin is not present in profile '" + profile + "' -> not installed. "));
             else if (state == "up-to-date")
-                sb.Append(T("本次实测：已装 " + installedVer + " **与随包一致** ✓（版本相同 ✓ snapshot.js 与 index.js 的内容哈希也逐字相同 ✓）→ **已是最新** ✓。",
+                sb.Append(T("这台机器上：已装 " + installedVer + " 与工具箱自带的一致（版本相同，snapshot.js 与 index.js 的内容哈希也相同）→ 已是最新。",
                             "measured: installed " + installedVer + " matches the bundled copy (same version and identical content hashes) -> up to date. "));
             else if (state == "update-available")
-                sb.Append(T("本次实测：已装 " + installedVer + " **低于**随包 " + latest + " ✓ → **有更新** ✓。",
+                sb.Append(T("这台机器上：已装 " + installedVer + " 低于工具箱自带的 " + latest + " → 有更新。",
                             "measured: installed " + installedVer + " is older than the bundled " + latest + " -> update available. "));
             else if (state == "newer-than-bundled")
-                sb.Append(T("本次实测：已装 " + installedVer + " **高于**随包 " + latest + " ✓ → **比随包还新** ✓（如实说 ✓ ✗ 不硬说成「有更新」✗ —— 你装的可能是更新的一份、或自己改过 ✓）。",
+                sb.Append(T("这台机器上：已装 " + installedVer + " 高于工具箱自带的 " + latest + " → 比工具箱自带还新（不当作「有更新」：你装的可能是更新的一份，或自己改过）。",
                             "measured: installed " + installedVer + " is newer than the bundled " + latest + " -> newer than the bundled copy (stated as fact, not spun as an update). "));
             else if (state == "content-mismatch")
-                sb.Append(T("本次实测：**版本号与随包相同（都是 " + latest + "）** ✓ 但 **内容不一致** ✓ → **内容与随包不一致** ✓（半旧 / 被改过 ✓ 版本号看不出来 ✓ 所以本工具比内容 ✓）：" + why + "。",
+                sb.Append(T("这台机器上：版本号与工具箱自带相同（都是 " + latest + "），但内容不一致 → 内容与工具箱自带不一致（半旧或被改过，版本号看不出来，所以本工具比内容）：" + why + "。",
                             "measured: the version equals the bundled one (" + latest + ") but the content differs -> content differs from the bundled copy: " + why + ". "));
             else
-                sb.Append(T("本次实情：**比不了** ✓（" + why + "）→ 本工具**不编** latest ✗ 也不假报「已是最新」✗。",
+                sb.Append(T("这台机器上：比不了（" + why + "）→ 本工具不编 latest，也不报「已是最新」。",
                             "measured: the comparison is not possible (" + why + ") -> no invented latest and no false up-to-date. "));
             // ★ 修复指引**按 profile 分开** ✓（实测过：desktop **由桌面端独占管理** ✗ 命令行装不进也卸不掉 ✗）
             if (profile == "web")
-                sb.Append(T("更新/安装方式：`bridge-install --profile web --yes` ✓（写操作 ✓ 会改该 profile 的 package.json 与 cordis.patch.yml ✓ 装前 dsh 自己会保留原状 ✓）；装完**重启 dsh** 才生效 ✓。",
+                sb.Append(T("更新/安装方式：`bridge-install --profile web --yes`（写操作，会改该 profile 的 package.json 与 cordis.patch.yml，装前 dsh 自己会保留原状）；装完重启 dsh 才生效。",
                             "how to update/install: bridge-install --profile web --yes (a write; restart dsh afterwards). "));
             else if (profile == "desktop")
-                sb.Append(T("更新/安装方式：该 profile **由 dsh 桌面端独占管理** ✗ → 命令行装不进也卸不掉 ✓ 请**通过桌面端 / 它的插件机制**更新 ✓（桌面端接受本地目录路径 ✓）本工具**不承诺一条我们做不到的命令** ✗。",
-                            "how to update/install: this profile is managed exclusively by the dsh desktop app - update it through the desktop app and its plugin mechanism; this tool will not promise a command that cannot work. "));
+                sb.Append(T("更新/安装方式：该 profile 由 dsh 桌面端独占管理，命令行装不进也卸不掉；请通过桌面端 / 它的插件机制更新（桌面端接受本地目录路径）。",
+                            "how to update/install: this profile is managed exclusively by the dsh desktop app - update it through the desktop app and its plugin mechanism. "));
             else
-                sb.Append(T("更新/安装方式：本工具只**如实报状态** ✓ 更新请在对应客户端 / 插件机制里做 ✓（✗ 不承诺命令 ✗）。",
+                sb.Append(T("更新/安装方式：本工具只报状态，更新请在对应客户端 / 插件机制里做。",
                             "how to update/install: this tool only reports the state; update it through the matching client or plugin mechanism. "));
-            sb.Append(T("插件更新**先描述风险再确认** ✓；更新前**自动备份** ✓ 插件由各自作者维护 ✓ 本工具不替它担保 ✓",
+            sb.Append(T("插件更新先描述风险再确认；更新前自动备份。插件由各自作者维护，本工具不替它担保。",
                         "plugin updates describe the risk and ask first; the data root is backed up before updating; plugins are maintained by their authors and this tool does not vouch for them."));
             return sb.ToString();
         }

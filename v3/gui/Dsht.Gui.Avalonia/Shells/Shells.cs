@@ -852,6 +852,12 @@ namespace Dsht.Gui.Avalonia.Shells
             un.TextWrapping = global::Avalonia.Media.TextWrapping.Wrap;
             un.Opacity = 0.7;
             sp.Children.Add(un);
+            // ★ 文案精简（2026-10-11）：页脚原来那句架构注记搬到这里 —— 页脚只留版本号与事实。
+            global::Avalonia.Controls.TextBlock arch = new global::Avalonia.Controls.TextBlock();
+            arch.Text = "本程序只负责显示：它不引用工具箱的核心程序集，而是运行 CLI 并解析它打出的标记行。";
+            arch.TextWrapping = global::Avalonia.Media.TextWrapping.Wrap;
+            arch.Opacity = 0.7;
+            sp.Children.Add(arch);
             global::Avalonia.Controls.Border card = new global::Avalonia.Controls.Border();
             card.Padding = new global::Avalonia.Thickness(16);
             card.CornerRadius = new global::Avalonia.CornerRadius(ShapeTokens.RCard);   // 样式重构：10 → RCard 统一卡片档

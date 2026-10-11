@@ -202,13 +202,13 @@ namespace Dsht.Gui.LogicTests
             // 口径文案逐字钉死（规格 §11.6-C ✓✓ 一字不许改 ✓✓）
             Check("看板2：耗时分解标题逐字", SessionsMarkers.TimeTitle == "耗时分解（窗口内会话 · 整会话累计）");
             Check("看板2：耗时分解脚注逐字（ttft/decode 是 llmMs 子集 + tool 不相交 + 缺不计 ✓）",
-                SessionsMarkers.TimeFootnote == "llmMs = 等首 token + 流式解码 + llm 其他（dsh 源码口径：ttft/decode 是 llmMs 的子集）；工具执行与 llmMs 不相交。缺 sessionStats 的会话不计入，不猜。");
+                SessionsMarkers.TimeFootnote == "llmMs = 等首 token + 流式解码 + llm 其他（dsh 源码口径：ttft/decode 是 llmMs 的子集）；工具执行与 llmMs 不相交。缺 sessionStats 的会话不计入。");
             Check("看板2：Token 分类标题逐字（当前快照合计 ✓）", SessionsMarkers.CtxTitle == "上下文构成 · Token 分类（窗口内会话 · 当前快照合计）");
-            Check("看板2：Token 分类脚注逐字（启发式折算必标「估算」✓ 非计费 ✓ D3 不拆 ✓）",
-                SessionsMarkers.CtxFootnote == "上下文构成是 dsh 启发式折算（估算）口径（4 字符 ≈ 1 token），取各会话当前上下文快照，非提供方计费数字，也非整会话累计；messageTokens 一桶不拆（决策 D3）。缺 contextBreakdown 的会话不计入，不猜。");
+            Check("看板2：Token 分类脚注逐字（启发式折算必标「估算」✓ 非计费 ✓ 不拆 ✓）",
+                SessionsMarkers.CtxFootnote == "上下文构成是 dsh 启发式折算（估算）口径（4 字符 ≈ 1 token），取各会话当前上下文快照，非提供方计费数字，也非整会话累计；messageTokens 一桶不拆。缺 contextBreakdown 的会话不计入。");
             Check("看板2：热力图标题模板逐字", SessionsMarkers.HeatTitle == "近 {0} 天会话最后活动日 · 会话数（本地日）");
-            Check("看板2：热力图脚注模板逐字（最后活动日 ≠ 逐日活跃轨迹 ✓ 逐日真值 → 第三批 ✓）",
-                SessionsMarkers.HeatFootnote == "按会话最后活动时间归本地日；投影只含最后活动时间，这不是逐日活跃轨迹（逐日真值须读原始日志 → 第三批）；缺失 {0} 个不计入，不猜。");
+            Check("看板2：热力图脚注模板逐字（最后活动日 ≠ 逐日活跃轨迹 ✓ 逐日真值须读原始日志 ✓）",
+                SessionsMarkers.HeatFootnote == "按会话最后活动时间归本地日；投影只含最后活动时间，这不是逐日活跃轨迹（逐日真值须读原始日志）；缺失 {0} 个不计入。");
 
             // —— 看板第三批（2026-10-09 ✓✓ 规格 §11.7 ✓✓）——
             string b3 = "SESSIONS_OK 2\n" +
@@ -254,7 +254,7 @@ namespace Dsht.Gui.LogicTests
             Check("看板3：SubLineText(children=0) = 同数 + 「（无子会话 ⇒ 两口径相等）」（B.4 ✓✓）",
                 SessionsMarkers.SubLineText(w3.SubById["solo"]) == "含子代理：输入 10 · 输出 2（无子会话 ⇒ 两口径相等）");
             SessAggRow subUnk = new SessAggRow(); subUnk.Bucket = "sub";
-            Check("看板3：SubLineText(token 未知) 如实「用量未知」（✗ 不猜 ✓✓）",
+            Check("看板3：SubLineText(token 未知) 如实「用量未知」（不含自我辩解措辞 ✓）",
                 SessionsMarkers.SubLineText(subUnk).IndexOf("用量未知") >= 0);
             // D4 自定义区间本地校验（§11.7-D/E-4 ✓✓ ✗ 不猜 ✗ 不补端点 ✓）
             string cf, ct, ce;
@@ -401,31 +401,32 @@ namespace Dsht.Gui.LogicTests
             // ★★ 2026-10-11 **这一条改了**：插件行不再走「CLI 不查最新版」✗ —— CLI 现在**真的**拿
             //    「随包那一份」（工具箱自带 ✓ 离线 ✓）当基准做**双比对** ✓；state=unknown 只剩两种情形：
             //    ① 老 CLI（写死的 unknown ✓）② 随包缺 plugin 目录 / 随包内容读不到 ✓ → 都如实说「基准不可用」+ 诊断行 ✓
-            Check("诊断·②b 插件行（桥接）**已由 CLI 真比对** → unknown 时不再说「CLI 不查最新版」✗ 而是「随包基准不可用」（原因见诊断行 ✓）",
-                UpdateDiagnosis.StateText("plugin", "unknown", "unknown", "0.2.0") == "随包基准不可用"
+            Check("诊断·②b 插件行（桥接）**已由 CLI 真比对** → unknown 时不再说「CLI 不查最新版」✗ 而是「工具箱自带基准不可用」（原因见诊断行 ✓）",
+                UpdateDiagnosis.StateText("plugin", "unknown", "unknown", "0.2.0") == "工具箱自带基准不可用"
                 && UpdateDiagnosis.StateText("plugin", "unknown", "unknown", "0.2.0") != "CLI 不查最新版");
             // ★★ 插件五态（维护者要求「每种都在 UI 上可读懂」✓）：触发条件由 CLI 决定 ✓ GUI 只照译 ✓
-            Check("诊断·插件五态：未安装 / 已是最新 / 有更新 / **内容与随包不一致**（版本同但哈希不同 ✓）/ 比随包还新",
+            Check("诊断·插件五态：未安装 / 已是最新 / 有更新 / **内容与工具箱自带不一致**（版本同但哈希不同 ✓）/ 比工具箱自带还新",
                 UpdateDiagnosis.StateText("plugin", "not-installed", "0.2.0", "unknown") == "未安装"
                 && UpdateDiagnosis.StateText("plugin", "up-to-date", "0.2.0", "0.2.0") == "已是最新"
                 && UpdateDiagnosis.StateText("plugin", "update-available", "0.2.0", "0.1.0") == "有更新"
-                && UpdateDiagnosis.StateText("plugin", "content-mismatch", "0.2.0", "0.2.0") == "内容与随包不一致"
-                && UpdateDiagnosis.StateText("plugin", "newer-than-bundled", "0.2.0", "0.3.0") == "比随包还新");
-            Check("诊断·插件五态的**版本行**：随包基准来自「你这份工具箱自带的那一份」✓（✗ 不说成网上的最新版 ✗）",
-                UpdateDiagnosis.VersionText("plugin", "up-to-date", "0.2.0", "0.2.0") == "已装 v0.2.0　→　随包 v0.2.0（**你这份工具箱自带的那一份** ✓ 不是网上的最新版 ✗）"
+                && UpdateDiagnosis.StateText("plugin", "content-mismatch", "0.2.0", "0.2.0") == "内容与工具箱自带不一致"
+                && UpdateDiagnosis.StateText("plugin", "newer-than-bundled", "0.2.0", "0.3.0") == "比工具箱自带还新");
+            Check("诊断·插件五态的**版本行**：基准来自「你这份工具箱里的那一份」✓（✗ 不说成网上的最新版 ✗）",
+                UpdateDiagnosis.VersionText("plugin", "up-to-date", "0.2.0", "0.2.0") == "已装 v0.2.0　→　工具箱自带 v0.2.0（你这份工具箱里的那一份，不是网上的最新版）"
                 && UpdateDiagnosis.VersionText("plugin", "not-installed", "0.2.0", "unknown").StartsWith("未安装（CLI 报 installed=unknown")
-                && UpdateDiagnosis.VersionText("plugin", "update-available", "0.2.0", "0.1.0").Contains("随包 v0.2.0"));
-            Check("诊断·★**版本同但哈希不同**那一态：版本行必须把它点出来 ✗（否则「已装 v0.2.0 → 随包 v0.2.0」看着像没事 ✗）",
-                UpdateDiagnosis.VersionText("plugin", "content-mismatch", "0.2.0", "0.2.0").Contains("版本号相同，但 snapshot.js / index.js 的内容哈希与随包不同")
+                && UpdateDiagnosis.VersionText("plugin", "update-available", "0.2.0", "0.1.0").Contains("工具箱自带 v0.2.0"));
+            Check("诊断·★**版本同但哈希不同**那一态：版本行必须把它点出来 ✗（否则「已装 v0.2.0 → 工具箱自带 v0.2.0」看着像没事 ✗）",
+                UpdateDiagnosis.VersionText("plugin", "content-mismatch", "0.2.0", "0.2.0").Contains("版本号相同，但 snapshot.js / index.js 的内容哈希与工具箱自带的不同")
                 && UpdateDiagnosis.VersionText("plugin", "newer-than-bundled", "0.2.0", "0.3.0").Contains("高于"));
-            Check("诊断·插件行拿不到随包基准（老 CLI / 随包缺目录）→ 版本行**不猜**最新版 ✓ 也不再说「CLI 不提供」✗",
+            Check("诊断·插件行拿不到工具箱自带基准（老 CLI / 自带的一份缺目录）→ 版本行不编最新版 ✓ 也不再说「CLI 不提供」✗",
                 UpdateDiagnosis.VersionText("plugin", "unknown", "unknown", "0.2.0").Contains("latest=unknown")
-                && UpdateDiagnosis.VersionText("plugin", "unknown", "unknown", "0.2.0").Contains("本工具**不猜**最新版")
+                && UpdateDiagnosis.VersionText("plugin", "unknown", "unknown", "0.2.0").Contains("工具箱自带基准")
+                && !UpdateDiagnosis.VersionText("plugin", "unknown", "unknown", "0.2.0").Contains("最新")
                 && !UpdateDiagnosis.VersionText("plugin", "unknown", "unknown", "0.2.0").Contains("CLI 不提供"));
-            Check("诊断·插件行**贴 CLI 的 DIAG 原文**（随包缺 plugin 目录（开发构建常见 ✓）✓ 按 id 前缀取 ✓ 第一条 ✓ ✗ 不编 ✗）",
+            Check("诊断·插件行**贴 CLI 的 DIAG 原文**（工具箱自带的一份缺 plugin 目录（源码构建常见）✓ 按 id 前缀取 ✓ 第一条 ✓ ✗ 不编 ✗）",
                 UpdateDiagnosis.HintText("plugin", "unknown", "unknown", "0.1.0",
-                    "UPDATECENTER_ITEM plugin:dsh-minato-bridge kind=plugin installed=0.1.0 latest=unknown state=unknown profile=desktop\nUPDATECENTER_DIAG plugin:dsh-minato-bridge 随包缺 plugin 目录（开发构建常见 ✓）：C:\\x\\plugin\\dsh-minato-bridge\n")
-                    .Contains("随包缺 plugin 目录（开发构建常见 ✓）")
+                    "UPDATECENTER_ITEM plugin:dsh-minato-bridge kind=plugin installed=0.1.0 latest=unknown state=unknown profile=desktop\nUPDATECENTER_DIAG plugin:dsh-minato-bridge 工具箱自带的一份缺 plugin 目录（源码构建常见）：C:\\x\\plugin\\dsh-minato-bridge\n")
+                    .Contains("工具箱自带的一份缺 plugin 目录（源码构建常见）")
                 && UpdateDiagnosis.DiagOfIdPrefix("UPDATECENTER_DIAG plugin:x 原因一\nUPDATECENTER_DIAG plugin:y 原因二", "plugin:") == "原因一"
                 && UpdateDiagnosis.DiagOfIdPrefix("UPDATECENTER_DIAG minato 别的", "plugin:") == ""
                 && UpdateDiagnosis.DiagOfIdPrefix(null, "plugin:") == "" && UpdateDiagnosis.DiagOfIdPrefix("x", "") == "");
@@ -445,7 +446,7 @@ namespace Dsht.Gui.LogicTests
                 && UpdateDiagnosis.VersionText("minato", "up-to-date", "3.0.7", "3.0.7") == "已装 v3.0.7　→　最新 v3.0.7"
                 && VersionMarkers.TagOf("v3.0.7") == "v3.0.7" && VersionMarkers.TagOf("") == "" && VersionMarkers.TagOf(null) == null);
             Check("诊断·webui 取不到 → 明说离线/白名单；本工具的老 CLI → 明说 CLI 没给（✗ 不再写 unknown ✗）",
-                UpdateDiagnosis.VersionText("webui", "unknown", "unknown", "0.1.5").Contains("取不到最新版本（离线，或 npm 返回值未通过白名单）")
+                UpdateDiagnosis.VersionText("webui", "unknown", "unknown", "0.1.5").Contains("取不到（离线，或 npm 返回值未通过白名单）")
                 && UpdateDiagnosis.VersionText("minato", "unknown", "unknown", "3.0.7").Contains("CLI 没给 latest"));
             Check("诊断·installed=unknown 不许原样给用户看 unknown（→ 未检测到 ✓）",
                 UpdateDiagnosis.VersionText("webui", "unknown", "unknown", "unknown").Contains("未检测到")
@@ -464,8 +465,8 @@ namespace Dsht.Gui.LogicTests
                 && UpdateDiagnosis.HintText("plugin", "unknown", "unknown", "0.2.0", "x").Contains("老 CLI"));
             Check("诊断·★本工具取不到最新版 → 把 CLI 的 `UPDATECENTER_DIAG minato <原因>` **逐字贴出来**（✗ 不吞原因 ✗ 不替它编 ✗）",
                 UpdateDiagnosis.HintText("minato", "unknown", "unknown", "3.0.7",
-                    "UPDATECENTER_ITEM minato kind=minato installed=3.0.7 latest=unknown state=unknown\nUPDATECENTER_DIAG minato 没取到最新版（只报告 ✓）：超时（6 秒内没回应 ✓）\n")
-                    .Contains("超时（6 秒内没回应 ✓）")
+                    "UPDATECENTER_ITEM minato kind=minato installed=3.0.7 latest=unknown state=unknown\nUPDATECENTER_DIAG minato 没取到最新版（只报告，因此无法判断是否有更新）：超时（6 秒内没有回应，网络慢或不通）\n")
+                    .Contains("超时（6 秒内没有回应，网络慢或不通）")
                 && UpdateDiagnosis.DiagOf("UPDATECENTER_DIAG minato 超时（6 秒）", "minato") == "超时（6 秒）"
                 && UpdateDiagnosis.DiagOf("", "minato") == "" && UpdateDiagnosis.DiagOf("UPDATECENTER_DIAG minato x", "webui") == "");
             Check("诊断·★老 CLI（原文里没有任何 UPDATECENTER_ 行）→「该 CLI 版本过旧，无法检查更新」✓",

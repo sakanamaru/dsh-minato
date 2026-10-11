@@ -207,8 +207,8 @@ namespace Dsht.Gui.Avalonia.Markers
             if (state == "external") return "在官方页更新";
             // ★ 插件（桥接）专属三态 ✓（逐态都在 UI 上可读懂 ✓ 见 LogicTests 的断言 ✓）
             if (state == "not-installed") return "未安装";
-            if (state == "content-mismatch") return "内容与随包不一致";
-            if (state == "newer-than-bundled") return "比随包还新";
+            if (state == "content-mismatch") return "内容与工具箱自带不一致";
+            if (state == "newer-than-bundled") return "比工具箱自带还新";
             // CLI 报了个 GUI **不认识**的状态值 → 把原值贴出来 ✓（✗ 不许硬塞进"取不到" ✗ 也不许吞成「未知」✗）
             if (!string.IsNullOrEmpty(state) && state != "unknown")
                 return "未识别（kind=" + (string.IsNullOrEmpty(kind) ? "空" : kind) + " state=" + state + "）";
@@ -219,7 +219,7 @@ namespace Dsht.Gui.Avalonia.Markers
             //   ① 随包缺 plugin 目录（开发构建常见 ✓）/ 随包 package.json 或内容文件读不到 ✓ → CLI 打了 DIAG ✓
             //   ② **老 CLI**（3.0.x 之前那句写死的 latest=unknown state=unknown ✓）→ 它确实不比对 ✓
             //   两种都如实说成「基准不可用 ✓ 见诊断行」，✗ 不笼统写「未知」✗（诊断行由 HintText 给出 ✓）
-            if (kind == "plugin") return "随包基准不可用";
+            if (kind == "plugin") return "工具箱自带基准不可用";
             if (kind == "desktop") return installed == "unknown" ? "未检测到桌面端" : "本工具不比对";
             // GUI 不认识的 kind/state：把 CLI 的原值贴出来 ✓ 不吞 ✗ 不笼统化 ✗
             string s = string.IsNullOrEmpty(state) ? "空" : state;
@@ -235,34 +235,34 @@ namespace Dsht.Gui.Avalonia.Markers
         {
             bool instKnown = !(string.IsNullOrEmpty(installed) || installed == "unknown");
             if (kind == "desktop" && !instKnown)
-                return "未检测到官方桌面端（本工具只在 %LOCALAPPDATA%\\Programs\\DeepSeek Harness 下找它 ✗ 不猜版本 ✗）";
+                return "未检测到官方桌面端（只查 %LOCALAPPDATA%\\Programs\\DeepSeek Harness）";
             string head = instKnown ? ("已装 " + VersionMarkers.TagOf(installed)) : "已装版本：未检测到（CLI 报 installed=unknown）";
             // ★★★ 2026-10-11 **插件行**（CLI 3.0.x 起真的给基准了 ✓）：latest = **你这份工具箱自带的那一份**的版本 ✓
             //   ✗ 不是网上的最新版 ✗（插件没有独立版本渠道 ✓ CLI 也不会拿工具箱 tag 顶替 ✓ —— 那句诚实口径在 CLI 的 NOTE 里 ✓）
             //   `content-mismatch`（版本同、哈希不同）必须**在版本行里也点出来** ✓ —— 否则「已装 v0.2.0 → 随包 v0.2.0」看着像没事 ✗
             if (kind == "plugin")
             {
-                string who = instKnown ? ("已装 " + VersionMarkers.TagOf(installed)) : "未安装（CLI 报 installed=unknown ✓ 本工具按 profile 如实报 ✓）";
+                string who = instKnown ? ("已装 " + VersionMarkers.TagOf(installed)) : "未安装（CLI 报 installed=unknown）";
                 if (!string.IsNullOrEmpty(latest) && latest != "unknown")
                 {
-                    string t = who + "　→　随包 " + VersionMarkers.TagOf(latest) + "（**你这份工具箱自带的那一份** ✓ 不是网上的最新版 ✗）";
+                    string t = who + "　→　工具箱自带 " + VersionMarkers.TagOf(latest) + "（你这份工具箱里的那一份，不是网上的最新版）";
                     if (state == "content-mismatch")
-                        t += "　——　**版本号相同，但 snapshot.js / index.js 的内容哈希与随包不同** ✓（半旧 / 被改过 ✓ 只看版本号看不出来 ✓）";
+                        t += "　——　版本号相同，但 snapshot.js / index.js 的内容哈希与工具箱自带的不同（半旧或被改过；只看版本号看不出来）";
                     if (state == "newer-than-bundled")
-                        t += "　——　已装版本**高于**随包 ✓（如实说 ✓ ✗ 不硬说成「有更新」✗）";
+                        t += "　——　已装版本高于工具箱自带（不当作「有更新」）";
                     return t;
                 }
-                return who + "　→　随包基准：CLI 的 ITEM 行里是 `latest=unknown`（**只有老 CLI、或随包缺 plugin 目录 / 随包内容读不到**才这样 ✓ 新 CLI 会拿随包那一份做基准 ✓ 原因见诊断行 ✓）—— 本工具**不猜**最新版 ✗";
+                return who + "　→　工具箱自带基准：CLI 的 ITEM 行里是 `latest=unknown`（只有老 CLI，或工具箱自带的那一份缺 plugin 目录 / 内容读不到；新 CLI 以工具箱自带那一份为基准，原因见诊断行）";
             }
             if (!string.IsNullOrEmpty(latest) && latest != "unknown")
                 return head + "　→　最新 " + VersionMarkers.TagOf(latest);
             if (kind == "webui")
-                return head + "　→　最新版本：取不到最新版本（离线，或 npm 返回值未通过白名单）";
+                return head + "　→　最新版本：取不到（离线，或 npm 返回值未通过白名单）";
             if (kind == "minato")
-                return head + "　→　最新版本：CLI 没给 latest（只有**老 CLI** 才这样 —— 新 CLI 会查 GitHub 的 /releases/latest ✓；本工具**不猜**最新版 ✗）";
+                return head + "　→　最新版本：CLI 没给 latest（只有老 CLI 才这样；新 CLI 会查 GitHub 的 /releases/latest）";
             if (kind == "desktop")
                 return head + "　→　版本比对：本工具不做（官方桌面端只去官方页更新）";
-            return head + "　→　最新版本：CLI 的标记行里没有 latest 字段（✗ 不猜 ✗）";
+            return head + "　→　最新版本：CLI 的标记行里没有 latest 字段";
         }
 
         /// <summary>诊断补充行（只有"本该有最新版却拿不到"才给 ✓ 其余返回空串 ✗ 不噪声 ✓）。
@@ -278,7 +278,7 @@ namespace Dsht.Gui.Avalonia.Markers
                 string d = DiagOf(raw, kind);
                 if (!string.IsNullOrEmpty(d)) return "诊断：CLI 原文里的原因 —— " + d;
                 if (!string.IsNullOrEmpty(state) && state != "unknown") return "";
-                return "诊断：CLI 这次没打原因行（老 CLI 不查本工具的更新 ✓）→ 本工具不替它编原因 ✗；换与新版本配套的 dsh-minato.exe 后重试 ✓";
+                return "诊断：CLI 这次没打原因行（老 CLI 不查本工具的更新）。换与新版本配套的 dsh-minato.exe 后重试。";
             }
             // ★ 插件行（**桥接插件** ✓ 2026-10-11）：CLI 现在会拿**随包那一份**当基准 ✓
             //   → 于是「本该有基准却拿不到」时它才打 DIAG ✓（随包缺 plugin 目录 / package.json 或内容文件读不到 ✓）
@@ -291,15 +291,15 @@ namespace Dsht.Gui.Avalonia.Markers
                 string dpi = DiagOfIdPrefix(raw, "plugin:");
                 if (!string.IsNullOrEmpty(dpi)) return "诊断：CLI 原文里的原因 —— " + dpi;
                 if (!string.IsNullOrEmpty(state) && state != "unknown") return "";
-                return "诊断：CLI 这次没打原因行（**老 CLI** 的插件行只报已装版本 ✓ 不做比对 ✓）→ 换与新版本配套的 dsh-minato.exe 后即可看到「随包」基准 ✓；本工具**不替它编原因** ✗";
+                return "诊断：CLI 这次没打原因行（老 CLI 的插件行只报已装版本，不做比对）。换与新版本配套的 dsh-minato.exe 后即可看到「工具箱自带」基准。";
             }
             if (kind != "webui") return "";
             if (!string.IsNullOrEmpty(latest) && latest != "unknown") return "";
             string why = FailReason(raw);
             if (!string.IsNullOrEmpty(why)) return "诊断：CLI 原文里的原因 —— " + why;
             if (!string.IsNullOrEmpty(raw) && raw.IndexOf("取不到更新日志", StringComparison.Ordinal) >= 0)
-                return "诊断：最新版本与更新日志**都**没取到 → 基本可以断定是离线（或 npm 不在 PATH）；CLI 这次没打原因行，本工具不替它编原因 ✗";
-            return "诊断：CLI 这次没打原因行（update-center 不带原因行）→ 常见原因：离线 / npm 不在 PATH / registry 返回值未通过白名单；点「检查更新」可看 CLI 的 update-info 怎么说 ✓";
+                return "诊断：最新版本与更新日志都没取到，基本可以断定是离线（或 npm 不在 PATH）；CLI 这次没打原因行。";
+            return "诊断：CLI 这次没打原因行（update-center 不带原因行）。常见原因：离线 / npm 不在 PATH / registry 返回值未通过白名单。点「检查更新」可看 CLI 的 update-info 怎么说。";
         }
 
         /// <summary>取 CLI 自己打的诊断原因：`UPDATECENTER_DIAG <id> <原因>`（CLI 2026-10-11 起 ✓）。
@@ -381,7 +381,7 @@ namespace Dsht.Gui.Avalonia.Markers
             if (loading) return "正在跑 update-center --stream（要查 npm / GitHub，是最慢的一项；完成后会自动补上）。";
             if (string.IsNullOrEmpty(raw) || raw.Trim().Length == 0) return "点上面的「检查更新」试试（只读，不动任何东西）。";
             if (raw.IndexOf("UPDATECENTER_", StringComparison.Ordinal) < 0)
-                return "读到的原文里没有 UPDATECENTER_ITEM 标记行 —— 更新检查靠 CLI 3.x 的 update-center 命令，本 GUI 只解析它的标记行（不引用核心程序集）。下一步：换成与新版本配套的 dsh-minato.exe（或用环境变量 DSHT_CLI 指向它），再点「刷新」。";
+                return "读到的原文里没有 UPDATECENTER_ITEM 标记行 —— 更新检查靠 CLI 3.x 的 update-center 命令。下一步：换成与新版本配套的 dsh-minato.exe（或用环境变量 DSHT_CLI 指向它），再点「刷新」。";
             return "原文里有 UPDATECENTER_ 行但没有 UPDATECENTER_ITEM —— 这不太正常，可点「刷新」重试；若一直如此，请在「原始输出」里看原文。";
         }
     }

@@ -425,22 +425,22 @@ Console.WriteLine("  config-get | config-set <key> <value>");
                         int code = (int)er.StatusCode;
                         er.Close();
                         why = code == 404
-                            ? T("HTTP 404 —— 这个仓库没有**正式** Release（只有预发布也算没有 ✓ `/releases/latest` 就是这么定义的 ✓）", "HTTP 404 - this repository has no stable release (prereleases do not count; that is how /releases/latest is defined)")
+                            ? T("HTTP 404 —— 这个仓库没有正式 Release（只有预发布也算没有；`/releases/latest` 就是这么定义的）", "HTTP 404 - this repository has no stable release (prereleases do not count; that is how /releases/latest is defined)")
                             : ("HTTP " + code + " " + we.Message.Trim());
                     }
                     else if (we.Status == System.Net.WebExceptionStatus.Timeout)
-                        why = T("超时（6 秒内没回应 ✓ 网络慢或不通 ✓）", "timed out (no answer within 6 seconds)");
+                        why = T("超时（6 秒内没有回应，网络慢或不通）", "timed out (no answer within 6 seconds)");
                     else
                         why = we.Status + "：" + we.Message.Trim();
                     return false;
                 }
                 string raw = JsonStr(body, "tag_name");
-                if (string.IsNullOrEmpty(raw)) { why = T("GitHub 返回里没有 tag_name 字段 ✓", "the GitHub answer has no tag_name field"); return false; }
+                if (string.IsNullOrEmpty(raw)) { why = T("GitHub 返回里没有 tag_name 字段", "the GitHub answer has no tag_name field"); return false; }
                 string t = raw.Trim();
                 if (t.Length > 1 && (t[0] == 'v' || t[0] == 'V') && t[1] >= '0' && t[1] <= '9') t = t.Substring(1);   // v3.0.7 → 3.0.7 ✓（只去「v+数字」✓ 别把别的 tag 削坏 ✓）
                 // 预发布防御 ✓：`/releases/latest` 本就不给预发布 ✓ 万一仓库把它标成正式版也**不许**当 stable 报 ✗
                 if (System.Text.RegularExpressions.Regex.IsMatch(t, "-(rc|pre|alpha|beta|dev)[.0-9-]", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
-                { why = T("最新 Release 是预发布版（", "the newest release is a prerelease (") + t + T("）→ 按「只提示正式版」的约定不收 ✓", "); per the stable-only rule it is not taken"); return false; }
+                { why = T("最新 Release 是预发布版（", "the newest release is a prerelease (") + t + T("），按「只提示正式版」的约定不收", "); per the stable-only rule it is not taken"); return false; }
                 tag = t;
                 return true;
             }

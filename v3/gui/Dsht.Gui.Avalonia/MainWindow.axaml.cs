@@ -69,8 +69,8 @@ namespace Dsht.Gui.Avalonia
             new string[] { "体检：配置、日志、网络与安装完整性检查。" },
             new string[] { "当前配置项（脱敏后）。" },
             new string[] { "工具箱对当前安装的判断与依据。" },
-            new string[] { "webui / 官方桌面端 / 本工具 / 已装插件 的版本与更新状态（**检查是只读的** ✓）。" },
-            new string[] { "工具箱的操作日志（级别筛选 / 关键词 / 行数 / 导出）。筛选由 CLI 完成 ✓ 这里只显示。" }
+            new string[] { "webui / 官方桌面端 / 本工具 / 已装插件 的版本与更新状态（检查是只读的）。" },
+            new string[] { "工具箱的操作日志（级别筛选 / 关键词 / 行数 / 导出）。筛选由 CLI 完成，这里只显示。" }
         };
 
         private SessionsSnapshot _data;
@@ -244,8 +244,8 @@ namespace Dsht.Gui.Avalonia
             if (_actionBusy)
             {
                 int bs = (int)(System.DateTime.UtcNow - _actionStartedAt).TotalSeconds;
-                _actionLog = "「" + _actionBusyLabel + "」还在进行中（已 " + bs + " 秒）—— 等它结束再备份 ✓";
-                ShowToast("「" + _actionBusyLabel + "」还在跑（已 " + bs + " 秒）· 请等它结束 ✗");
+                _actionLog = "「" + _actionBusyLabel + "」还在进行中（已 " + bs + " 秒）—— 等它结束再备份。";
+                ShowToast("「" + _actionBusyLabel + "」还在跑（已 " + bs + " 秒）· 请等它结束");
                 BuildShell();
                 return;
             }
@@ -287,7 +287,7 @@ namespace Dsht.Gui.Avalonia
             string dir = await PickFolder("选择备份目录（建议放在安装目录之外，例如 D:\\dsh-backups）");
             if (string.IsNullOrEmpty(dir))
             {
-                _actionLog = "已取消备份 ✓（第一次备份需要先选一个目录 ✓）";
+                _actionLog = "已取消备份（第一次备份需要先选一个目录）";
                 BuildShell(); ShowToast(_actionLog);
                 return;
             }
@@ -359,7 +359,7 @@ namespace Dsht.Gui.Avalonia
         public async void ChangeBackupDir()
         {
             string dir = await PickFolder("选择备份位置（建议放在安装目录之外，例如 D:\\dsh-backups）");
-            if (string.IsNullOrEmpty(dir)) { _actionLog = "已取消更改备份位置 ✓"; BuildShell(); ShowToast(_actionLog); return; }
+            if (string.IsNullOrEmpty(dir)) { _actionLog = "已取消更改备份位置"; BuildShell(); ShowToast(_actionLog); return; }
             RunCliAction("backup-dir --set \"" + dir + "\"", "更改备份位置");
         }
 
@@ -370,10 +370,10 @@ namespace Dsht.Gui.Avalonia
         {
             string now = System.DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
             string typed = await PromptDialog.Ask(this, "删除备份",
-                "删除「" + name + "」**不可恢复** ✓ 请输入**当前时间**以确认：",
-                "打开时已全选 ✓ 可直接 Ctrl+C 复制上面提示的时间再粘贴 ✓ 格式 yyyy-MM-dd HH:mm:ss ✓",
+                "删除「" + name + "」不可恢复。请输入当前时间以确认：",
+                "打开时已全选，可直接 Ctrl+C 复制上面提示的时间再粘贴；格式 yyyy-MM-dd HH:mm:ss",
                 now);
-            if (typed == null) { _actionLog = "已取消删除 ✓"; BuildShell(); ShowToast(_actionLog); return; }
+            if (typed == null) { _actionLog = "已取消删除"; BuildShell(); ShowToast(_actionLog); return; }
             RunCliAction("backup-delete --path \"" + name + "\" --yes --confirm-time \"" + typed.Trim() + "\"", "删除备份");
         }
 
@@ -412,8 +412,8 @@ namespace Dsht.Gui.Avalonia
             if (_actionBusy)
             {
                 int secs = (int)(System.DateTime.UtcNow - _actionStartedAt).TotalSeconds;
-                _actionLog = "「" + _actionBusyLabel + "」还在进行中（已 " + secs + " 秒）—— 等它结束再操作 ✓ 没有排队的第二个动作 ✓";
-                ShowToast("「" + _actionBusyLabel + "」还在跑（已 " + secs + " 秒）· 请等它结束 ✗");
+                _actionLog = "「" + _actionBusyLabel + "」还在进行中（已 " + secs + " 秒）—— 等它结束再操作（动作不排队）。";
+                ShowToast("「" + _actionBusyLabel + "」还在跑（已 " + secs + " 秒）· 请等它结束");
                 BuildShell();
                 return;
             }
@@ -622,7 +622,7 @@ namespace Dsht.Gui.Avalonia
         //   `WIPE_PRE_BACKUP <路径>` 会显示在页面上 ✓ → 用户能看到安全备份在哪 ✓✓）
         /// <summary>**已停用** ✓✓（用户要求删除清除数据操作 ✓ 只保留"显示手动删除路径" ✓）。
         /// 留着方法体是为了不动调用点 ✓ 但它**不再做任何删除** ✓（CLI 的 wipe 本身也永不删除了 ✓✓）。</summary>
-        public void DoWipe() { RunCliAction("wipe", "查看手动删除路径（已停用清除 ✓ 只读 ✓）"); }
+        public void DoWipe() { RunCliAction("wipe", "查看手动删除路径（清除功能已停用；只读）"); }
 
         public void ExportLog()
         {
@@ -816,7 +816,7 @@ namespace Dsht.Gui.Avalonia
             b.CornerRadius = new CornerRadius(ShapeTokens.RCtrl);
             b.BorderThickness = new Thickness(0);
             b.Background = _alwaysOnTop ? Palette.AccentSoft : Brushes.Transparent;
-            ToolTip.SetTip(b, _alwaysOnTop ? "窗口已置顶 ✓ 点一下取消 ✓" : "点一下让窗口始终置顶 ✓");
+            ToolTip.SetTip(b, _alwaysOnTop ? "窗口已置顶，点一下取消" : "点一下让窗口始终置顶");
             if (!_pinPainted)
             {
                 _pinPainted = true;
@@ -832,7 +832,7 @@ namespace Dsht.Gui.Avalonia
                     //     → 而注释说"下次启动恢复" ✗ **是假的** ✓（`_alwaysOnTop` 永远从 false 开始 ✓ 从不读回 ✓）
                     //   ✓ 现在：**改成"仅本次会话"** ✓✓ 并且**如实说明** ✓
                     //     （要真正持久化得先在 CLI 加键 ✓ 那是另一件事 ✓ **不能假装已经持久化** ✗✓）
-                    _actionLog = _alwaysOnTop ? "窗口已置顶 ✓（仅本次运行 ✓ 重启后不保留 ✓）" : "已取消置顶 ✓";
+                    _actionLog = _alwaysOnTop ? "窗口已置顶（仅本次运行，重启后不保留）" : "已取消置顶";
                     ShowToast(_actionLog);
                 };
             }
@@ -1230,13 +1230,15 @@ namespace Dsht.Gui.Avalonia
             get
             {
                 // ★ 2026-10-11：**只追加**两个版本 ✓ 原有文案一字不动 ✓✓
-                string tail = "　工具箱 " + CliVersionText + "　桥接插件 " + BridgeVersionText + "　（GUI 不引用核心程序集，只解析 CLI 标记行）";
+                // ★ 2026-10-11 文案精简：原来还带一句架构注记（GUI 不引用核心程序集…）——
+                //   已**从页脚移除**并搬进「说明」页（AboutCard），页脚只留事实与版本号 ✓
+                string tail = "　工具箱 " + CliVersionText + "　桥接插件 " + BridgeVersionText;
                 if (_data == null) return "数据来源：—" + tail;
                 // ★ 2026-10-11（维护者要求"页脚做换行"✓）：**按语义断成两行** ✗ 不靠被动折行 ✓
                 //   第一行 = 数据来源 + 投影目录（路径可能很长 → 仍由 TextWrapping.Wrap 兜底 ✓）
-                //   第二行 = 两个版本 + 纪律说明 ✓ 换行点稳定 ✗ 不再随窗口宽度乱折 ✓
+                //   第二行 = 两个版本 ✓ 换行点稳定 ✗ 不再随窗口宽度乱折 ✓
                 string line1 = _data.SourceText + "　投影目录：" + _data.Root;
-                string line2 = "工具箱 " + CliVersionText + "　桥接插件 " + BridgeVersionText + "　（GUI 不引用核心程序集，只解析 CLI 标记行）";
+                string line2 = "工具箱 " + CliVersionText + "　桥接插件 " + BridgeVersionText;
                 return line1 + "\n" + line2;
             }
         }
@@ -1850,9 +1852,9 @@ namespace Dsht.Gui.Avalonia
         /// 与原来进页自动跑的是**同一条流式路径** ✓（杀软式逐行出结果 ✓）；正在忙时如实说 ✗ 不排队 ✗（体检 6.5 秒，排队会等很久 ✗✗）。</summary>
         public void RunDoctorNow()
         {
-            if (_busy) { ShowToast("正在刷新中 ✓ 稍等一下再运行体检"); return; }
+            if (_busy) { ShowToast("正在刷新中，稍等一下再运行体检"); return; }
             string cli = CliPath();
-            if (cli == null) { ShowToast("未找到工具箱 CLI ✗ 把 dsh-minato.exe 放到 gui\\ 旁边试试"); return; }
+            if (cli == null) { ShowToast("未找到工具箱 CLI。把 dsh-minato.exe 放到 gui\\ 旁边试试"); return; }
             _busy = true;
             _loading = true;
             BuildShell();   // 先亮指示 ✓（按钮反馈立刻可见 ✓）
@@ -2200,7 +2202,7 @@ namespace Dsht.Gui.Avalonia
                     _tray.IsVisible = true;
                 }
                 Hide();
-                ShowToast("已最小化到系统托盘 ✓ 托盘图标右键可显示或退出 ✓");
+                ShowToast("已最小化到系统托盘；托盘图标右键可显示或退出");
             }
             catch { _realExit = true; Close(); }
         }
