@@ -1221,7 +1221,12 @@ namespace Dsht.Gui.Avalonia
                 // ★ 2026-10-11：**只追加**两个版本 ✓ 原有文案一字不动 ✓✓
                 string tail = "　工具箱 " + CliVersionText + "　桥接插件 " + BridgeVersionText + "　（GUI 不引用核心程序集，只解析 CLI 标记行）";
                 if (_data == null) return "数据来源：—" + tail;
-                return _data.SourceText + "　投影目录：" + _data.Root + tail;
+                // ★ 2026-10-11（维护者要求"页脚做换行"✓）：**按语义断成两行** ✗ 不靠被动折行 ✓
+                //   第一行 = 数据来源 + 投影目录（路径可能很长 → 仍由 TextWrapping.Wrap 兜底 ✓）
+                //   第二行 = 两个版本 + 纪律说明 ✓ 换行点稳定 ✗ 不再随窗口宽度乱折 ✓
+                string line1 = _data.SourceText + "　投影目录：" + _data.Root;
+                string line2 = "工具箱 " + CliVersionText + "　桥接插件 " + BridgeVersionText + "　（GUI 不引用核心程序集，只解析 CLI 标记行）";
+                return line1 + "\n" + line2;
             }
         }
 
