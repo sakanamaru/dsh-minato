@@ -195,20 +195,31 @@ namespace Dsht.Gui.Avalonia.Markers
     /// ③ CLI 本来就不查这一项（minato/插件）→ 明说"CLI 不提供" ✓ ④ 老 CLI 没有这些标记行 → 页面级文案说"版本过旧" ✓。</summary>
     public static class UpdateDiagnosis
     {
-        /// <summary>状态徽章（短 ✓）。CLI 给的四态照译 ✓；`state=unknown` 按**已知事实**分情况 ✓ 不写「未知」✗。</summary>
+        /// <summary>状态徽章（短 ✓）。CLI 给的四态照译 ✓；`state=unknown` 按**已知事实**分情况 ✓ 不写「未知」✗。
+        /// ★ 2026-10-11：插件行（**桥接插件** ✓）多了三态 ✓ —— CLI 侧基准 = **随包那一份**（工具箱自带 ✓ 离线 ✓ 零新渠道 ✓）
+        ///   → `not-installed`（该 profile 没装）/ `content-mismatch`（**版本相同但内容哈希不同** = 半旧 ✓）/
+        ///     `newer-than-bundled`（比随包还新 ✓ 如实说 ✓ ✗ 不硬说成「有更新」✗）。见 CLI `Program.Ops.cs` 的 BridgeStateOf ✓</summary>
         public static string StateText(string kind, string state, string latest, string installed)
         {
             if (state == "up-to-date") return "已是最新";
             if (state == "update-available") return "有更新";
             if (state == "newer-than-latest") return "比最新还新";
             if (state == "external") return "在官方页更新";
+            // ★ 插件（桥接）专属三态 ✓（逐态都在 UI 上可读懂 ✓ 见 LogicTests 的断言 ✓）
+            if (state == "not-installed") return "未安装";
+            if (state == "content-mismatch") return "内容与随包不一致";
+            if (state == "newer-than-bundled") return "比随包还新";
             // CLI 报了个 GUI **不认识**的状态值 → 把原值贴出来 ✓（✗ 不许硬塞进"取不到" ✗ 也不许吞成「未知」✗）
             if (!string.IsNullOrEmpty(state) && state != "unknown")
                 return "未识别（kind=" + (string.IsNullOrEmpty(kind) ? "空" : kind) + " state=" + state + "）";
             // —— 以下是 CLI 报 `state=unknown` / 没给状态的情形：按**已知事实**分情况 ✓ ——
             if (kind == "webui") return "取不到最新版";
             if (kind == "minato") return "CLI 不查最新版";
-            if (kind == "plugin") return "CLI 不查最新版";
+            // ★ 插件行 state=unknown 的两种真实情形（GUI 分不出是哪种 ✓ 但两种都**不是**「CLI 不查」了 ✓）：
+            //   ① 随包缺 plugin 目录（开发构建常见 ✓）/ 随包 package.json 或内容文件读不到 ✓ → CLI 打了 DIAG ✓
+            //   ② **老 CLI**（3.0.x 之前那句写死的 latest=unknown state=unknown ✓）→ 它确实不比对 ✓
+            //   两种都如实说成「基准不可用 ✓ 见诊断行」，✗ 不笼统写「未知」✗（诊断行由 HintText 给出 ✓）
+            if (kind == "plugin") return "随包基准不可用";
             if (kind == "desktop") return installed == "unknown" ? "未检测到桌面端" : "本工具不比对";
             // GUI 不认识的 kind/state：把 CLI 的原值贴出来 ✓ 不吞 ✗ 不笼统化 ✗
             string s = string.IsNullOrEmpty(state) ? "空" : state;
@@ -226,14 +237,29 @@ namespace Dsht.Gui.Avalonia.Markers
             if (kind == "desktop" && !instKnown)
                 return "未检测到官方桌面端（本工具只在 %LOCALAPPDATA%\\Programs\\DeepSeek Harness 下找它 ✗ 不猜版本 ✗）";
             string head = instKnown ? ("已装 " + VersionMarkers.TagOf(installed)) : "已装版本：未检测到（CLI 报 installed=unknown）";
+            // ★★★ 2026-10-11 **插件行**（CLI 3.0.x 起真的给基准了 ✓）：latest = **你这份工具箱自带的那一份**的版本 ✓
+            //   ✗ 不是网上的最新版 ✗（插件没有独立版本渠道 ✓ CLI 也不会拿工具箱 tag 顶替 ✓ —— 那句诚实口径在 CLI 的 NOTE 里 ✓）
+            //   `content-mismatch`（版本同、哈希不同）必须**在版本行里也点出来** ✓ —— 否则「已装 v0.2.0 → 随包 v0.2.0」看着像没事 ✗
+            if (kind == "plugin")
+            {
+                string who = instKnown ? ("已装 " + VersionMarkers.TagOf(installed)) : "未安装（CLI 报 installed=unknown ✓ 本工具按 profile 如实报 ✓）";
+                if (!string.IsNullOrEmpty(latest) && latest != "unknown")
+                {
+                    string t = who + "　→　随包 " + VersionMarkers.TagOf(latest) + "（**你这份工具箱自带的那一份** ✓ 不是网上的最新版 ✗）";
+                    if (state == "content-mismatch")
+                        t += "　——　**版本号相同，但 snapshot.js / index.js 的内容哈希与随包不同** ✓（半旧 / 被改过 ✓ 只看版本号看不出来 ✓）";
+                    if (state == "newer-than-bundled")
+                        t += "　——　已装版本**高于**随包 ✓（如实说 ✓ ✗ 不硬说成「有更新」✗）";
+                    return t;
+                }
+                return who + "　→　随包基准：CLI 的 ITEM 行里是 `latest=unknown`（**只有老 CLI、或随包缺 plugin 目录 / 随包内容读不到**才这样 ✓ 新 CLI 会拿随包那一份做基准 ✓ 原因见诊断行 ✓）—— 本工具**不猜**最新版 ✗";
+            }
             if (!string.IsNullOrEmpty(latest) && latest != "unknown")
                 return head + "　→　最新 " + VersionMarkers.TagOf(latest);
             if (kind == "webui")
                 return head + "　→　最新版本：取不到最新版本（离线，或 npm 返回值未通过白名单）";
             if (kind == "minato")
                 return head + "　→　最新版本：CLI 没给 latest（只有**老 CLI** 才这样 —— 新 CLI 会查 GitHub 的 /releases/latest ✓；本工具**不猜**最新版 ✗）";
-            if (kind == "plugin")
-                return head + "　→　最新版本：CLI 不提供（插件随工具箱发布，**没有独立的版本渠道** ✗ 与本工具的 tag 不在一个序列上 ✗ 不猜最新版 ✗）";
             if (kind == "desktop")
                 return head + "　→　版本比对：本工具不做（官方桌面端只去官方页更新）";
             return head + "　→　最新版本：CLI 的标记行里没有 latest 字段（✗ 不猜 ✗）";
@@ -253,6 +279,19 @@ namespace Dsht.Gui.Avalonia.Markers
                 if (!string.IsNullOrEmpty(d)) return "诊断：CLI 原文里的原因 —— " + d;
                 if (!string.IsNullOrEmpty(state) && state != "unknown") return "";
                 return "诊断：CLI 这次没打原因行（老 CLI 不查本工具的更新 ✓）→ 本工具不替它编原因 ✗；换与新版本配套的 dsh-minato.exe 后重试 ✓";
+            }
+            // ★ 插件行（**桥接插件** ✓ 2026-10-11）：CLI 现在会拿**随包那一份**当基准 ✓
+            //   → 于是「本该有基准却拿不到」时它才打 DIAG ✓（随包缺 plugin 目录 / package.json 或内容文件读不到 ✓）
+            //   · 拿到了基准（latest 非 unknown）→ **不给诊断** ✓（不噪声 ✓）
+            //   · 没有 DIAG 且 state=unknown → 只能是**老 CLI**（它那句写死的 latest=unknown state=unknown ✓）→ 如实说 ✓
+            //   ✗ 不替 CLI 编原因 ✗
+            if (kind == "plugin")
+            {
+                if (!string.IsNullOrEmpty(latest) && latest != "unknown") return "";
+                string dpi = DiagOfIdPrefix(raw, "plugin:");
+                if (!string.IsNullOrEmpty(dpi)) return "诊断：CLI 原文里的原因 —— " + dpi;
+                if (!string.IsNullOrEmpty(state) && state != "unknown") return "";
+                return "诊断：CLI 这次没打原因行（**老 CLI** 的插件行只报已装版本 ✓ 不做比对 ✓）→ 换与新版本配套的 dsh-minato.exe 后即可看到「随包」基准 ✓；本工具**不替它编原因** ✗";
             }
             if (kind != "webui") return "";
             if (!string.IsNullOrEmpty(latest) && latest != "unknown") return "";
@@ -279,6 +318,28 @@ namespace Dsht.Gui.Avalonia.Markers
                     string v = t.Substring(tag.Length).Trim();
                     if (v.Length > 0) return v;
                 }
+            }
+            return "";
+        }
+
+        /// <summary>取第一条 `UPDATECENTER_DIAG &lt;id 以 idPrefix 开头&gt; &lt;原因&gt;` 的原因原文 ✓
+        /// （插件行的 id 是 `plugin:&lt;包名&gt;` ✓ 而 `HintText` 只拿得到 kind ✓ 拿不到具体 id ✓ 所以按**前缀**取 ✓
+        /// 多条时只认**第一条** ✓（同一个随包基准缺失，每个 profile 的原因文案一样 ✓）；没有 → 空串 ✓ **不编** ✗）。</summary>
+        public static string DiagOfIdPrefix(string raw, string idPrefix)
+        {
+            if (string.IsNullOrEmpty(raw) || string.IsNullOrEmpty(idPrefix)) return "";
+            string tag = "UPDATECENTER_DIAG ";
+            string[] ls = raw.Replace("\r\n", "\n").Split('\n');
+            for (int i = 0; i < ls.Length; i++)
+            {
+                string t = ls[i] == null ? "" : ls[i].Trim();
+                if (!t.StartsWith(tag, StringComparison.Ordinal)) continue;
+                string rest = t.Substring(tag.Length);
+                int sp = rest.IndexOf(' ');
+                if (sp <= 0) continue;
+                if (!rest.Substring(0, sp).StartsWith(idPrefix, StringComparison.Ordinal)) continue;
+                string v = rest.Substring(sp + 1).Trim();
+                if (v.Length > 0) return v;
             }
             return "";
         }

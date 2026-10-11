@@ -639,13 +639,25 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 // 版本行 ✓（★ 2026-10-11：取不到就**说清是哪种取不到** ✓ 不再只写一个 unknown ✗ 见 UpdItem.VersionText ✓）
 
-                card.Children.Add(T(it.VersionText, 11.5, Palette.TextDim));
+                TextBlock vline = T(it.VersionText, 11.5, Palette.TextDim);
+
+                vline.TextWrapping = TextWrapping.Wrap;   // ★ 2026-10-11：这一行现在会很长（随包基准 + 半旧说明 ✓）→ 必须换行 ✓（✗ 截断掉就等于没说 ✗）
+
+                card.Children.Add(vline);
 
                 // 诊断行 ✓（★ 2026-10-11：只有"本该有最新版却拿不到"才有内容 ✓ 附 CLI 原始原因 ✓ 不编 ✗）
 
                 if (!string.IsNullOrEmpty(it.HintText))
 
-                    card.Children.Add(T(it.HintText, 11.5, Palette.Warn));
+                {
+
+                    TextBlock hline = T(it.HintText, 11.5, Palette.Warn);
+
+                    hline.TextWrapping = TextWrapping.Wrap;   // 诊断原文可能很长 ✓ 换行 ✓
+
+                    card.Children.Add(hline);
+
+                }
 
 
 
@@ -653,7 +665,15 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 if (!string.IsNullOrEmpty(it.Log))
 
-                    card.Children.Add(T("更新日志：" + it.Log, 11.5, Palette.TextFaint));
+                {
+
+                    TextBlock lline = T("更新日志：" + it.Log, 11.5, Palette.TextFaint);
+
+                    lline.TextWrapping = TextWrapping.Wrap;
+
+                    card.Children.Add(lline);
+
+                }
 
 
 
@@ -661,7 +681,17 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 if (!string.IsNullOrEmpty(it.Note))
 
-                    card.Children.Add(T(it.Note, 11.5, Palette.Warn));
+                {
+
+                    // ★ 2026-10-11：插件行的 NOTE 里带着**按 profile 分开**的修复指引 ✓（web = bridge-install ✓
+                    //   desktop = 由桌面端管 ✓）→ 这一行**必须换行** ✓ 否则指引永远看不见 ✗
+                    TextBlock nline = T(it.Note, 11.5, Palette.Warn);
+
+                    nline.TextWrapping = TextWrapping.Wrap;
+
+                    card.Children.Add(nline);
+
+                }
 
 
 
@@ -846,6 +876,9 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 {
 
+                    // ★ 2026-10-11：**版本相同但内容不一致**（半旧 ✓）必须**看得见** ✓ → 用警示色 ✓（✗ 不沉在灰底里 ✗）
+                    if (State == "content-mismatch") return Palette.Warn;
+
                     if (State == "update-available") return Palette.OnAccent;
 
                     if (State == "up-to-date") return Palette.OnAccent;
@@ -864,6 +897,8 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 {
 
+                    if (State == "content-mismatch") return Palette.WarnSoft;
+
                     if (State == "update-available") return Palette.Accent;
 
                     if (State == "up-to-date") return Palette.Good;
@@ -881,6 +916,11 @@ namespace Dsht.Gui.Avalonia.Shells
         {
 
             List<UpdItem> list = new List<UpdItem>();
+
+            // ★ 2026-10-11：同一个 id 会有**多行**（桥接插件**每个 profile 一行** ✓ 每行各有自己的 NOTE ✓
+            //   修复指引还按 profile 不同 ✗）→ URL/NOTE/LOG 按**出现顺序**配给同 id 的第 1、2、3… 行 ✓
+            //   （原来一律配给**第一行** ✗ → desktop/web 两行共用第一条 NOTE ✗ 指引就串到别人身上了 ✗）
+            Dictionary<string, int> noteUsed = new Dictionary<string, int>();
 
             if (string.IsNullOrEmpty(raw)) return list;
 
@@ -944,7 +984,13 @@ namespace Dsht.Gui.Avalonia.Shells
 
                     string val = t2.Substring(parts[0].Length + 1 + id.Length).Trim();
 
-                    for (int k = 0; k < list.Count; k++)
+                    string key = parts[0] + "|" + id;
+
+                    int used = 0;
+
+                    if (noteUsed.ContainsKey(key)) used = noteUsed[key];
+
+                    for (int k = used; k < list.Count; k++)
 
                     {
 
@@ -955,6 +1001,8 @@ namespace Dsht.Gui.Avalonia.Shells
                         else if (parts[0] == "UPDATECENTER_NOTE") list[k].Note = val;
 
                         else list[k].Log = val;
+
+                        noteUsed[key] = k + 1;
 
                         break;
 

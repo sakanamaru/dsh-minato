@@ -396,9 +396,39 @@ namespace Dsht.Gui.LogicTests
                 && UpdateDiagnosis.StateText("desktop", "external", "unknown", "0.2.0-rc.2") == "在官方页更新");
             Check("诊断·① 真取不到（webui state=unknown）→ 「取不到最新版」✗ 不再是笼统的「未知」✗",
                 UpdateDiagnosis.StateText("webui", "unknown", "unknown", "0.1.5-rc.2") == "取不到最新版");
-            Check("诊断·② CLI 本来就不查（minato / 插件）→ 明说「CLI 不查最新版」（跟真取不到**分开** ✓）",
-                UpdateDiagnosis.StateText("minato", "unknown", "unknown", "3.0.7") == "CLI 不查最新版"
-                && UpdateDiagnosis.StateText("plugin", "unknown", "unknown", "0.2.0") == "CLI 不查最新版");
+            Check("诊断·② CLI 本来就不查（minato）→ 明说「CLI 不查最新版」（跟真取不到**分开** ✓）",
+                UpdateDiagnosis.StateText("minato", "unknown", "unknown", "3.0.7") == "CLI 不查最新版");
+            // ★★ 2026-10-11 **这一条改了**：插件行不再走「CLI 不查最新版」✗ —— CLI 现在**真的**拿
+            //    「随包那一份」（工具箱自带 ✓ 离线 ✓）当基准做**双比对** ✓；state=unknown 只剩两种情形：
+            //    ① 老 CLI（写死的 unknown ✓）② 随包缺 plugin 目录 / 随包内容读不到 ✓ → 都如实说「基准不可用」+ 诊断行 ✓
+            Check("诊断·②b 插件行（桥接）**已由 CLI 真比对** → unknown 时不再说「CLI 不查最新版」✗ 而是「随包基准不可用」（原因见诊断行 ✓）",
+                UpdateDiagnosis.StateText("plugin", "unknown", "unknown", "0.2.0") == "随包基准不可用"
+                && UpdateDiagnosis.StateText("plugin", "unknown", "unknown", "0.2.0") != "CLI 不查最新版");
+            // ★★ 插件五态（维护者要求「每种都在 UI 上可读懂」✓）：触发条件由 CLI 决定 ✓ GUI 只照译 ✓
+            Check("诊断·插件五态：未安装 / 已是最新 / 有更新 / **内容与随包不一致**（版本同但哈希不同 ✓）/ 比随包还新",
+                UpdateDiagnosis.StateText("plugin", "not-installed", "0.2.0", "unknown") == "未安装"
+                && UpdateDiagnosis.StateText("plugin", "up-to-date", "0.2.0", "0.2.0") == "已是最新"
+                && UpdateDiagnosis.StateText("plugin", "update-available", "0.2.0", "0.1.0") == "有更新"
+                && UpdateDiagnosis.StateText("plugin", "content-mismatch", "0.2.0", "0.2.0") == "内容与随包不一致"
+                && UpdateDiagnosis.StateText("plugin", "newer-than-bundled", "0.2.0", "0.3.0") == "比随包还新");
+            Check("诊断·插件五态的**版本行**：随包基准来自「你这份工具箱自带的那一份」✓（✗ 不说成网上的最新版 ✗）",
+                UpdateDiagnosis.VersionText("plugin", "up-to-date", "0.2.0", "0.2.0") == "已装 v0.2.0　→　随包 v0.2.0（**你这份工具箱自带的那一份** ✓ 不是网上的最新版 ✗）"
+                && UpdateDiagnosis.VersionText("plugin", "not-installed", "0.2.0", "unknown").StartsWith("未安装（CLI 报 installed=unknown")
+                && UpdateDiagnosis.VersionText("plugin", "update-available", "0.2.0", "0.1.0").Contains("随包 v0.2.0"));
+            Check("诊断·★**版本同但哈希不同**那一态：版本行必须把它点出来 ✗（否则「已装 v0.2.0 → 随包 v0.2.0」看着像没事 ✗）",
+                UpdateDiagnosis.VersionText("plugin", "content-mismatch", "0.2.0", "0.2.0").Contains("版本号相同，但 snapshot.js / index.js 的内容哈希与随包不同")
+                && UpdateDiagnosis.VersionText("plugin", "newer-than-bundled", "0.2.0", "0.3.0").Contains("高于"));
+            Check("诊断·插件行拿不到随包基准（老 CLI / 随包缺目录）→ 版本行**不猜**最新版 ✓ 也不再说「CLI 不提供」✗",
+                UpdateDiagnosis.VersionText("plugin", "unknown", "unknown", "0.2.0").Contains("latest=unknown")
+                && UpdateDiagnosis.VersionText("plugin", "unknown", "unknown", "0.2.0").Contains("本工具**不猜**最新版")
+                && !UpdateDiagnosis.VersionText("plugin", "unknown", "unknown", "0.2.0").Contains("CLI 不提供"));
+            Check("诊断·插件行**贴 CLI 的 DIAG 原文**（随包缺 plugin 目录（开发构建常见 ✓）✓ 按 id 前缀取 ✓ 第一条 ✓ ✗ 不编 ✗）",
+                UpdateDiagnosis.HintText("plugin", "unknown", "unknown", "0.1.0",
+                    "UPDATECENTER_ITEM plugin:dsh-minato-bridge kind=plugin installed=0.1.0 latest=unknown state=unknown profile=desktop\nUPDATECENTER_DIAG plugin:dsh-minato-bridge 随包缺 plugin 目录（开发构建常见 ✓）：C:\\x\\plugin\\dsh-minato-bridge\n")
+                    .Contains("随包缺 plugin 目录（开发构建常见 ✓）")
+                && UpdateDiagnosis.DiagOfIdPrefix("UPDATECENTER_DIAG plugin:x 原因一\nUPDATECENTER_DIAG plugin:y 原因二", "plugin:") == "原因一"
+                && UpdateDiagnosis.DiagOfIdPrefix("UPDATECENTER_DIAG minato 别的", "plugin:") == ""
+                && UpdateDiagnosis.DiagOfIdPrefix(null, "plugin:") == "" && UpdateDiagnosis.DiagOfIdPrefix("x", "") == "");
             Check("诊断·③ 桌面端没找到 → 「未检测到桌面端」（不是取不到，也不是未知 ✓）",
                 UpdateDiagnosis.StateText("desktop", "unknown", "unknown", "unknown") == "未检测到桌面端");
             Check("诊断·CLI 报了个 GUI 不认识的状态 → **把原值贴出来** ✓ 不吞成「未知」✗",
@@ -414,10 +444,8 @@ namespace Dsht.Gui.LogicTests
                 UpdateDiagnosis.VersionText("webui", "update-available", "0.2.0-rc.2", "0.1.5-rc.2") == "已装 v0.1.5-rc.2　→　最新 v0.2.0-rc.2"
                 && UpdateDiagnosis.VersionText("minato", "up-to-date", "3.0.7", "3.0.7") == "已装 v3.0.7　→　最新 v3.0.7"
                 && VersionMarkers.TagOf("v3.0.7") == "v3.0.7" && VersionMarkers.TagOf("") == "" && VersionMarkers.TagOf(null) == null);
-            Check("诊断·webui 取不到 → 明说离线/白名单；插件 → 明说无独立渠道；本工具的老 CLI → 明说 CLI 没给（✗ 不再写 unknown ✗）",
+            Check("诊断·webui 取不到 → 明说离线/白名单；本工具的老 CLI → 明说 CLI 没给（✗ 不再写 unknown ✗）",
                 UpdateDiagnosis.VersionText("webui", "unknown", "unknown", "0.1.5").Contains("取不到最新版本（离线，或 npm 返回值未通过白名单）")
-                && UpdateDiagnosis.VersionText("plugin", "unknown", "unknown", "0.2.0").Contains("CLI 不提供")
-                && UpdateDiagnosis.VersionText("plugin", "unknown", "unknown", "0.2.0").Contains("没有独立的版本渠道")
                 && UpdateDiagnosis.VersionText("minato", "unknown", "unknown", "3.0.7").Contains("CLI 没给 latest"));
             Check("诊断·installed=unknown 不许原样给用户看 unknown（→ 未检测到 ✓）",
                 UpdateDiagnosis.VersionText("webui", "unknown", "unknown", "unknown").Contains("未检测到")
@@ -429,9 +457,11 @@ namespace Dsht.Gui.LogicTests
             Check("诊断·原文里有 _FAIL → 诊断行贴它（✗ 不替 CLI 编原因 ✓）；没有 → 如实说「这次没打原因行」✓",
                 UpdateDiagnosis.HintText("webui", "unknown", "unknown", "1", "UPDATEINFO_FAIL 离线").Contains("离线")
                 && UpdateDiagnosis.HintText("webui", "unknown", "unknown", "1", "UPDATECENTER_ITEM webui kind=webui").Contains("没打原因行"));
-            Check("诊断·诊断行只在「本该有最新版却拿不到」时出现（拿到了 / 插件 → 空串 ✓ 不噪声 ✓）",
+            Check("诊断·诊断行只在「本该有最新版却拿不到」时出现（拿到了 → 空串 ✓ 不噪声 ✓；插件行 state=unknown 且无 DIAG → 明说是**老 CLI** ✓）",
                 UpdateDiagnosis.HintText("webui", "update-available", "1.0.0", "0.9.0", "x") == ""
-                && UpdateDiagnosis.HintText("plugin", "unknown", "unknown", "0.2.0", "x") == "");
+                && UpdateDiagnosis.HintText("plugin", "up-to-date", "0.2.0", "0.2.0", "x") == ""
+                && UpdateDiagnosis.HintText("plugin", "update-available", "0.2.0", "0.1.0", "x") == ""
+                && UpdateDiagnosis.HintText("plugin", "unknown", "unknown", "0.2.0", "x").Contains("老 CLI"));
             Check("诊断·★本工具取不到最新版 → 把 CLI 的 `UPDATECENTER_DIAG minato <原因>` **逐字贴出来**（✗ 不吞原因 ✗ 不替它编 ✗）",
                 UpdateDiagnosis.HintText("minato", "unknown", "unknown", "3.0.7",
                     "UPDATECENTER_ITEM minato kind=minato installed=3.0.7 latest=unknown state=unknown\nUPDATECENTER_DIAG minato 没取到最新版（只报告 ✓）：超时（6 秒内没回应 ✓）\n")

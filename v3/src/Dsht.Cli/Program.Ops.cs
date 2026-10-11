@@ -42,6 +42,11 @@ namespace Dsht.Cli
         /// 标记行：
         ///   `UPDATECENTER_OK <n>`
         ///   `UPDATECENTER_ITEM <id> kind=<webui|desktop|minato|plugin> installed=<v|unknown> latest=<v|unknown> state=<up-to-date|update-available|unknown|external>`
+        ///     ★ 插件的 state 另有一组（2026-10-11 ✓ 基准 = **随包那一份** ✓ 离线 ✓）：
+        ///       `not-installed` ✓ / `up-to-date`✓（版本相同**且**内容一致）/ `update-available`（版本低于随包）/
+        ///       `content-mismatch`（**版本相同但 snapshot.js/index.js 内容哈希不同** ✓ 半旧 ✓）/
+        ///       `newer-than-bundled`（版本高于随包 ✓ 如实说）/ `unknown`（随包缺 plugin 目录 / 哈希比不了 ✓ 见 DIAG）
+        ///     ✗ ITEM 的字段名与 kind **一个都没动** ✗（只把 latest/state 填成真值 ✓）
         ///   `UPDATECENTER_URL <id> <地址>`       ← GitHub / 官方安装页 ✓
         ///   `UPDATECENTER_NOTE <id> <说明>`      ← 更新前风险与确认要求 ✓
         ///   `UPDATECENTER_DIAG <id> <说明>`      ← **取不到最新版时的原始原因** ✓（状态码 / 超时 ✓ 2026-10-11 加 ✓
@@ -157,14 +162,21 @@ namespace Dsht.Cli
             // DSH_HOME - the project's own testing mode - it listed plugins from the real profile.
             string dshHome = reg.Get<IPaths>().DataRoot;
                 string profiles = System.IO.Path.Combine(dshHome, "profiles");   // N5 FIX: the extra segment made the plugin list always empty
+                // ★★★ 2026-10-11 **桥接插件的基准**（维护者选定方案① ✓ 离线 ✓ 零新渠道 ✓）：
+                //   基准 = **工具箱随包的那一份插件** = <exe 目录>\plugin\dsh-minato-bridge\ ✓
+                //   （官方发布包带它 ✓；**开发构建常常没有** ✗ → 那时必须**如实降级** ✓ 不编 latest ✗）
+                //   只算一次 ✓ **不联网** ✓ 不碰 ~\.dsh 的写 ✓（只读探测 ✓）
+                BridgeBaseline bbl = LoadBundledBridge(SelfDir());
                 if (System.IO.Directory.Exists(profiles))
                 {
                     string[] profDirs = System.IO.Directory.GetDirectories(profiles);
                     for (int i = 0; i < profDirs.Length; i++)
                     {
+                        string profName = System.IO.Path.GetFileName(profDirs[i]);
                         string nm = System.IO.Path.Combine(profDirs[i], "node_modules");
-                        if (!System.IO.Directory.Exists(nm)) continue;
-                        string[] pkgs = System.IO.Directory.GetDirectories(nm);
+                        // ★ 桥接插件那一行**单独算** ✓；其余插件**逐字保持不变** ✓（既有行不动 ✓）
+                        bool bridgeDone = false;
+                        string[] pkgs = System.IO.Directory.Exists(nm) ? System.IO.Directory.GetDirectories(nm) : new string[0];
                         for (int k = 0; k < pkgs.Length; k++)
                         {
                             string pj = System.IO.Path.Combine(pkgs[k], "package.json");
@@ -179,6 +191,15 @@ namespace Dsht.Cli
                             if (string.IsNullOrEmpty(ver)) ver = "unknown";
                             string pid = "plugin:" + name;
                             ids.Add(pid);
+                            // ★★★ 2026-10-11：**桥接插件**走真比对 ✓（基准 = 随包那一份 ✓ 双比对 = 版本号 + 内容哈希 ✓）
+                            //   其余插件**逐字保持原样** ✓（它们确实没有独立版本渠道 ✓ 那条诚实的 NOTE 不动 ✓）
+                            if (name == "dsh-minato-bridge")
+                            {
+                                bridgeDone = true;
+                                if (string.IsNullOrEmpty(repo)) repo = NpmRepoOf(name);
+                                AddPart(lines, emit, BridgeRow(bbl, profName, ver, CodeDirOf(pkgs[k], txt), repo));
+                                continue;
+                            }
                             List<string> plugPart = new List<string>();
                             plugPart.Add("UPDATECENTER_ITEM " + pid + " kind=plugin installed=" + ver + " latest=unknown state=unknown profile=" + System.IO.Path.GetFileName(profDirs[i]));
                             // package.json 没有 repository 时 **去问 npm** ✓✓（用户要求："插件尝试获取 GitHub 地址" ✓）
@@ -188,6 +209,13 @@ namespace Dsht.Cli
                             plugPart.Add("UPDATECENTER_NOTE " + pid + " " + T("**没有独立的版本渠道** ✓ —— 插件随工具箱发布，它的版本号（package.json 的 version ✓）与工具箱 tag（如 v3.0.7 ✓）不在一个序列上 → **无可比的 latest** ✓ 所以这里 `latest=unknown` 是**事实** ✗ 不是「还没查」✗；本工具也**不会拿工具箱 tag 当插件的 latest** ✗（那是编 ✗）。插件更新**先描述风险再确认** ✓（版本变化可能改行为 ✓）；更新前**自动备份** ✓ 插件由各自作者维护 ✓ 本工具不替它担保 ✓",
                                 "no independent release channel: this plugin ships with the toolkit, so its version (package.json) and the toolkit tag (e.g. v3.0.7) are not the same series - there is no comparable latest, so latest=unknown is a FACT, not a pending lookup, and this tool will not pass the toolkit tag off as the plugin's latest. plugin updates describe the risk and ask first; the data root is backed up"));
                             AddPart(lines, emit, plugPart);
+                        }
+                        // ★ 该 profile **是真 profile** 但没装桥接插件 → 也**如实报一行「未安装」** ✓
+                        //   （✗ 不编一个已装版本 ✗ 不假报「已是最新」✗ 也不给杂物目录报 ✗ 见 LooksLikeProfile ✓）
+                        if (!bridgeDone && LooksLikeProfile(profDirs[i]))
+                        {
+                            ids.Add("plugin:dsh-minato-bridge");
+                            AddPart(lines, emit, BridgeRow(bbl, profName, "", "", ""));
                         }
                     }
                 }
@@ -285,6 +313,260 @@ namespace Dsht.Cli
             }
             return "";
         }
+
+        // ================================================================ 桥接插件的「随包基准」（2026-10-11 ✓）
+        // 维护者选定方案① ✓：**基准 = 工具箱随包的那一份插件** ✓（`<exe 目录>\plugin\dsh-minato-bridge\` ✓）
+        //   ✓ 离线 ✓ 零新渠道 ✓ **不联网** ✓（本段代码里没有任何 HTTP / npm 调用 ✓ 只读本地文件 ✓）
+        //   ✗ 不拿工具箱 tag 当插件的 latest ✗（那是编 ✗）✗ 不写 ~\.dsh ✗（只读 ✓）✗ 不改 ITEM 的字段名/kind ✗
+        //   ✗ 不新增命令 ✗ 不新增标记前缀 ✗（GUI 已在按 kind=plugin 渲染 ✓）
+
+        /// <summary>随包那一份桥接插件 = **基准** ✓。语义 =「**你这份工具箱所带的插件版本**」✓
+        /// ✗ 不是网上的最新版 ✗（插件没有独立版本渠道 ✓ 本工具不拿工具箱 tag 顶替 ✗）。</summary>
+        private sealed class BridgeBaseline
+        {
+            public bool DirExists;             // 随包目录在不在（源码编译/dev 构建常常没有 ✗）
+            public string Dir = "";            // 随包目录（不管在不在都要有值 ✓ 报错文案要贴原文 ✓）
+            public string Version = "unknown"; // 随包 package.json 的 version ✓ 读不到就 unknown ✓ 不编 ✗
+            public bool LatestOk;              // 目录在 **且** version 读到了 → latest 可取 ✓
+            public string CodeDir = "";        // 随包代码目录（snapshot.js / index.js 所在那一层 ✓）
+            public string ShaSnapshot = "";    // 随包 snapshot.js 的 SHA-256（空 = 不可得 ✓）
+            public string ShaIndex = "";       // 随包 index.js 的 SHA-256（空 = 不可得 ✓）
+            public string Why = "";            // **取不到 latest** 的原始原因 ✓（→ UPDATECENTER_DIAG ✓ 不编 ✗）
+            public string HashWhy = "";        // 随包**内容哈希**取不到的原始原因 ✓（→ 该行 NOTE ✓）
+        }
+
+        /// <summary>只读地读随包那一份（✗ 不联网 ✗ 不写盘 ✓）。
+        /// 缺目录 / package.json 读不到 / 没有 version → `LatestOk=false` ✓ 并把**原始原因**记进 Why ✓。</summary>
+        private static BridgeBaseline LoadBundledBridge(string selfDir)
+        {
+            BridgeBaseline b = new BridgeBaseline();
+            try
+            {
+                b.Dir = System.IO.Path.Combine(System.IO.Path.Combine(selfDir, "plugin"), "dsh-minato-bridge");
+                b.DirExists = System.IO.Directory.Exists(b.Dir);
+                if (!b.DirExists)
+                {
+                    // ★ 这是**常见**情形（dotnet build / csc 全量编译 / 单独复制 exe ✓）→ 如实说 ✓ 不编 ✗
+                    b.Why = T("随包缺 plugin 目录（开发构建常见 ✓）：", "the bundled plugin folder is missing (normal for a source build): ") + b.Dir;
+                    return b;
+                }
+                string pj = System.IO.Path.Combine(b.Dir, "package.json");
+                string txt = null;
+                try { if (System.IO.File.Exists(pj)) txt = System.IO.File.ReadAllText(pj); } catch { }
+                if (string.IsNullOrEmpty(txt))
+                {
+                    b.Why = T("随包插件的 package.json 读不到：", "the bundled plugin's package.json cannot be read: ") + pj;
+                    return b;
+                }
+                string v = JsonStr(txt, "version");
+                if (string.IsNullOrEmpty(v))
+                {
+                    b.Why = T("随包插件的 package.json 里没有 version 字段：", "the bundled plugin's package.json has no version field: ") + pj;
+                    return b;
+                }
+                b.Version = v;
+                b.LatestOk = true;
+                b.CodeDir = CodeDirOf(b.Dir, txt);
+                b.ShaSnapshot = Sha256Hex(System.IO.Path.Combine(b.CodeDir, "snapshot.js"));
+                b.ShaIndex = Sha256Hex(System.IO.Path.Combine(b.CodeDir, "index.js"));
+                if (b.ShaSnapshot.Length == 0 || b.ShaIndex.Length == 0)
+                    b.HashWhy = T("随包插件的内容文件读不到（只比 snapshot.js 与 index.js 这两个 ✓）：",
+                                  "the bundled plugin's content files cannot be read (only snapshot.js and index.js are compared): ") + b.CodeDir;
+                return b;
+            }
+            catch (Exception ex)
+            {
+                b.Why = T("读随包插件时出错：" + ex.Message, "error while reading the bundled plugin: " + ex.Message);
+                return b;
+            }
+        }
+
+        /// <summary>插件的**代码目录**（snapshot.js / index.js 就在这一层 ✓）。依据 package.json 的 `main` ✓
+        /// —— 实测两种真实布局都有 ✓（✗ 只看包根就会把旧布局误判成"文件不存在" ✗）：
+        ///   ① 新版：`main=index.js` → 包根 ✓（web profile 实测就是 ✓）
+        ///   ② 旧版：`main=plugin/dsh-minato-bridge/index.js` → 嵌套子目录 ✓（desktop profile 实测就是 ✓ 0.1.0 那份）
+        /// main 缺失/不可信 → 依次退到 包根\index.js → 包根\plugin\dsh-minato-bridge\ ✓；都找不到按包根算 ✓
+        /// （那时哈希算成"文件不存在" → 上层如实报**不一致** ✓ ✗ 不当作一致 ✗）。</summary>
+        private static string CodeDirOf(string pkgDir, string pkgJson)
+        {
+            string main = JsonStr(pkgJson, "main");
+            if (!string.IsNullOrEmpty(main))
+            {
+                string rel = main.Replace('/', '\\');
+                int at = rel.LastIndexOf('\\');
+                rel = at > 0 ? rel.Substring(0, at) : "";
+                string cand = rel.Length > 0 ? System.IO.Path.Combine(pkgDir, rel) : pkgDir;
+                try { if (System.IO.File.Exists(System.IO.Path.Combine(cand, "index.js"))) return cand; } catch { }
+            }
+            if (System.IO.File.Exists(System.IO.Path.Combine(pkgDir, "index.js"))) return pkgDir;
+            string nested = System.IO.Path.Combine(System.IO.Path.Combine(pkgDir, "plugin"), "dsh-minato-bridge");
+            if (System.IO.File.Exists(System.IO.Path.Combine(nested, "index.js"))) return nested;
+            return pkgDir;
+        }
+
+        /// <summary>文件 SHA-256（**小写**十六进制 ✓ 与 PowerShell 的 `Get-FileHash -Algorithm SHA256` 同算法同编码 ✓）。
+        /// 文件不存在 / 读不到 → 空串 ✓（✗ 不猜 ✗）；调用方必须把空串当「不可得」处理 ✓（见 CompareBridgeContent ✓）。</summary>
+        private static string Sha256Hex(string path)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(path) || !System.IO.File.Exists(path)) return "";
+                using (System.IO.FileStream fs = System.IO.File.OpenRead(path))
+                using (System.Security.Cryptography.SHA256 sha = System.Security.Cryptography.SHA256.Create())
+                {
+                    byte[] h = sha.ComputeHash(fs);
+                    System.Text.StringBuilder sb = new System.Text.StringBuilder(h.Length * 2);
+                    for (int i = 0; i < h.Length; i++) sb.Append(h[i].ToString("x2", System.Globalization.CultureInfo.InvariantCulture));
+                    return sb.ToString();
+                }
+            }
+            catch { return ""; }
+        }
+
+        /// <summary>哈希前缀（**显示用** ✓ 8 位 ✓ 只为让人一眼看出一致/不一致 ✗ 不是可校验的完整值 ✗）。</summary>
+        private static string ShortHash(string h)
+        {
+            if (string.IsNullOrEmpty(h)) return T("（无 ✓）", "(none)");
+            return h.Length <= 8 ? h : h.Substring(0, 8);
+        }
+
+        /// <summary>内容比对 = **双比对**的第二半 ✓：只比 `snapshot.js` 与 `index.js` 两个文件 ✓
+        /// （✗ 不比 README / LICENSE / .bak / pdb 这些无关文件 ✗ —— 实测 desktop 那份里就躺着
+        ///  `.bak-board3` / `.bak-pre307` ✗ 比它们只会误报 ✓）。
+        /// 返回 1 = 两边一致 ✓；0 = **不一致** ✓（原因写进 why ✓）；-1 = **比不了** ✓（读不到 ✓ 原因写进 why ✓）。
+        /// ★「内容一致」= **两个文件都相同** ✓ —— 少一个文件、或哈希不同，都**不算**一致 ✓。</summary>
+        private static int CompareBridgeContent(string installedCodeDir, BridgeBaseline b, out string why)
+        {
+            why = "";
+            if (!string.IsNullOrEmpty(b.HashWhy)) { why = b.HashWhy; return -1; }
+            if (string.IsNullOrEmpty(installedCodeDir)) { why = T("拿不到已装插件的代码目录 ✓", "the installed plugin's code folder is unknown"); return -1; }
+            string[] files = new string[] { "snapshot.js", "index.js" };
+            for (int i = 0; i < files.Length; i++)
+            {
+                string ip = System.IO.Path.Combine(installedCodeDir, files[i]);
+                string bp = System.IO.Path.Combine(b.CodeDir, files[i]);
+                bool ie = false, be = false;
+                try { ie = System.IO.File.Exists(ip); be = System.IO.File.Exists(bp); } catch { }
+                if (!ie && !be) continue;   // 两边都没有这个文件 → 这一项一致 ✓（没什么可比 ✓ 也不因此误报 ✗）
+                if (ie != be)
+                {
+                    why = T("文件集不同：" + files[i] + "（随包 " + (be ? "有" : "没有") + " ✓ 已装 " + (ie ? "有" : "没有") + " ✓）",
+                            "different file sets: " + files[i] + " (bundled " + (be ? "present" : "absent") + ", installed " + (ie ? "present" : "absent") + ")");
+                    return 0;
+                }
+                string hs = Sha256Hex(ip), hb = Sha256Hex(bp);
+                if (hs.Length == 0 || hb.Length == 0)
+                {
+                    why = T("内容读不到（文件在但 IO 出错 ✓）：" + ip, "content unreadable (the file exists but IO failed): " + ip);
+                    return -1;
+                }
+                if (!string.Equals(hs, hb, StringComparison.OrdinalIgnoreCase))
+                {
+                    why = T("内容哈希不同：" + files[i] + "（随包 " + ShortHash(hb) + " ≠ 已装 " + ShortHash(hs) + " ✓ 两边都是 SHA-256 ✓）",
+                            "content hash differs: " + files[i] + " (bundled " + ShortHash(hb) + " != installed " + ShortHash(hs) + ", both SHA-256)");
+                    return 0;
+                }
+            }
+            return 1;
+        }
+
+        /// <summary>桥接插件的**状态机**（各态触发条件 ✓ 2026-10-11）：
+        ///   `unknown`            —— 随包缺 plugin 目录 / 随包 package.json 读不到 / 版本相同但内容哈希比不了 ✓（原因见 why ✓）
+        ///   `not-installed`      —— 该 profile 里**找不到**这个插件 ✓
+        ///   `update-available`   —— 已装版本 **低于** 随包 ✓
+        ///   `newer-than-bundled` —— 已装版本 **高于** 随包 ✓（如实说 ✓ ✗ 不硬说成"有更新" ✗）
+        ///   `up-to-date`         —— 版本相同 **且** 内容一致 ✓（snapshot.js + index.js 两个都相同 ✓）
+        ///   `content-mismatch`   —— **版本相同但哈希不同** ✓（半旧 ✓ 只看版本号抓不住 ✓ 必须单独一态 ✓）
+        /// why = 为什么不是"一致"的**原文** ✓（DIAG / NOTE 用 ✓ 不编 ✗）。</summary>
+        private static string BridgeStateOf(string installedVer, string installedCodeDir, BridgeBaseline b, out string why)
+        {
+            why = "";
+            if (!b.LatestOk) { why = b.Why; return "unknown"; }   // 随包基准不可用 → latest=unknown + state=unknown ✓
+            if (string.IsNullOrEmpty(installedVer) || installedVer == "unknown") return "not-installed";
+            int cmp = Dsht.Domain.Services.VersionComparer.Compare(installedVer, b.Version);
+            if (cmp < 0) return "update-available";
+            if (cmp > 0) return "newer-than-bundled";
+            int c = CompareBridgeContent(installedCodeDir, b, out why);
+            if (c == 0) return "content-mismatch";
+            if (c < 0) return "unknown";
+            return "up-to-date";
+        }
+
+        /// <summary>桥接插件**一行**：ITEM（字段名与 kind **逐字不变** ✓ 只把 latest/state 填成真值 ✓）
+        /// + URL + NOTE（含**按 profile 分开**的修复指引 ✓）+ 必要时 DIAG ✓。</summary>
+        private static List<string> BridgeRow(BridgeBaseline b, string profile, string installedVer, string installedCodeDir, string repo)
+        {
+            string why = "";
+            string state = BridgeStateOf(installedVer, installedCodeDir, b, out why);
+            string latest = b.LatestOk ? b.Version : "unknown";
+            if (string.IsNullOrEmpty(installedVer)) installedVer = "unknown";
+            List<string> part = new List<string>();
+            part.Add("UPDATECENTER_ITEM plugin:dsh-minato-bridge kind=plugin installed=" + installedVer + " latest=" + latest + " state=" + state + " profile=" + profile);
+            part.Add("UPDATECENTER_URL plugin:dsh-minato-bridge " + (string.IsNullOrEmpty(repo) ? "unknown" : repo));
+            part.Add("UPDATECENTER_NOTE plugin:dsh-minato-bridge " + BridgeNote(b, profile, state, installedVer, latest, why));
+            // ★ DIAG 的语义**保持不变** ✓：「本该有 latest 却取不到」时的**原始原因** ✓
+            //   —— 于是只有**随包基准不可用**才打 ✓；内容哈希比不了的原因进 NOTE ✓（那时 latest 是有的 ✓ 不该报"取不到最新版"✗）
+            if (state == "unknown" && !b.LatestOk && !string.IsNullOrEmpty(why))
+                part.Add("UPDATECENTER_DIAG plugin:dsh-minato-bridge " + why);
+            return part;
+        }
+
+        /// <summary>桥接插件那一行的 NOTE ✓：① 基准是什么 + 为什么仍然"没有独立版本渠道"（诚实口径**保留** ✓）
+        /// ② 本次**实测结论**（逐态说清 ✓）③ **按 profile 分开**的修复指引 ✓（实测：desktop 由桌面端独占管理 ✗）。</summary>
+        private static string BridgeNote(BridgeBaseline b, string profile, string state, string installedVer, string latest, string why)
+        {
+            System.Text.StringBuilder sb = new System.Text.StringBuilder();
+            sb.Append(T("**基准 = 你这份工具箱自带的插件** ✓（", "baseline = the plugin bundled with THIS toolkit ("));
+            sb.Append(b.DirExists ? b.Dir : T("随包目录缺失 ✓ 见诊断行 ✓", "bundled folder missing - see the diagnostic line"));
+            sb.Append(T(" ✓ 离线可判 ✓ 零新渠道 ✓）：latest 取的是**随包那一份的版本** ✓ ✗ 不是网上的最新版 ✗；插件仍然**没有独立的版本渠道** ✓ 它的版本号与工具箱 tag（如 v3.0.7）不在一个序列上 → 本工具**不会拿工具箱 tag 当插件的 latest** ✗（那是编 ✗）。判定 = **双比对**：版本号（VersionComparer ✓）+ **内容哈希**（snapshot.js 与 index.js 各算 SHA-256 ✓ **两个都相同才算内容一致** ✓；版本相同但哈希不同 = **半旧** ✓ 单独一态 ✓ 只看版本号抓不住 ✓）。",
+                        " offline, no new channel): latest is the version of the copy bundled with this toolkit - NOT the newest version online. The plugin still has no independent release channel, so the toolkit tag is never passed off as the plugin's latest. The verdict uses a double comparison: version (VersionComparer) plus content hashes (SHA-256 of snapshot.js and index.js; both must match for the content to count as identical, and same-version-different-hash is reported as a state of its own). "));
+            if (state == "not-installed")
+                sb.Append(T("本次实测：profile「" + profile + "」里**找不到**这个插件 ✓ → **未安装** ✓。",
+                            "measured: the plugin is not present in profile '" + profile + "' -> not installed. "));
+            else if (state == "up-to-date")
+                sb.Append(T("本次实测：已装 " + installedVer + " **与随包一致** ✓（版本相同 ✓ snapshot.js 与 index.js 的内容哈希也逐字相同 ✓）→ **已是最新** ✓。",
+                            "measured: installed " + installedVer + " matches the bundled copy (same version and identical content hashes) -> up to date. "));
+            else if (state == "update-available")
+                sb.Append(T("本次实测：已装 " + installedVer + " **低于**随包 " + latest + " ✓ → **有更新** ✓。",
+                            "measured: installed " + installedVer + " is older than the bundled " + latest + " -> update available. "));
+            else if (state == "newer-than-bundled")
+                sb.Append(T("本次实测：已装 " + installedVer + " **高于**随包 " + latest + " ✓ → **比随包还新** ✓（如实说 ✓ ✗ 不硬说成「有更新」✗ —— 你装的可能是更新的一份、或自己改过 ✓）。",
+                            "measured: installed " + installedVer + " is newer than the bundled " + latest + " -> newer than the bundled copy (stated as fact, not spun as an update). "));
+            else if (state == "content-mismatch")
+                sb.Append(T("本次实测：**版本号与随包相同（都是 " + latest + "）** ✓ 但 **内容不一致** ✓ → **内容与随包不一致** ✓（半旧 / 被改过 ✓ 版本号看不出来 ✓ 所以本工具比内容 ✓）：" + why + "。",
+                            "measured: the version equals the bundled one (" + latest + ") but the content differs -> content differs from the bundled copy: " + why + ". "));
+            else
+                sb.Append(T("本次实情：**比不了** ✓（" + why + "）→ 本工具**不编** latest ✗ 也不假报「已是最新」✗。",
+                            "measured: the comparison is not possible (" + why + ") -> no invented latest and no false up-to-date. "));
+            // ★ 修复指引**按 profile 分开** ✓（实测过：desktop **由桌面端独占管理** ✗ 命令行装不进也卸不掉 ✗）
+            if (profile == "web")
+                sb.Append(T("更新/安装方式：`bridge-install --profile web --yes` ✓（写操作 ✓ 会改该 profile 的 package.json 与 cordis.patch.yml ✓ 装前 dsh 自己会保留原状 ✓）；装完**重启 dsh** 才生效 ✓。",
+                            "how to update/install: bridge-install --profile web --yes (a write; restart dsh afterwards). "));
+            else if (profile == "desktop")
+                sb.Append(T("更新/安装方式：该 profile **由 dsh 桌面端独占管理** ✗ → 命令行装不进也卸不掉 ✓ 请**通过桌面端 / 它的插件机制**更新 ✓（桌面端接受本地目录路径 ✓）本工具**不承诺一条我们做不到的命令** ✗。",
+                            "how to update/install: this profile is managed exclusively by the dsh desktop app - update it through the desktop app and its plugin mechanism; this tool will not promise a command that cannot work. "));
+            else
+                sb.Append(T("更新/安装方式：本工具只**如实报状态** ✓ 更新请在对应客户端 / 插件机制里做 ✓（✗ 不承诺命令 ✗）。",
+                            "how to update/install: this tool only reports the state; update it through the matching client or plugin mechanism. "));
+            sb.Append(T("插件更新**先描述风险再确认** ✓；更新前**自动备份** ✓ 插件由各自作者维护 ✓ 本工具不替它担保 ✓",
+                        "plugin updates describe the risk and ask first; the data root is backed up before updating; plugins are maintained by their authors and this tool does not vouch for them."));
+            return sb.ToString();
+        }
+
+        /// <summary>这个目录像不像**真的 profile** ✓：真 profile 都有 `package.json` 或 `cordis.patch.yml` ✓
+        /// （实测：`~\.dsh\profiles\` 下还躺着 `node_modules` / `profiles` 这种杂物目录 ✗ 两个文件都没有 ✗
+        ///   → **不给它们报「未安装」** ✓ 不制造噪声 ✗ 也不假装它们是 profile ✗）。</summary>
+        private static bool LooksLikeProfile(string dir)
+        {
+            try
+            {
+                if (System.IO.File.Exists(System.IO.Path.Combine(dir, "package.json"))) return true;
+                if (System.IO.File.Exists(System.IO.Path.Combine(dir, "cordis.patch.yml"))) return true;
+            }
+            catch { }
+            return false;
+        }
+
         private static int UpdateInfo(ServiceRegistry reg)
         {
             IToolchainQuery tc = reg.Get<IToolchainQuery>();
