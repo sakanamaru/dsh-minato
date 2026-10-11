@@ -237,6 +237,12 @@ namespace Dsht.Gui.LogicTests
             // B.5 差值行文案逐字钉死（规格 §B.5 :285-293 ✓✓ 一字不许改 ✓✓）；D-7：0 照显 ✓ unknown 不装 0 ✓
             Check("看板3：ForkDiffText(n=18) 逐字 == §B.5 模板 ✓✓",
                 SessionsMarkers.ForkDiffText(18) == "「全局」与「父会话+子代理」相差 18 个会话 = 它们的 parentSession 指向别的会话，但 origin 不是 subagent（dsh 的 fork 复制出来的会话）。它们算血缘后代（用量计入父的「本会话+子代理」），但不是子代理。");
+            // ★ 弃用 Flyout 改内联展开块（2026-10-11 ✓✓）：上面那条按整串比对 —— **换行处吞字查不出来** ✗
+            //   （弹层那次丢的正是「话，但」✓；截断串与整串不等，但定位不到消失的是哪几个字 ✓）
+            //   这里把**换行点两侧的原文**再钉一次 ✓ 内联块与弹层用同一份文案 ✓ 布局改动 ✗ 不许动文案 ✓
+            Check("看板3：ForkDiffText(18) 含换行点原文「会话，但 origin 不是 subagent」（吞字回归钉 ✓✓）",
+                SessionsMarkers.ForkDiffText(18).IndexOf("会话，但 origin 不是 subagent", StringComparison.Ordinal) >= 0
+                && SessionsMarkers.ForkDiffText(18).IndexOf("话，但", StringComparison.Ordinal) >= 0);
             Check("看板3：ForkDiffText(0) = 「相差 0 个会话」（0 是真实值 ✓ D-7 ✓）",
                 SessionsMarkers.ForkDiffText(0).IndexOf("相差 0 个会话") >= 0);
             Check("看板3：ForkDiffText(-1) = 「相差 unknown 个会话」（✗ 不打 0 ✓✓）",
@@ -404,12 +410,15 @@ namespace Dsht.Gui.LogicTests
                 && !UpdateDiagnosis.StateText("plugin", "", "", "").Contains("未知")
                 && !UpdateDiagnosis.StateText("desktop", "unknown", "unknown", "unknown").Contains("未知")
                 && !UpdateDiagnosis.StateText("mystery", "", "", "").Contains("未知"));
-            Check("诊断·拿到了 → 版本号（已装 X → 最新 Y ✓）",
-                UpdateDiagnosis.VersionText("webui", "update-available", "0.2.0-rc.2", "0.1.5-rc.2") == "已装 0.1.5-rc.2　→　最新 0.2.0-rc.2");
-            Check("诊断·webui 取不到 → 明说离线/白名单；插件与本工具 → 明说 CLI 不提供（✗ 不再写 unknown ✗）",
+            Check("诊断·拿到了 → 版本号（已装 vX → 最新 vY ✓ 只加 v 前缀 ✗ 不改数值 ✗ 已带 v 不重复 ✗）",
+                UpdateDiagnosis.VersionText("webui", "update-available", "0.2.0-rc.2", "0.1.5-rc.2") == "已装 v0.1.5-rc.2　→　最新 v0.2.0-rc.2"
+                && UpdateDiagnosis.VersionText("minato", "up-to-date", "3.0.7", "3.0.7") == "已装 v3.0.7　→　最新 v3.0.7"
+                && VersionMarkers.TagOf("v3.0.7") == "v3.0.7" && VersionMarkers.TagOf("") == "" && VersionMarkers.TagOf(null) == null);
+            Check("诊断·webui 取不到 → 明说离线/白名单；插件 → 明说无独立渠道；本工具的老 CLI → 明说 CLI 没给（✗ 不再写 unknown ✗）",
                 UpdateDiagnosis.VersionText("webui", "unknown", "unknown", "0.1.5").Contains("取不到最新版本（离线，或 npm 返回值未通过白名单）")
                 && UpdateDiagnosis.VersionText("plugin", "unknown", "unknown", "0.2.0").Contains("CLI 不提供")
-                && UpdateDiagnosis.VersionText("minato", "unknown", "unknown", "3.0.7").Contains("CLI 不提供"));
+                && UpdateDiagnosis.VersionText("plugin", "unknown", "unknown", "0.2.0").Contains("没有独立的版本渠道")
+                && UpdateDiagnosis.VersionText("minato", "unknown", "unknown", "3.0.7").Contains("CLI 没给 latest"));
             Check("诊断·installed=unknown 不许原样给用户看 unknown（→ 未检测到 ✓）",
                 UpdateDiagnosis.VersionText("webui", "unknown", "unknown", "unknown").Contains("未检测到")
                 && UpdateDiagnosis.VersionText("desktop", "unknown", "unknown", "unknown").Contains("未检测到官方桌面端"));
@@ -420,10 +429,15 @@ namespace Dsht.Gui.LogicTests
             Check("诊断·原文里有 _FAIL → 诊断行贴它（✗ 不替 CLI 编原因 ✓）；没有 → 如实说「这次没打原因行」✓",
                 UpdateDiagnosis.HintText("webui", "unknown", "unknown", "1", "UPDATEINFO_FAIL 离线").Contains("离线")
                 && UpdateDiagnosis.HintText("webui", "unknown", "unknown", "1", "UPDATECENTER_ITEM webui kind=webui").Contains("没打原因行"));
-            Check("诊断·诊断行只在「本该有最新版却拿不到」时出现（拿到了 / minato / 插件 → 空串 ✓ 不噪声 ✓）",
+            Check("诊断·诊断行只在「本该有最新版却拿不到」时出现（拿到了 / 插件 → 空串 ✓ 不噪声 ✓）",
                 UpdateDiagnosis.HintText("webui", "update-available", "1.0.0", "0.9.0", "x") == ""
-                && UpdateDiagnosis.HintText("minato", "unknown", "unknown", "3.0.7", "x") == ""
                 && UpdateDiagnosis.HintText("plugin", "unknown", "unknown", "0.2.0", "x") == "");
+            Check("诊断·★本工具取不到最新版 → 把 CLI 的 `UPDATECENTER_DIAG minato <原因>` **逐字贴出来**（✗ 不吞原因 ✗ 不替它编 ✗）",
+                UpdateDiagnosis.HintText("minato", "unknown", "unknown", "3.0.7",
+                    "UPDATECENTER_ITEM minato kind=minato installed=3.0.7 latest=unknown state=unknown\nUPDATECENTER_DIAG minato 没取到最新版（只报告 ✓）：超时（6 秒内没回应 ✓）\n")
+                    .Contains("超时（6 秒内没回应 ✓）")
+                && UpdateDiagnosis.DiagOf("UPDATECENTER_DIAG minato 超时（6 秒）", "minato") == "超时（6 秒）"
+                && UpdateDiagnosis.DiagOf("", "minato") == "" && UpdateDiagnosis.DiagOf("UPDATECENTER_DIAG minato x", "webui") == "");
             Check("诊断·★老 CLI（原文里没有任何 UPDATECENTER_ 行）→「该 CLI 版本过旧，无法检查更新」✓",
                 UpdateDiagnosis.EmptyTitle("未知参数：update-center\n  DeepSeek Harness Toolkit V2.7.3", false) == "该 CLI 版本过旧，无法检查更新"
                 && UpdateDiagnosis.EmptyDetail("未知参数：update-center", false).Contains("UPDATECENTER_ITEM"));

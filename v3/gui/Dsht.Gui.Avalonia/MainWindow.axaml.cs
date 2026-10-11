@@ -1155,6 +1155,17 @@ namespace Dsht.Gui.Avalonia
         {
             _boardFrom = from; _boardTo = to; _boardDays = 0;
         }
+        /// <summary>看板「？口径差」内联说明块的展开态（2026-10-11 ✓✓ 弃用 Flyout ✓）。
+        /// 纯视图态（✗ 不进 config ✗ 不影响 CLI 口径 ✓）：默认**收起** ✓ 保持看板紧凑 ✓；
+        /// 点按钮 ⇒ 本字段取反 + `RefreshLiveFields()` 一拍 ⇒ 文案与显隐原地换 ✗ 不整页重建 ✓。</summary>
+        private bool _boardHelpOpen;
+        public bool BoardHelpOpen { get { return _boardHelpOpen; } set { _boardHelpOpen = value; } }
+        /// <summary>切换「？口径差」说明块（点击入口）✓ —— 只改本地视图态 + 立即跑字段刷新 ✓（与筛选条点击同一套机制 ✓）。</summary>
+        public void ToggleBoardHelp()
+        {
+            _boardHelpOpen = !_boardHelpOpen;
+            RefreshLiveFields();
+        }
         /// <summary>看板侧的小提示（自定义区间本地校验失败等 ✓ 复用操作回执位 ✓ GUI 不另编 CLI 文案 ✓ 这只是本地校验原因 ✓）。</summary>
         public void NoteBoard(string text)
         {

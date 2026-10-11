@@ -504,7 +504,9 @@ namespace Dsht.Gui.Avalonia.Shells
         /// <summary>看板筛选条（看板第一批 · 规格 §4.1 ✓✓；第三批 2026-10-09 ✓✓ 规格 §11.7-E ✓✓；重排 2026-10-09 ✓✓ §2-3/§2-4 ✓✓）：
         /// 窗口档按钮 + 「自定义…」（D4 ✓）+ 口径 chips（lineage=ok ⇒ 三档全解锁 ✓ 否则血缘两档静态形态 + 「需桥插件血缘」✓）
         /// + fork 口径差「？」入口（B.5 ✓ 文案逐字 ✓）+ C.4 脚注（**每屏恰好一次，就印在这里** ✓ 重排 §1 ✓✓ 图内/卡内不再重复 ✓）。
-        /// 两个子标签都挂这条 ✓ 口径入口一处可见 ✓。</summary>
+        /// 两个子标签都挂这条 ✓ 口径入口一处可见 ✓。
+        /// ★ 弃用 Flyout · 改**内联展开块**（2026-10-11 ✓✓）：说明块就在筛选行正下方（同一列 ✓ 宽度 = 页面宽度 ✓
+        /// ✗ 无 MaxWidth/Width 定值 ✓）✓ 默认收起（不占高度 ✓）✓ 点击切换走字段刷新（`host.BoardHelpOpen` ✓）✓。</summary>
         private static Control BoardFilterBar(MainWindow host)
         {
             StackPanel col = new StackPanel { Spacing = 8 };
@@ -601,9 +603,16 @@ namespace Dsht.Gui.Avalonia.Shells
             //   可见条件与旧裸行完全相同（lineage=ok 且 level ∈ {global, parents_sub} ✓）—— 只换呈现 ✗ 不改口径 ✓
             // ★ 看板体验修复（2026-10-11 ✓✓）：「？口径差」入口**常驻容器**，显隐走字段刷新 ✓（不再靠整页重建出现/消失 ✓）
             //   可见条件与旧版逐字相同（lineage=ok 且 level ∈ {global, parents_sub} ✓）—— 只换呈现 ✗ 不改口径 ✓
+            // ★★ 弃用 Flyout · 改内联展开块（2026-10-11 ✓✓ 维护者两次反馈后换方案 ✓✓）：
+            //   ✗ 弹层（Flyout/ToolTip）不可用：呈现器**自带一层宽度限制** ✗ → 内容上定宽（ft.Width/fcard.Width）也没用 ✓
+            //     实测：MaxWidth ⇒ 换行处**吞字**（丢「话，但」✗）；改定宽 ⇒ 出现**滚动条**且字仍被裁 ✗✗ 两次都没修对 ✓
+            //   ✓ 现在：说明块**内联**在筛选条正下方（同一列 ✓ 宽度 = 页面宽度 ✓）→ TextWrapping.Wrap 有确定宽度可用 ✓✓
+            //     ✗ 全块无任何 Width/MaxWidth 定值 hack ✓ 页面宽度天然确定 ⇒ 不可能裁字 ✓ 也绝不会出滚动条 ✓✓
+            //   默认**收起**（IsVisible=false ⇒ **不占高度** ✗ 不留空白占位 ✓）；展开 ⇒ 允许把下方内容往下推 ✓（规格第 6 条 ✓）
+            TextBlock qt = T("？口径差", 11.5, Palette.Accent);
             Button qb = new Button
             {
-                Content = T("？口径差", 11.5, Palette.Accent),
+                Content = qt,
                 Background = Palette.CardHover,
                 BorderBrush = Palette.Accent,
                 BorderThickness = new Thickness(1),
@@ -618,30 +627,39 @@ namespace Dsht.Gui.Avalonia.Shells
                 SessionsMarkers.ForkDiffText(bd0 != null ? bd0.ForkSessions : -1),
                 delegate { SessionsSnapshot dd = host.Data; return SessionsMarkers.ForkDiffText(dd != null ? dd.ForkSessions : -1); });
             ft.FontSize = 11.5; ft.Foreground = Palette.TextDim;
-            ft.TextWrapping = TextWrapping.Wrap;
-            // ★ 2026-10-11（维护者报"口径说明显示有问题"✓）：这里原来用 **MaxWidth（上限 ✗）** →
-            //   Flyout 测量按上限算，放不下的尾部字形被**直接裁掉** ✗ 不推到下一行 ✓
-            //   实测症状：换行处吞掉「话，但」三个字（第一行停在"指向别的会"、第二行直接"origin 不是…"✗）
-            //   修法：**确定宽度**（Wrap 只有在宽度确定时才会把整字推到下一行 ✓）
-            ft.Width = 452;
+            ft.TextWrapping = TextWrapping.Wrap;   // ✗ 不再设 Width/MaxWidth ✓（宽度由「筛选条这一列的页面宽度」决定 ✓✓）
             fc.Children.Add(ft);
-            Control fcard = Card(fc, new Thickness(0), new Thickness(14, 10));
-            fcard.Width = 480;   // = 452 + 左右各 14 内边距 ✓ 确定宽度 ✗ 不用 MaxWidth ✓
-            qb.Flyout = new Flyout { Content = fcard };
-            ToolTip.SetTip(qb, "fork 会话算不算？点开看口径说明");
+            Border help = Card(fc, new Thickness(0), new Thickness(14, 10));
+            qb.Click += delegate { host.ToggleBoardHelp(); };   // ★ 点击 = 切换下方内联说明块显隐 ✓ 走字段刷新 ✗ 不整页重建 ✓
             global::Avalonia.Automation.AutomationProperties.SetName(qb, "口径：fork 说明");
+            global::Avalonia.Automation.AutomationProperties.SetHelpText(qb, "展开/收起 fork 口径差说明（内联说明块）");
             Border qbHost = new Border { Child = qb };
+            // ★ 唯一刷新点：显隐 + 按钮文案都在这一个字段里重算 ✓（`Live` = 字段级刷新注册表 ✓
+            //   ToggleBoardHelp / 自动刷新那一拍都会跑它 ⇒ 原地换 ✗ 不碰视觉树 ✓ 不 BuildShell ✓ 不 RebuildBoard ✓）
             host.Live(delegate
             {
                 SessionsSnapshot d0 = host.Data;
                 bool v = d0 != null && d0.Ok && d0.HasWinMeta && d0.LineageOk
                     && (d0.WinLevel == "global" || d0.WinLevel == "parents_sub");
                 if (qbHost.IsVisible != v) qbHost.IsVisible = v;
+                bool open = host.BoardHelpOpen;
+                string label = open ? "？口径差（收起）" : "？口径差";   // 文案反映状态 ✓（收起态 = 会执行收起动作 ✓）
+                if (qt.Text != label) qt.Text = label;
+                if (help.IsVisible != open) help.IsVisible = open;   // 收起 ⇒ false ⇒ 不占高度 ✗ 不留空白 ✓
+                // 按钮是可切换入口 ⇒ 无障碍名也跟着状态变 ✓（✗ 不写死"说明"两个字 ✓ 读屏能念出当前动作 ✓）
+                string an = open ? "口径：fork 说明（展开中，点击收起）" : "口径：fork 说明（点击展开）";
+                if (global::Avalonia.Automation.AutomationProperties.GetName(qb) != an)
+                {
+                    global::Avalonia.Automation.AutomationProperties.SetName(qb, an);
+                }
             });
             qbHost.IsVisible = bd0 != null && bd0.Ok && bd0.HasWinMeta && bd0.LineageOk
                 && (bd0.WinLevel == "global" || bd0.WinLevel == "parents_sub");
+            help.IsVisible = host.BoardHelpOpen;   // 默认收起 ✓（重建后也与当前展开态一致 ✓）
             row.Children.Add(qbHost);
             col.Children.Add(row);
+            // 内联说明块**紧跟筛选行、同一列**（宽度 = 页面宽度 ✓）；✗ 不是弹层 ✗ 不是独立一行固定高度 ✓
+            col.Children.Add(help);
             // C.4 固定脚注（**每屏恰好一次，就印在这里** ✓ 重排 §1 ✓✓）：显隐走字段刷新 ✓ 文案逐字未动 ✓
             TextBlock c4 = host.LiveText(
                 (bd0 != null && bd0.HasWinMeta && bd0.WinTruth0) ? SessionsMarkers.TruthFootnote : "",
