@@ -167,9 +167,20 @@ namespace Dsht.Cli
                 //   （官方发布包带它 ✓；**开发构建常常没有** ✗ → 那时必须**如实降级** ✓ 不编 latest ✗）
                 //   只算一次 ✓ **不联网** ✓ 不碰 ~\.dsh 的写 ✓（只读探测 ✓）
                 BridgeBaseline bbl = LoadBundledBridge(SelfDir());
+                // ★★★ 2026-10-11 **URL 只发一次、NOTE 只发一次**（维护者实测：桥接插件被报三遍 ✗）
+                //   · ITEM 仍然**每 profile 一行** ✓（那是真数据 ✓ 同一插件装在不同 profile、版本可能不同 ✓
+                //     合并成一条带多值的行会破坏既有解析 ✗）
+                //   · 但 URL（同一个仓库地址 ✓）与那段"基准是什么、为什么没有独立版本渠道"的长文
+                //     **每个 profile 都一样** → 重复三遍纯粹是噪声 ✗ → 只随**第一行**发一次 ✓
+                //   · 每行**特有的修复指引**改随该行发：`… state=<态> profile=<名> next=<指引>` ✓
+                //     （老解析器遇到不认识的 key=value 会跳过 ✓ 新 GUI 按 **id 归组**取它 ✓）
+                bool bridgeSharedSent = false;
                 if (System.IO.Directory.Exists(profiles))
                 {
                     string[] profDirs = System.IO.Directory.GetDirectories(profiles);
+                    // ★ 行序**定死**：Directory.GetDirectories 的顺序是文件系统给的（不确定 ✓）
+                    //   → 排序后"第一个 profile"才是稳定的，GUI 的合并卡三行顺序也才可复现 ✓
+                    System.Array.Sort(profDirs, StringComparer.Ordinal);
                     for (int i = 0; i < profDirs.Length; i++)
                     {
                         string profName = System.IO.Path.GetFileName(profDirs[i]);
@@ -197,11 +208,28 @@ namespace Dsht.Cli
                             {
                                 bridgeDone = true;
                                 if (string.IsNullOrEmpty(repo)) repo = NpmRepoOf(name);
-                                AddPart(lines, emit, BridgeRow(bbl, profName, ver, CodeDirOf(pkgs[k], txt), repo));
+                                // ★ 变量**先声明再 out** ✗ 不能写 `out string bwhy` ✗ ——
+                                //   本仓库的门槛 `compare_markers.ps1` 用 **.NET Framework 4.x 的 csc** 编译 CLI ✓
+                                //   那个编译器不认识内联 out 声明（C# 7 ✓）→ 会以「V3 编译失败」整条红掉 ✓
+                                string bwhy = null;
+                                string bstate = BridgeStateOf(ver, CodeDirOf(pkgs[k], txt), bbl, out bwhy);
+                                string bnext = NextOf(profName, bstate, ver, bbl, bwhy);
+                                // 共用两行（URL + 长说明）**只随第一行发一次** ✓（同一个 id ✓ 同一个地址 ✓）
+                                if (!bridgeSharedSent)
+                                {
+                                    bridgeSharedSent = true;
+                                    lines.Add("UPDATECENTER_URL plugin:dsh-minato-bridge " + (string.IsNullOrEmpty(repo) ? "unknown" : repo));
+                                    if (emit != null) emit(lines[lines.Count - 1]);
+                                    lines.Add("UPDATECENTER_NOTE plugin:dsh-minato-bridge " + BridgeNoteShared(bbl));
+                                    if (emit != null) emit(lines[lines.Count - 1]);
+                                }
+                                AddPart(lines, emit, BridgeRow(profName, ver, bstate, bnext, bbl, bwhy));
                                 continue;
                             }
                             List<string> plugPart = new List<string>();
-                            plugPart.Add("UPDATECENTER_ITEM " + pid + " kind=plugin installed=" + ver + " latest=unknown state=unknown profile=" + System.IO.Path.GetFileName(profDirs[i]));
+                            // ★ 其余插件：**逐字保持原样** ✓ 只多一个 `next=`（该 profile 独有的修复指引 ✓ 原先是零 ✓）
+                            plugPart.Add("UPDATECENTER_ITEM " + pid + " kind=plugin installed=" + ver + " latest=unknown state=unknown profile=" + System.IO.Path.GetFileName(profDirs[i])
+                                + " next=" + NextGenericOf(profName));
                             // package.json 没有 repository 时 **去问 npm** ✓✓（用户要求："插件尝试获取 GitHub 地址" ✓）
                             // 只在缺字段时才问 ✓（npm view 每次要 1~2 秒 ✗ 不能对每个插件都问 ✓）
                             if (string.IsNullOrEmpty(repo)) repo = NpmRepoOf(name);
@@ -215,7 +243,17 @@ namespace Dsht.Cli
                         if (!bridgeDone && LooksLikeProfile(profDirs[i]))
                         {
                             ids.Add("plugin:dsh-minato-bridge");
-                            AddPart(lines, emit, BridgeRow(bbl, profName, "", "", ""));
+                            string nowhy = null;   // 同上：csc（门槛用的编译器）不认识内联 out 声明 ✓
+                            string nostate = BridgeStateOf("", "", bbl, out nowhy);
+                            if (!bridgeSharedSent)
+                            {
+                                bridgeSharedSent = true;
+                                lines.Add("UPDATECENTER_URL plugin:dsh-minato-bridge unknown");
+                                if (emit != null) emit(lines[lines.Count - 1]);
+                                lines.Add("UPDATECENTER_NOTE plugin:dsh-minato-bridge " + BridgeNoteShared(bbl));
+                                if (emit != null) emit(lines[lines.Count - 1]);
+                            }
+                            AddPart(lines, emit, BridgeRow(profName, "", nostate, NextOf(profName, nostate, "", bbl, nowhy), bbl, nowhy));
                         }
                     }
                 }
@@ -462,7 +500,7 @@ namespace Dsht.Cli
                 }
                 if (!string.Equals(hs, hb, StringComparison.OrdinalIgnoreCase))
                 {
-                    why = T("内容哈希不同：" + files[i] + "（工具箱自带 " + ShortHash(hb) + " ≠ 已装 " + ShortHash(hs) + "，两边都是 SHA-256）",
+                    why = T("内容哈希不同：" + files[i] + " 的内容哈希与工具箱自带的不同（工具箱自带 " + ShortHash(hb) + " ≠ 已装 " + ShortHash(hs) + "，两边都是 SHA-256）",
                             "content hash differs: " + files[i] + " (bundled " + ShortHash(hb) + " != installed " + ShortHash(hs) + ", both SHA-256)");
                     return 0;
                 }
@@ -492,65 +530,87 @@ namespace Dsht.Cli
             return "up-to-date";
         }
 
-        /// <summary>桥接插件**一行**：ITEM（字段名与 kind **逐字不变** ✓ 只把 latest/state 填成真值 ✓）
-        /// + URL + NOTE（含**按 profile 分开**的修复指引 ✓）+ 必要时 DIAG ✓。</summary>
-        private static List<string> BridgeRow(BridgeBaseline b, string profile, string installedVer, string installedCodeDir, string repo)
+        /// <summary>桥接插件**每个 profile 一行**：ITEM（字段名与 kind **逐字不变** ✓ 只把 latest/state 填成真值 ✓
+        /// 另加一个 `next=` = **该行特有的修复指引** ✓）+ 必要时 DIAG ✓。
+        /// ✗ 不再带 URL/NOTE ✗（那两条同一个 id 只有一份 ✓ 由调用方**只发一次** ✓）。</summary>
+        private static List<string> BridgeRow(string profile, string installedVer, string state, string next, BridgeBaseline b, string why)
         {
-            string why = "";
-            string state = BridgeStateOf(installedVer, installedCodeDir, b, out why);
             string latest = b.LatestOk ? b.Version : "unknown";
             if (string.IsNullOrEmpty(installedVer)) installedVer = "unknown";
+            if (string.IsNullOrEmpty(next)) next = "-";
             List<string> part = new List<string>();
-            part.Add("UPDATECENTER_ITEM plugin:dsh-minato-bridge kind=plugin installed=" + installedVer + " latest=" + latest + " state=" + state + " profile=" + profile);
-            part.Add("UPDATECENTER_URL plugin:dsh-minato-bridge " + (string.IsNullOrEmpty(repo) ? "unknown" : repo));
-            part.Add("UPDATECENTER_NOTE plugin:dsh-minato-bridge " + BridgeNote(b, profile, state, installedVer, latest, why));
+            part.Add("UPDATECENTER_ITEM plugin:dsh-minato-bridge kind=plugin installed=" + installedVer + " latest=" + latest + " state=" + state + " profile=" + profile
+                + " next=" + next);
             // ★ DIAG 的语义**保持不变** ✓：「本该有 latest 却取不到」时的**原始原因** ✓
-            //   —— 于是只有**随包基准不可用**才打 ✓；内容哈希比不了的原因进 NOTE ✓（那时 latest 是有的 ✓ 不该报"取不到最新版"✗）
+            //   —— 于是只有**随包基准不可用**才打 ✓（那时每个 profile 的原因一样 ✓ GUI 会去重 ✓）
             if (state == "unknown" && !b.LatestOk && !string.IsNullOrEmpty(why))
                 part.Add("UPDATECENTER_DIAG plugin:dsh-minato-bridge " + why);
             return part;
         }
 
-        /// <summary>桥接插件那一行的 NOTE ✓：① 基准是什么 + 为什么仍然"没有独立版本渠道"（诚实口径**保留** ✓）
-        /// ② 本次**实测结论**（逐态说清 ✓）③ **按 profile 分开**的修复指引 ✓（实测：desktop 由桌面端独占管理 ✗）。</summary>
-        private static string BridgeNote(BridgeBaseline b, string profile, string state, string installedVer, string latest, string why)
+        /// <summary>桥接插件的**共用 NOTE**：只在第一行发一次 ✓（原先每个 profile 各发一遍完全相同的长文 ✗）。
+        /// 内容 = ① 基准是什么 ② 为什么仍然"没有独立版本渠道" ③ 判定 = 双比对 ④ 更新前的风险与确认 ✓
+        /// ✗ 不含任何**按 profile 不同**的修复指引 ✗ —— 那已经随每行的 `next=` 给出 ✓</summary>
+        private static string BridgeNoteShared(BridgeBaseline b)
         {
             System.Text.StringBuilder sb = new System.Text.StringBuilder();
             sb.Append(T("基准 = 你这份工具箱自带的插件（", "baseline = the plugin bundled with THIS toolkit ("));
             sb.Append(b.DirExists ? b.Dir : T("工具箱自带的目录缺失，见诊断行", "bundled folder missing - see the diagnostic line"));
             sb.Append(T("；离线可判，零新渠道）：latest 取的是工具箱自带那一份的版本，不是网上的最新版；插件仍然没有独立的版本渠道，它的版本号与工具箱 tag（如 v3.0.7）不在一个序列上，因此本工具不会拿工具箱 tag 当插件的 latest。判定 = 双比对：版本号（VersionComparer）+ 内容哈希（snapshot.js 与 index.js 各算 SHA-256，两个都相同才算内容一致；版本相同但哈希不同 = 半旧，单独一态，只看版本号抓不住）。",
                         " offline, no new channel): latest is the version of the copy bundled with this toolkit - NOT the newest version online. The plugin still has no independent release channel, so the toolkit tag is never passed off as the plugin's latest. The verdict uses a double comparison: version (VersionComparer) plus content hashes (SHA-256 of snapshot.js and index.js; both must match for the content to count as identical, and same-version-different-hash is reported as a state of its own). "));
-            if (state == "not-installed")
-                sb.Append(T("这台机器上：profile「" + profile + "」里找不到这个插件 → 未安装。",
-                            "measured: the plugin is not present in profile '" + profile + "' -> not installed. "));
-            else if (state == "up-to-date")
-                sb.Append(T("这台机器上：已装 " + installedVer + " 与工具箱自带的一致（版本相同，snapshot.js 与 index.js 的内容哈希也相同）→ 已是最新。",
-                            "measured: installed " + installedVer + " matches the bundled copy (same version and identical content hashes) -> up to date. "));
-            else if (state == "update-available")
-                sb.Append(T("这台机器上：已装 " + installedVer + " 低于工具箱自带的 " + latest + " → 有更新。",
-                            "measured: installed " + installedVer + " is older than the bundled " + latest + " -> update available. "));
-            else if (state == "newer-than-bundled")
-                sb.Append(T("这台机器上：已装 " + installedVer + " 高于工具箱自带的 " + latest + " → 比工具箱自带还新（不当作「有更新」：你装的可能是更新的一份，或自己改过）。",
-                            "measured: installed " + installedVer + " is newer than the bundled " + latest + " -> newer than the bundled copy (stated as fact, not spun as an update). "));
-            else if (state == "content-mismatch")
-                sb.Append(T("这台机器上：版本号与工具箱自带相同（都是 " + latest + "），但内容不一致 → 内容与工具箱自带不一致（半旧或被改过，版本号看不出来，所以本工具比内容）：" + why + "。",
-                            "measured: the version equals the bundled one (" + latest + ") but the content differs -> content differs from the bundled copy: " + why + ". "));
-            else
-                sb.Append(T("这台机器上：比不了（" + why + "）→ 本工具不编 latest，也不报「已是最新」。",
-                            "measured: the comparison is not possible (" + why + ") -> no invented latest and no false up-to-date. "));
-            // ★ 修复指引**按 profile 分开** ✓（实测过：desktop **由桌面端独占管理** ✗ 命令行装不进也卸不掉 ✗）
-            if (profile == "web")
-                sb.Append(T("更新/安装方式：`bridge-install --profile web --yes`（写操作，会改该 profile 的 package.json 与 cordis.patch.yml，装前 dsh 自己会保留原状）；装完重启 dsh 才生效。",
-                            "how to update/install: bridge-install --profile web --yes (a write; restart dsh afterwards). "));
-            else if (profile == "desktop")
-                sb.Append(T("更新/安装方式：该 profile 由 dsh 桌面端独占管理，命令行装不进也卸不掉；请通过桌面端 / 它的插件机制更新（桌面端接受本地目录路径）。",
-                            "how to update/install: this profile is managed exclusively by the dsh desktop app - update it through the desktop app and its plugin mechanism. "));
-            else
-                sb.Append(T("更新/安装方式：本工具只报状态，更新请在对应客户端 / 插件机制里做。",
-                            "how to update/install: this tool only reports the state; update it through the matching client or plugin mechanism. "));
-            sb.Append(T("插件更新先描述风险再确认；更新前自动备份。插件由各自作者维护，本工具不替它担保。",
-                        "plugin updates describe the risk and ask first; the data root is backed up before updating; plugins are maintained by their authors and this tool does not vouch for them."));
+            sb.Append(T("每一行的实测结论只在那一行上：该行 `state=` 那一列和该行末尾的 `next=` 就是它们的更新方式。插件更新先描述风险再确认；更新前自动备份。插件由各自作者维护，本工具不替它担保。",
+                        "the measured verdict lives on each row itself: that row's state= field plus its next= field say how it is updated. plugin updates describe the risk and ask first; the data root is backed up before updating; plugins are maintained by their authors and this tool does not vouch for them."));
             return sb.ToString();
+        }
+
+        /// <summary>桥接插件**该行独有**的修复指引（→ ITEM 行的 `next=` ✓ 一行一句 ✓ 保证"每行的指引唯一对应该行" ✓）。
+        /// ★ 值里**不能有空格** ✗（标记行按空格分词 ✓）→ 先写成人话，再由 EncodeNext 按 `%20` 编回来 ✓
+        ///   （GUI 侧 DecodeNext 还原 ✓ 显示出来仍是人话 ✓；老解析器整行收进 Unknown 也不会被截断 ✓）。
+        /// ★ 实测：desktop profile **由 dsh 桌面端独占管理** ✗ 命令行装不进也卸不掉 ✗。</summary>
+        private static string NextOf(string profile, string state, string installedVer, BridgeBaseline b, string why)
+        {
+            // ★ 半旧（版本号相同、内容哈希不同 ✓）那一态**必须说出是哪个文件不一样** ✓
+            //   —— 原先这句在 NOTE 里 ✓ 现在 NOTE 每个 id 只发一次 ✓ 于是它随**该行**发出 ✓（✗ 信息不丢 ✗）
+            if (state == "content-mismatch")
+            {
+                return EncodeNext(T("版本号与工具箱自带相同，但内容哈希不同：本条该行比的是 snapshot.js 与 index.js，原因见下（半旧或被改过，只看版本号看不出来）",
+                                    "same version as the bundled copy but a different content hash: this row compares snapshot.js and index.js - see the reason below"));
+            }
+            if (profile == "web")
+            {
+                // 会写盘：改该 profile 的 package.json 与 cordis.patch.yml（dsh 自己先留原状 ✓）→ 装完要重启
+                // ★ 它也按同一套规则编码 ✓ —— `next=` 一律是**一个词** ✓（一半编一半不编 =
+                //   "这一行到底能不能按空格切"变成看情况的 ✗ 而这句话本身整句都要人读得懂 ✓）
+                return EncodeNext("bridge-install --profile web --yes");
+            }
+            if (profile == "desktop")
+            {
+                // 实测：desktop 由桌面端独占管理 ✗ 命令行装不进也卸不掉 ✗（所以这里绝不提 bridge-install）
+                return EncodeNext(T("由 dsh 桌面端自己管理，命令行装不进也卸不掉：请在桌面端的插件机制里更新（它接受本地目录路径）",
+                                    "managed by the dsh desktop app itself - the command line cannot install or remove it; update it through the desktop app's plugin mechanism (it accepts a local folder path)"));
+            }
+            if (state == "not-installed")
+                return EncodeNext(T("该 profile 未安装：如需安装请在对应客户端的插件机制里加，本工具不替它装",
+                                    "not installed in this profile: add it through that client's plugin mechanism; this tool does not install it for you"));
+            return EncodeNext(T("本工具只报状态，更新请在对应客户端 / 插件机制里做",
+                                "this tool only reports the state; update it through the matching client or plugin mechanism"));
+        }
+
+        /// <summary>其余插件（✗ 不是桥接插件）该行独有的一句指引 ✓（那些行确实是每个 profile 一份 ✓
+        /// 于是各自带上自己那份 ✓ 原先它们一行指引都没有 ✗）。</summary>
+        private static string NextGenericOf(string profile)
+        {
+            return EncodeNext(T("本工具只报状态；请在 profile「" + profile + "」对应的客户端 / 插件机制里更新",
+                                "this tool only reports the state; update it through the client or plugin mechanism for profile '" + profile + "'"));
+        }
+
+        /// <summary>把 `next=` 的值编成**不含空格**的一小段 ✓（只换这一个字符 ✓ 其余原样保留 ✓）：
+        /// 标记行按空格分词 ✓ 而这句话本身要带空格（人读的句子 ✓）→ 空格写 `%20` ✓ GUI 侧 DecodeNext 还原 ✓。
+        /// ✗ 不编换行 / 制表 / 百分号 ✗ —— 那三种字符不会出现在这几句固定文案里 ✓（真出现也只是原样带出 ✓ 不丢字 ✓）。</summary>
+        private static string EncodeNext(string s)
+        {
+            if (string.IsNullOrEmpty(s)) return "-";
+            return s.Replace(" ", "%20");
         }
 
         /// <summary>这个目录像不像**真的 profile** ✓：真 profile 都有 `package.json` 或 `cordis.patch.yml` ✓

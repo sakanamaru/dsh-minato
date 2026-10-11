@@ -613,149 +613,24 @@ namespace Dsht.Gui.Avalonia.Shells
 
 
 
+            // ★★★ 2026-10-11 **同 id 多行合并成一张卡**（维护者实测：桥接插件被报了三遍 ✗）
+            //   CLI 每 profile 各发一行 ITEM（真数据 ✓ 不合并 ✓）；这里把**同一个 id 的这些行**收进一张卡 ✓
+            //   → profile 名、每行状态、每行指引**都在同一张卡里看得见** ✓（✗ 不许只显示第一条 ✗）
+            //   分组按 **id** ✓（✗ 不再依赖"URL/NOTE 按出现顺序"那种脆弱约定 ✗ 见 UpdParse 的注释 ✓）
+            List<List<UpdItem>> groups = new List<List<UpdItem>>();
+            Dictionary<string, List<UpdItem>> byId = new Dictionary<string, List<UpdItem>>(StringComparer.Ordinal);
             for (int i = 0; i < items.Count; i++)
-
             {
-
                 UpdItem it = items[i];
-
-                StackPanel card = new StackPanel { Spacing = ShapeTokens.S8 };
-
-
-
-                // 标题行：名称 + 状态徽章
-
-                StackPanel head = new StackPanel { Orientation = Orientation.Horizontal, Spacing = ShapeTokens.S12 };
-
-                head.Children.Add(T(it.Title, 13, Palette.Text, FontWeight.SemiBold));
-
-                head.Children.Add(Chip(it.StateText, it.StateBrush, it.StateBg));
-
-                head.Children.Add(T(it.KindText, 11.5, Palette.TextFaint));
-
-                card.Children.Add(head);
-
-
-
-                // 版本行 ✓（★ 2026-10-11：取不到就**说清是哪种取不到** ✓ 不再只写一个 unknown ✗ 见 UpdItem.VersionText ✓）
-
-                TextBlock vline = T(it.VersionText, 11.5, Palette.TextDim);
-
-                vline.TextWrapping = TextWrapping.Wrap;   // ★ 2026-10-11：这一行现在会很长（随包基准 + 半旧说明 ✓）→ 必须换行 ✓（✗ 截断掉就等于没说 ✗）
-
-                card.Children.Add(vline);
-
-                // 诊断行 ✓（★ 2026-10-11：只有"本该有最新版却拿不到"才有内容 ✓ 附 CLI 原始原因 ✓ 不编 ✗）
-
-                if (!string.IsNullOrEmpty(it.HintText))
-
-                {
-
-                    TextBlock hline = T(it.HintText, 11.5, Palette.Warn);
-
-                    hline.TextWrapping = TextWrapping.Wrap;   // 诊断原文可能很长 ✓ 换行 ✓
-
-                    card.Children.Add(hline);
-
-                }
-
-
-
-                // 更新日志 ✓（有就显示 ✓ 没有就说没有 ✓）
-
-                if (!string.IsNullOrEmpty(it.Log))
-
-                {
-
-                    TextBlock lline = T("更新日志：" + it.Log, 11.5, Palette.TextFaint);
-
-                    lline.TextWrapping = TextWrapping.Wrap;
-
-                    card.Children.Add(lline);
-
-                }
-
-
-
-                // 说明 / 风险 ✓✓（用户要求："更新前描述风险并且确认" ✓）
-
-                if (!string.IsNullOrEmpty(it.Note))
-
-                {
-
-                    // ★ 2026-10-11：插件行的 NOTE 里带着**按 profile 分开**的修复指引 ✓（web = bridge-install ✓
-                    //   desktop = 由桌面端管 ✓）→ 这一行**必须换行** ✓ 否则指引永远看不见 ✗
-                    TextBlock nline = T(it.Note, 11.5, Palette.Warn);
-
-                    nline.TextWrapping = TextWrapping.Wrap;
-
-                    card.Children.Add(nline);
-
-                }
-
-
-
-                // 地址 ✓（GitHub / 官方页 ✓）
-
-                if (!string.IsNullOrEmpty(it.Url) && it.Url != "unknown")
-
-                {
-
-                    // U8：URL 可点（desktop 有按钮、webui/插件此前只是纯文本 ✗ affordance 断裂 ✓ 补上）
-
-                    StackPanel urlRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = ShapeTokens.S8 };
-
-                    urlRow.Children.Add(T(it.Url, 11.5, Palette.Accent));
-
-                    urlRow.Children.Add(GhostButton(T("打开", 11.5, Palette.Text), delegate { host.OpenUrl(it.Url); }, true));
-
-                    card.Children.Add(urlRow);
-
-                }
-
-
-
-                // 动作行 ✓
-
-                StackPanel acts = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-
-                if (it.Id == "webui")
-
-                {
-
-                    acts.Children.Add(ActionGhost(host, "更新 dsh web（会先备份）", delegate { host.ConfirmUpdateWeb(); }));
-
-                }
-
-                else if (it.Id == "desktop")
-
-                {
-
-                    acts.Children.Add(GhostButton(T("打开官方安装页", 11.5, Palette.Text), delegate { host.OpenDesktopPage(); }, true));
-
-                }
-
-                else if (it.Id == "minato")
-
-                {
-
-                    acts.Children.Add(T("本工具的更新不影响你的数据（不动 ~/.dsh、备份与配置）", 11.5, Palette.TextFaint));
-
-                }
-
-                else
-
-                {
-
-                    acts.Children.Add(T("插件由各自作者维护，本工具不替它更新、也不替它担保；更新前请先看上面的风险说明", 11.5, Palette.TextFaint));
-
-                }
-
-                card.Children.Add(acts);
-
-                s.Children.Add(Card(card, new Thickness(0), new Thickness(16, 14)));
-
+                // 插件行按 id 归组（一个 id 一张卡 ✓）；其余组件 id 本来就唯一 → 各走各的单卡路径 ✓
+                if (it.Kind != "plugin") { RenderUpdCard(host, s, it); continue; }
+                List<UpdItem> g;
+                if (!byId.TryGetValue(it.Id, out g)) { g = new List<UpdItem>(); byId[it.Id] = g; groups.Add(g); }
+                g.Add(it);
             }
+            for (int g = 0; g < groups.Count; g++) RenderPluginGroup(host, s, groups[g]);
+
+            // ★ 杀软式逐个出结果（用户建议 2026-10-02 ✓）：`update-center --stream` 让快项（桌面端/本工具/插件）
 
 
 
@@ -796,6 +671,10 @@ namespace Dsht.Gui.Avalonia.Shells
             public string Log = "";
 
             public string Profile = "";
+
+            /// <summary>该行**独有**的下一步（CLI 的 `next=` ✓ 已解码 ✓）：合并卡用它 ✓
+            /// 普通卡（webui / 桌面端 / 本工具）没有这个字段 → 空串 ✓（走 VersionText / HintText ✓）。</summary>
+            public string Next = "";
 
             public string Title { get { return Id.StartsWith("plugin:", StringComparison.Ordinal) ? Id.Substring(7) : Id; } }
 
@@ -872,20 +751,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             {
 
-                get
-
-                {
-
-                    // ★ 2026-10-11：**版本相同但内容不一致**（半旧 ✓）必须**看得见** ✓ → 用警示色 ✓（✗ 不沉在灰底里 ✗）
-                    if (State == "content-mismatch") return Palette.Warn;
-
-                    if (State == "update-available") return Palette.OnAccent;
-
-                    if (State == "up-to-date") return Palette.OnAccent;
-
-                    return Palette.Text;
-
-                }
+                get { return BrushFor(State); }
 
             }
 
@@ -893,126 +759,319 @@ namespace Dsht.Gui.Avalonia.Shells
 
             {
 
-                get
+                get { return BgFor(State); }
 
-                {
+            }
 
-                    if (State == "content-mismatch") return Palette.WarnSoft;
+            /// <summary>某个 state 的徽章前景色 ✓（合并卡的整体状态也走这里 ✓ 一处规则 ✓ 不会两处漂移 ✗）。</summary>
+            public IBrush BrushFor(string st)
 
-                    if (State == "update-available") return Palette.Accent;
+            {
 
-                    if (State == "up-to-date") return Palette.Good;
+                // ★ 2026-10-11：**版本相同但内容不一致**（半旧 ✓）必须**看得见** ✓ → 用警示色 ✓（✗ 不沉在灰底里 ✗）
+                if (st == "content-mismatch") return Palette.Warn;
 
-                    return Palette.CardHover;
+                if (st == "update-available") return Palette.OnAccent;
 
-                }
+                if (st == "up-to-date") return Palette.OnAccent;
+
+                return Palette.Text;
+
+            }
+
+            /// <summary>某个 state 的徽章底色 ✓（与 BrushFor 同一套规则 ✓）。</summary>
+            public IBrush BgFor(string st)
+
+            {
+
+                if (st == "content-mismatch") return Palette.WarnSoft;
+
+                if (st == "update-available") return Palette.Accent;
+
+                if (st == "up-to-date") return Palette.Good;
+
+                return Palette.CardHover;
 
             }
 
         }
 
+        /// <summary>把一个 ITEM 串里的字段填进条目 ✓（整行原样收进 Raw ✓ 诊断要贴 CLI 自己打的原因 ✓）。</summary>
+        private static void FillUpd(UpdItem it, string t2)
+        {
+            string[] parts = t2.Split(' ');
+            for (int k = 2; k < parts.Length; k++)
+            {
+                int eq = parts[k].IndexOf('=');
+                if (eq <= 0) continue;
+                string kk = parts[k].Substring(0, eq);
+                string vv = parts[k].Substring(eq + 1);
+                if (kk == "kind") it.Kind = vv;
+                else if (kk == "installed") it.Installed = vv;
+                else if (kk == "latest") it.Latest = vv;
+                else if (kk == "state") it.State = vv;
+                else if (kk == "profile") it.Profile = vv;
+                // `next=` 是**该行独有**的下一步 ✓ 只有合并卡用它（普通卡走 VersionText / HintText ✓）
+                else if (kk == "next") it.Next = UpdateCenterMarkers.DecodeNext(vv);
+            }
+        }
+
+        /// <summary>更新页的解析 ✓ 一律走 `Markers/UpdateCenterMarkers.cs`（**纯函数 ✓ 有单测 ✓**）。
+        /// ★★★ 2026-10-11：这里原来是"URL/NOTE/LOG 按**出现顺序**配给同 id 的第 1、2、3 行" ✗✗
+        ///   —— 那是**脆弱约定**：CLI 少发/多发一行，指引就串到别人身上（且看起来还挺正常 ✗）。
+        ///   ✓ 现在：**按 id 归组** ✓（`GroupById` ✓）—— URL/NOTE/LOG 是**这个 id 的共用信息** ✓；
+        ///     每行独有的只有 `next=` ✓（CLI 随该行发 ✓ 空格编成 `%20` 以保持"一行一值" ✓）。
+        ///   ★ 另：`profile=` 的解析也不再用位置（第几位）✗ 而是**按 `键=值` 认** ✓
+        ///     （旧写法取第 6 段 ✓ 以后 CLI 在它前面插一个字段就会**静默读错 profile** ✗）。</summary>
         private static List<UpdItem> UpdParse(string raw)
+        {
+            List<UpdItem> list = new List<UpdItem>();
+            if (string.IsNullOrEmpty(raw)) return list;
+            string[] ls = raw.Replace("\r\n", "\n").Split('\n');
+            for (int i = 0; i < ls.Length; i++)
+            {
+                string t2 = ls[i] == null ? "" : ls[i].Trim();
+                // ★★★ 2026-10-11 **实测抓到的一行坑**（截图里出现了一张**多出来的 webui 卡** ✗）：
+                //   NOTE 是**自由文本** ✓ 它可以长到换行 ✓ 于是某一行**正文**可能恰好以 `UPDATECENTER_ITEM `
+                //   开头（真机上就是如此 ✓）→ 旧写法（只看前缀 ✗）会把它当**新条目**收进来 ✗
+                //   ✓ 现在：标记行必须是 `标记词<空格>id<空格>字段…` ✓ —— id 后面**必须有空格** ✗
+                //     否则一律按**长文本的续行**对待 ✓ 跳过 ✓（CLI 的 ITEM 行末尾永远跟着 ` kind=` 字段 ✓
+                //     所以这条放宽**不会漏掉任何真 ITEM** ✓ 见 LogicTests 里那条"续行不被当成新条目"的断言 ✓）
+                if (!t2.StartsWith("UPDATECENTER_ITEM ", StringComparison.Ordinal)) continue;
+                int idEnd = t2.IndexOf(' ', "UPDATECENTER_ITEM ".Length);
+                if (idEnd <= 0) continue;
+                // ★★ 还必须在 id 之后**真的看到字段**（`kind=` ✓）✗ —— 真机实测：那段 NOTE 长文换行后的
+                //   一行正文恰好是 `UPDATECENTER_ITEM webui`（**只有标记词 + id** ✓ 后面什么都没有 ✓）
+                //   → 只靠"id 后面有空格"仍会把它收成**第二张 webui 卡** ✗✗（截图上就是两张一样的卡 ✓）
+                //   ✓ ITEM 行永远带 `kind=` 字段（CLI 侧 field 名与 kind **逐字不变** ✓ 见 Program.Ops.cs ✓）
+                //     → 认不出字段的行一律按**长文本的续行**跳过 ✓（✗ 不丢真行 ✗：真行必带 kind= ✓）
+                if (t2.IndexOf(" kind=", StringComparison.Ordinal) < 0) continue;
+                UpdItem it = new UpdItem();
+                it.Id = t2.Substring("UPDATECENTER_ITEM ".Length, idEnd - "UPDATECENTER_ITEM ".Length);
+                it.Raw = raw;   // ★ 整段原文（诊断要贴 CLI 自己打的原因 ✓ 见 HintText ✓）
+                FillUpd(it, t2);
+                list.Add(it);
+            }
+            return list;
+        }
+
+        /// <summary>更新页里**一个组件一张卡**（webui / 桌面端 / 本工具；以及只有一行的插件 ✓）。</summary>
+        private static void RenderUpdCard(MainWindow host, StackPanel page, UpdItem it)
 
         {
 
-            List<UpdItem> list = new List<UpdItem>();
+            StackPanel card = new StackPanel { Spacing = ShapeTokens.S8 };
 
-            // ★ 2026-10-11：同一个 id 会有**多行**（桥接插件**每个 profile 一行** ✓ 每行各有自己的 NOTE ✓
-            //   修复指引还按 profile 不同 ✗）→ URL/NOTE/LOG 按**出现顺序**配给同 id 的第 1、2、3… 行 ✓
-            //   （原来一律配给**第一行** ✗ → desktop/web 两行共用第一条 NOTE ✗ 指引就串到别人身上了 ✗）
-            Dictionary<string, int> noteUsed = new Dictionary<string, int>();
+            // 标题行：名称 + 状态徽章
 
-            if (string.IsNullOrEmpty(raw)) return list;
+            StackPanel head = new StackPanel { Orientation = Orientation.Horizontal, Spacing = ShapeTokens.S12 };
 
-            string[] ls = raw.Replace("\r\n", "\n").Split('\n');
+            head.Children.Add(T(it.Title, 13, Palette.Text, FontWeight.SemiBold));
 
-            for (int i = 0; i < ls.Length; i++)
+            head.Children.Add(Chip(it.StateText, it.StateBrush, it.StateBg));
+
+            head.Children.Add(T(it.KindText, 11.5, Palette.TextFaint));
+
+            card.Children.Add(head);
+
+            // 版本行 ✓（★ 2026-10-11：取不到就**说清是哪种取不到** ✓ 不再只写一个 unknown ✗ 见 UpdItem.VersionText ✓）
+
+            TextBlock vline = T(it.VersionText, 11.5, Palette.TextDim);
+
+            vline.TextWrapping = TextWrapping.Wrap;   // ★ 这一行会很长（随包基准 + 半旧说明 ✓）→ 必须换行 ✓（✗ 截断掉就等于没说 ✗）
+
+            card.Children.Add(vline);
+
+            // 诊断行 ✓（只有"本该有最新版却拿不到"才有内容 ✓ 附 CLI 原始原因 ✓ 不编 ✗）
+
+            AddWrapped(card, it.HintText, 11.5, Palette.Warn);
+
+            // 更新日志 ✓（有就显示 ✓ 没有就说没有 ✓）
+
+            if (!string.IsNullOrEmpty(it.Log)) AddWrapped(card, "更新日志：" + it.Log, 11.5, Palette.TextFaint);
+
+            // 说明 / 风险 ✓✓（用户要求："更新前描述风险并且确认" ✓）
+
+            AddWrapped(card, it.Note, 11.5, Palette.Warn);
+
+            // 地址 ✓（GitHub / 官方页 ✓）
+
+            AddUrlRow(host, card, it.Url);
+
+            card.Children.Add(RenderUpdActs(host, it));
+
+            page.Children.Add(Card(card, new Thickness(0), new Thickness(16, 14)));
+
+        }
+
+        /// <summary>同一个 id 的多行（**每个 profile 一行** ✓）合并成**一张卡** ✓：
+        /// 标题 + 整体状态徽章（取最需要你看一眼的那一行 ✓）→ 每个 profile **一行**（profile 名 ✓
+        /// 该行"已装 → 工具箱自带" ✓ 该行状态 ✓ 该行**独有**的下一步 ✓）→ 共用的地址 / 说明 ✓。
+        /// ✗ 一行都不许丢 ✗；✗ 也不靠"哪条 NOTE 排在第几个"来配对（按 id 归组 ✓ 见 UpdParse ✓）。</summary>
+        private static void RenderPluginGroup(MainWindow host, StackPanel page, List<UpdItem> group)
+
+        {
+
+            StackPanel card = new StackPanel { Spacing = ShapeTokens.S8 };
+
+            StackPanel head = new StackPanel { Orientation = Orientation.Horizontal, Spacing = ShapeTokens.S12 };
+
+            head.Children.Add(T("桥接插件（" + group[0].Title + "）", 13, Palette.Text, FontWeight.SemiBold));
+
+            string overall = UpdateCenterMarkers.OverallState(ToMarkers(group));
+
+            head.Children.Add(Chip(UpdateDiagnosis.StateText("plugin", overall, group[0].Latest, group[0].Installed),
+                group[0].BrushFor(overall), group[0].BgFor(overall)));
+
+            head.Children.Add(T("每个 profile 一行，共 " + group.Count + " 行", 11.5, Palette.TextFaint));
+
+            card.Children.Add(head);
+
+            // —— 每个 profile 一行 ✓（profile 名单独一列 ✓ 行文换了行也仍然对得上是谁 ✓）——
+            //   ★ 文本本身由纯函数给出（`UpdateCenterMarkers.RowsText` ✓ 有单测 ✓ —— 断言的正是"三行都在" ✓）
+            string[] rows = UpdateCenterMarkers.RowsText(ToMarkers(group)).Replace("\r\n", "\n").Split('\n');
+            StackPanel grid = new StackPanel { Spacing = 4 };
+            for (int i = 0; i < rows.Length; i++)
+            {
+                string r = rows[i];
+                int tab = r.IndexOf('\t');
+                string who = tab >= 0 ? r.Substring(0, tab) : "";
+                string rest = tab >= 0 ? r.Substring(tab + 1) : r;
+                StackPanel row = new StackPanel { Orientation = Orientation.Horizontal, Spacing = ShapeTokens.S8 };
+                row.Children.Add(T(who, 11.5, Palette.TextFaint));
+                TextBlock body = T(rest, 11.5, Palette.TextDim);
+                body.TextWrapping = TextWrapping.Wrap;
+                body.MaxWidth = 560;   // 长行（半旧说明 ✓ 指引 ✓）换行 ✓ 不把卡片撑破 ✓
+                row.Children.Add(body);
+                grid.Children.Add(row);
+            }
+            card.Children.Add(grid);
+
+            // —— 诊断行（共用 ✓ 去重 ✓：同一个原因原先每个 profile 各打一条 ✗）——
+            foreach (string h in Distinct(SelectHints(group))) AddWrapped(card, h, 11.5, Palette.Warn);
+
+            // —— 共用的地址 / 说明 / 日志（同一个 id 只有一份 ✓ 原先重复 N 遍 ✗）——
+            AddUrlRow(host, card, UpdateCenterMarkers.UrlOf(ToMarkers(group)));
+            AddWrapped(card, UpdateCenterMarkers.NoteOf(ToMarkers(group)), 11.5, Palette.Warn);
+            string lg = UpdateCenterMarkers.LogOf(ToMarkers(group));
+            if (!string.IsNullOrEmpty(lg)) AddWrapped(card, "更新日志：" + lg, 11.5, Palette.TextFaint);
+
+            card.Children.Add(RenderUpdActs(host, group[0]));
+
+            page.Children.Add(Card(card, new Thickness(0), new Thickness(16, 14)));
+
+        }
+
+        /// <summary>动作行（按 id ✓ 与合并与否无关 ✓）。</summary>
+        private static Control RenderUpdActs(MainWindow host, UpdItem it)
+
+        {
+
+            StackPanel acts = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
+
+            if (it.Id == "webui") acts.Children.Add(ActionGhost(host, "更新 dsh web（会先备份）", delegate { host.ConfirmUpdateWeb(); }));
+
+            else if (it.Id == "desktop") acts.Children.Add(GhostButton(T("打开官方安装页", 11.5, Palette.Text), delegate { host.OpenDesktopPage(); }, true));
+
+            else if (it.Id == "minato") acts.Children.Add(T("本工具的更新不影响你的数据（不动 ~/.dsh、备份与配置）", 11.5, Palette.TextFaint));
+
+            else acts.Children.Add(T("插件由各自作者维护，本工具不替它更新、也不替它担保；更新前请先看上面的风险说明", 11.5, Palette.TextFaint));
+
+            return acts;
+
+        }
+
+        /// <summary>把 UI 条目转成解析层的条目（合并卡的共用信息与每行文本都由那边算 ✓ 纯函数 ✓ 可测 ✓）。</summary>
+        private static List<UpdateCenterMarkers.Item> ToMarkers(List<UpdItem> group)
+
+        {
+
+            List<UpdateCenterMarkers.Item> ms = new List<UpdateCenterMarkers.Item>();
+
+            for (int i = 0; i < group.Count; i++)
 
             {
 
-                string t2 = ls[i] == null ? "" : ls[i].Trim();
+                UpdateCenterMarkers.Item m = new UpdateCenterMarkers.Item();
 
-                if (!t2.StartsWith("UPDATECENTER_", StringComparison.Ordinal)) continue;
-
-                string[] parts = t2.Split(' ');
-
-                if (parts.Length < 3) continue;
-
-                if (parts[0] == "UPDATECENTER_ITEM")
-
-                {
-
-                    UpdItem it = new UpdItem();
-
-                    it.Id = parts[1];
-
-                    it.Raw = raw;   // ★ 整段原文（诊断要贴 CLI 自己打的原因 ✓ 见 HintText ✓）
-
-                    for (int k = 2; k < parts.Length; k++)
-
-                    {
-
-                        int eq = parts[k].IndexOf('=');
-
-                        if (eq <= 0) continue;
-
-                        string kk = parts[k].Substring(0, eq);
-
-                        string vv = parts[k].Substring(eq + 1);
-
-                        if (kk == "kind") it.Kind = vv;
-
-                        else if (kk == "installed") it.Installed = vv;
-
-                        else if (kk == "latest") it.Latest = vv;
-
-                        else if (kk == "state") it.State = vv;
-
-                        else if (kk == "profile") it.Profile = vv;
-
-                    }
-
-                    list.Add(it);
-
-                }
-
-                else if (parts[0] == "UPDATECENTER_URL" || parts[0] == "UPDATECENTER_NOTE" || parts[0] == "UPDATECENTER_LOG")
-
-                {
-
-                    string id = parts[1];
-
-                    string val = t2.Substring(parts[0].Length + 1 + id.Length).Trim();
-
-                    string key = parts[0] + "|" + id;
-
-                    int used = 0;
-
-                    if (noteUsed.ContainsKey(key)) used = noteUsed[key];
-
-                    for (int k = used; k < list.Count; k++)
-
-                    {
-
-                        if (list[k].Id != id) continue;
-
-                        if (parts[0] == "UPDATECENTER_URL") list[k].Url = val;
-
-                        else if (parts[0] == "UPDATECENTER_NOTE") list[k].Note = val;
-
-                        else list[k].Log = val;
-
-                        noteUsed[key] = k + 1;
-
-                        break;
-
-                    }
-
-                }
+                m.Id = group[i].Id; m.Kind = group[i].Kind; m.Installed = group[i].Installed;
+                m.Latest = group[i].Latest; m.State = group[i].State; m.Profile = group[i].Profile;
+                m.Next = group[i].Next;
+                if (!string.IsNullOrEmpty(group[i].Url)) m.Urls.Add(group[i].Url);
+                if (!string.IsNullOrEmpty(group[i].Note)) m.Notes.Add(group[i].Note);
+                if (!string.IsNullOrEmpty(group[i].Log)) m.Logs.Add(group[i].Log);
+                ms.Add(m);
 
             }
 
-            return list;
+            return ms;
+
+        }
+
+        private static List<string> SelectHints(List<UpdItem> group)
+
+        {
+
+            List<string> hs = new List<string>();
+
+            for (int i = 0; i < group.Count; i++) hs.Add(group[i].HintText);
+
+            return hs;
+
+        }
+
+        /// <summary>去掉重复与空串（顺序保留 ✓）—— 诊断原文可能每个 profile 一样 ✓ 只显示一条 ✓。</summary>
+        private static List<string> Distinct(List<string> src)
+
+        {
+
+            List<string> outp = new List<string>();
+
+            for (int i = 0; i < src.Count; i++)
+
+            {
+
+                string s = src[i] == null ? "" : src[i].Trim();
+
+                if (s.Length == 0) continue;
+
+                if (!outp.Contains(s)) outp.Add(s);
+
+            }
+
+            return outp;
+
+        }
+
+        /// <summary>加一行会**换行**的文本（空串 = 不加 ✓ 不制造空白 ✓）。</summary>
+        private static void AddWrapped(StackPanel card, string text, double size, IBrush fg)
+
+        {
+
+            if (string.IsNullOrEmpty(text)) return;
+
+            TextBlock t = T(text, size, fg);
+
+            t.TextWrapping = TextWrapping.Wrap;
+
+            card.Children.Add(t);
+
+        }
+
+        /// <summary>地址行（可点 ✓ 与合并与否无关 ✓）。</summary>
+        private static void AddUrlRow(MainWindow host, StackPanel card, string url)
+
+        {
+
+            if (string.IsNullOrEmpty(url) || url == "unknown") return;
+
+            StackPanel urlRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = ShapeTokens.S8 };
+
+            urlRow.Children.Add(T(url, 11.5, Palette.Accent));
+
+            urlRow.Children.Add(GhostButton(T("打开", 11.5, Palette.Text), delegate { host.OpenUrl(url); }, true));
+
+            card.Children.Add(urlRow);
 
         }
 

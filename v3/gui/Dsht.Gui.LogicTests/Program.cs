@@ -477,6 +477,89 @@ namespace Dsht.Gui.LogicTests
                 && UpdateDiagnosis.EmptyTitle("", false) == "还没读到更新信息"
                 && UpdateDiagnosis.EmptyTitle("UPDATECENTER_OK 0", false) == "CLI 支持更新检查，但这次一个组件都没报");
 
+            // ================================================================ 更新页：同 id 多 profile 合并（2026-10-11）
+            // ★ 真机反馈：桥接插件被报了三遍 ✗（每个 profile 一条 ITEM ✓ 数据是对的 ✓ 但界面读起来像重复 ✗）
+            //   → CLI：ITEM 每 profile 一行**不动** ✓，URL/NOTE 只发一次 ✓，每行多一个该行独有的 `next=` ✓
+            //   → GUI：**按 id 归组**成一张卡 ✓（✗ 不再靠"第 n 条 NOTE 配第 n 行"这种脆弱约定 ✗）
+            //   下面这些断言盯的就是这两件事：**一条都不丢** ✓ 且**合并成一张卡 ✓ 三行都在** ✓
+            string pluginRaw =
+                "UPDATECENTER_ITEM plugin:dsh-minato-bridge kind=plugin installed=0.1.0 latest=0.2.0 state=update-available profile=desktop next=由%20dsh%20桌面端管理\n" +
+                "UPDATECENTER_ITEM plugin:dsh-minato-bridge kind=plugin installed=unknown latest=0.2.0 state=not-installed profile=headless next=该%20profile%20未安装\n" +
+                "UPDATECENTER_ITEM plugin:dsh-minato-bridge kind=plugin installed=0.2.0 latest=0.2.0 state=up-to-date profile=web next=bridge-install%20--profile%20web%20--yes\n" +
+                "UPDATECENTER_URL plugin:dsh-minato-bridge https://github.com/sakanamaru/dsh-minato\n" +
+                "UPDATECENTER_NOTE plugin:dsh-minato-bridge 基准 = 你这份工具箱自带的插件（C:\\t\\plugin\\dsh-minato-bridge）\n" +
+                "UPDATECENTER_ITEM webui kind=webui installed=0.1.5-rc.2 latest=0.2.0-rc.2 state=update-available profile=-\n" +
+                "UPDATECENTER_URL webui https://github.com/deepseek-ai/deepseek-harness\n";
+            List<UpdateCenterMarkers.Item> pu = UpdateCenterMarkers.Parse(pluginRaw);
+            Check("更新页·解析：ITEM 每 profile 一行**都收进来**（3 行 ✓ 顺序 = 出现序 ✓ ✗ 不合并成一条带多值的行 ✗）",
+                pu.Count == 4 && pu[0].Profile == "desktop" && pu[1].Profile == "headless" && pu[2].Profile == "web"
+                && pu[3].Id == "webui" && pu[0].State == "update-available" && pu[2].State == "up-to-date");
+            Check("更新页·解析：URL / NOTE **按 id 归组** → 同一个 id 的每一行都看得到那份共用信息（✗ 不按出现顺序配 ✗）",
+                pu[0].Urls.Count == 1 && pu[1].Urls.Count == 1 && pu[2].Urls.Count == 1
+                && pu[1].Urls[0] == "https://github.com/sakanamaru/dsh-minato" && pu[1].Notes.Count == 1 && pu[1].Notes[0].StartsWith("基准"));
+            Check("更新页·解析：每行**自己**的指引 `next=`（空格按 `%20` 编 ✓ 解回来是人话 ✓ ✗ 不拿别人的 NOTE 顶 ✗）",
+                pu[0].Next == "由 dsh 桌面端管理" && pu[1].Next == "该 profile 未安装"
+                && pu[2].Next == "bridge-install --profile web --yes"
+                && UpdateCenterMarkers.DecodeNext("a%20b") == "a b" && UpdateCenterMarkers.DecodeNext("-") == "" && UpdateCenterMarkers.DecodeNext(null) == "");
+            Check("更新页·归组：同一个 id 的多行进**同一组** ✓ 顺序可复现 ✓ 别的组件不掺进来 ✓",
+                UpdateCenterMarkers.GroupById(pu).Count == 2
+                && UpdateCenterMarkers.GroupById(pu)[0].Count == 3 && UpdateCenterMarkers.GroupById(pu)[1].Count == 1);
+            Check("更新页·共用信息只出一份：一个 URL ✓ 一段 NOTE ✓（三条完全相同的 NOTE 会被去重 ✓ 不同的则一条不丢 ✓）",
+                UpdateCenterMarkers.UrlOf(UpdateCenterMarkers.GroupById(pu)[0]) == "https://github.com/sakanamaru/dsh-minato"
+                && UpdateCenterMarkers.NoteOf(UpdateCenterMarkers.GroupById(pu)[0]).Split('\n').Length == 1
+                && UpdateCenterMarkers.Parse("UPDATECENTER_ITEM plugin:x kind=plugin installed=1 latest=1 state=up-to-date profile=a\nUPDATECENTER_NOTE plugin:x 甲\nUPDATECENTER_NOTE plugin:x 乙\nUPDATECENTER_NOTE plugin:x 甲\n")[0].Notes.Count == 2);
+            // ★★★ 这一条就是维护者要的"合并成一张卡、profile 分行"——**三行都要渲染出来** ✓（✗ 不许只显示第一条 ✗）
+            string rows3 = UpdateCenterMarkers.RowsText(UpdateCenterMarkers.GroupById(pu)[0]);
+            Check("更新页·合并卡：三个 profile **各一行都在** ✓（desktop / headless / web ✓ ✗ 只显示第一条 ✗）",
+                rows3.Split('\n').Length == 3
+                && rows3.Split('\n')[0].StartsWith("desktop\t") && rows3.Split('\n')[1].StartsWith("headless\t")
+                && rows3.Split('\n')[2].StartsWith("web\t"));
+            Check("更新页·合并卡·每行的**状态**都在那一行上：已装 0.1.0 → 工具箱自带 0.2.0 · 有更新 / 未安装 / 已是最新",
+                rows3.Split('\n')[0] == "desktop\t已装 v0.1.0　→　工具箱自带 v0.2.0　·　有更新　　由 dsh 桌面端管理"
+                && rows3.Split('\n')[1] == "headless\t未安装　·　未安装　　该 profile 未安装"
+                && rows3.Split('\n')[2] == "web\t已装 v0.2.0　→　工具箱自带 v0.2.0　·　已是最新　　bridge-install --profile web --yes");
+            Check("更新页·合并卡·每行的**指引**都在那一行上：web = bridge-install ✓ desktop = 由桌面端管 ✓（✗ 不串行 ✗）",
+                rows3.Split('\n')[0].Contains("由 dsh 桌面端管理") && !rows3.Split('\n')[0].Contains("bridge-install")
+                && rows3.Split('\n')[2].Contains("bridge-install --profile web --yes") && !rows3.Split('\n')[2].Contains("桌面端"));
+            Check("更新页·合并卡·整体状态取**最需要看一眼**的那一行（有更新 > 未安装 > 已是最新 ✓ 半旧 > 有更新 ✓）",
+                UpdateCenterMarkers.OverallState(UpdateCenterMarkers.GroupById(pu)[0]) == "update-available"
+                && UpdateCenterMarkers.OverallState(new List<UpdateCenterMarkers.Item> {
+                    new UpdateCenterMarkers.Item { State = "content-mismatch" }, new UpdateCenterMarkers.Item { State = "update-available" } }) == "content-mismatch"
+                && UpdateCenterMarkers.OverallState(new List<UpdateCenterMarkers.Item> {
+                    new UpdateCenterMarkers.Item { State = "not-installed" }, new UpdateCenterMarkers.Item { State = "up-to-date" } }) == "not-installed");
+            // ★ 老 CLI（每个 profile 各发一条 URL/NOTE ✓ 没有 next=）→ 共用信息**一条都不丢** ✓ 且**不当成每行的指引** ✓
+            string oldRaw =
+                "UPDATECENTER_ITEM plugin:dsh-minato-bridge kind=plugin installed=0.1.0 latest=unknown state=unknown profile=desktop\n" +
+                "UPDATECENTER_URL plugin:dsh-minato-bridge https://example.invalid/a\n" +
+                "UPDATECENTER_NOTE plugin:dsh-minato-bridge 甲说明\n" +
+                "UPDATECENTER_ITEM plugin:dsh-minato-bridge kind=plugin installed=0.1.0 latest=unknown state=unknown profile=web\n" +
+                "UPDATECENTER_URL plugin:dsh-minato-bridge https://example.invalid/b\n" +
+                "UPDATECENTER_NOTE plugin:dsh-minato-bridge 乙说明\n";
+            List<UpdateCenterMarkers.Item> oldg = UpdateCenterMarkers.Parse(oldRaw);
+            Check("更新页·老 CLI（每个 profile 各发 URL/NOTE ✓ 没有 next=）：两条不同说明**都不丢** ✓ URL 只取第一条可用地址 ✓",
+                oldg.Count == 2 && UpdateCenterMarkers.NoteOf(oldg).Contains("甲说明") && UpdateCenterMarkers.NoteOf(oldg).Contains("乙说明")
+                && UpdateCenterMarkers.UrlOf(oldg) == "https://example.invalid/a"
+                && UpdateCenterMarkers.GroupById(oldg).Count == 1 && UpdateCenterMarkers.RowsText(oldg).Split('\n').Length == 2);
+            Check("更新页·脏数据：没有 ITEM 的 URL/NOTE 行安全忽略 ✓ 认不出的标记行不掺进条目 ✓ 不抛 ✓",
+                UpdateCenterMarkers.Parse("UPDATECENTER_URL nobody https://x\nUPDATECENTER_OK 0\nUPDATECENTER_BEGIN\n垃圾\n").Count == 0
+                && UpdateCenterMarkers.Parse(null).Count == 0 && UpdateCenterMarkers.RowsText(null) == "" && UpdateCenterMarkers.UrlOf(null) == "");
+            // ★★★ 真机截图抓到的一条：NOTE 自由文本换行后，**正文的一行**恰好以 `UPDATECENTER_ITEM ` 开头
+            //   → 旧的"只看前缀"写法把它当成**新条目** → 更新页上凭空多出一张一模一样的 webui 卡 ✗✗
+            //   ✓ 现在要求 `标记词<空格>id<空格>字段…` ✓（ITEM 行末尾永远跟着 ` kind=` ✓ 所以不会漏真行 ✓）
+            string wrapped =
+                "UPDATECENTER_URL webui https://github.com/deepseek-ai/deepseek-harness\n" +
+                "UPDATECENTER_NOTE webui 更新前会自动备份数据根并保留回滚点\n" +
+                "UPDATECENTER_ITEM webui kind=webui installed=0.1.5-rc.2 latest=0.2.0-rc.2 state=update-available profile=-\n";
+            List<UpdateCenterMarkers.Item> wr = UpdateCenterMarkers.Parse(wrapped);
+            Check("更新页·★续行不是新条目：正文换行后恰好以 `UPDATECENTER_ITEM ` 开头的那一行**不许**变成第二个条目 ✓（真机多出一张 webui 卡的根因 ✓）",
+                wr.Count == 1 && wr[0].Id == "webui" && wr[0].Kind == "webui" && wr[0].Installed == "0.1.5-rc.2"
+                && UpdateCenterMarkers.Parse("UPDATECENTER_ITEM webui").Count == 0
+                && UpdateCenterMarkers.Parse("UPDATECENTER_ITEM ").Count == 0);
+            // ★★ 真机上的**确切**那一行（NOT 长文换行后的正文 ✓ 后面什么都没有 ✓）—— 它曾经被收成第二张卡 ✗
+            Check("更新页·★真机那一行逐字复现：`UPDATECENTER_ITEM webui`（NOT 长文的续行）**必须**被跳过 ✓ 而真 ITEM 行（带 kind=）仍照收 ✓",
+                UpdateCenterMarkers.Parse("UPDATECENTER_ITEM webui\nUPDATECENTER_ITEM plugin:x kind=plugin state=up-to-date installed=1 latest=1 profile=a\n").Count == 1
+                && UpdateCenterMarkers.Parse("UPDATECENTER_ITEM webui").Count == 0);
+
             Console.WriteLine("== " + _pass + "/" + (_pass + _fail) + " passed, " + _fail + " failed ==");
             return _fail == 0 ? 0 : 1;
         }

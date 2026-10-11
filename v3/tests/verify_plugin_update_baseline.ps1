@@ -51,13 +51,22 @@ function RunCli([string]$exe, [string]$dataHome) {
 }
 function LinesOf([string]$out) { return @($out -split "`r?`n") }
 function ItemLines([string]$out) {
-    return @(LinesOf $out | Where-Object { $_.Trim().StartsWith('UPDATECENTER_ITEM plugin:dsh-minato-bridge ') })
+    # A plugin ITEM row is `UPDATECENTER_ITEM plugin:dsh-minato-bridge kind=plugin ...` - i.e. the id is
+    # followed by the kind= field. A NOTE's freely wrapped prose can also start with the same prefix
+    # (measured on the real machine), so require the id AND that kind= field, and do not swallow it.
+    return @(LinesOf $out | Where-Object { $_.Trim() -match '^UPDATECENTER_ITEM plugin:dsh-minato-bridge kind=plugin( |$)' })
 }
 function Notes([string]$out) {
+    # NOTE lines are SHARED per id (2026-10-11): the CLI emits one URL line and one NOTE line per id,
+    # not one per profile row. They are card-level info, never bound to "the n-th row".
     return @(LinesOf $out | Where-Object { $_.Trim().StartsWith('UPDATECENTER_NOTE plugin:dsh-minato-bridge ') })
 }
+function Urls([string]$out) {
+    return @(LinesOf $out | Where-Object { $_.Trim().StartsWith('UPDATECENTER_URL plugin:dsh-minato-bridge ') })
+}
 function RowOf([string]$out, [string]$profile) {
-    $r = @(ItemLines $out | Where-Object { $_ -match (' profile=' + [regex]::Escape($profile) + '$') })
+    # profile= is no longer the last field (a per-row `next=` follows it), so do not anchor at end of line.
+    $r = @(ItemLines $out | Where-Object { $_ -match (' profile=' + [regex]::Escape($profile) + ' ') })
     if ($r.Count -gt 0) { return $r[0].Trim() }
     return ''
 }
@@ -71,21 +80,21 @@ function FieldOf([string]$row, [string]$key) {
     if ($m.Success) { return $m.Groups[1].Value }
     return ''
 }
-# NOTE lines carry no profile field: they are emitted in the same order as the ITEM rows, so the
-# n-th NOTE belongs to the n-th row (the GUI binds them per row the same way).
-function NoteMap([string]$out) {
-    $items = ItemLines $out
-    $notes = Notes $out
-    $map = @{}
-    for ($i = 0; $i -lt $items.Count; $i++) {
-        $p = FieldOf $items[$i] 'profile'
-        $map[$p] = ''
-        if ($i -lt $notes.Count) { $map[$p] = $notes[$i].Trim() }
-    }
-    return $map
+# The per-row guidance is the ITEM row's own `next=` field (2026-10-11): spaces are escaped as %20 so
+# the field stays a single space-delimited token; DecodeNext is the same %20 -> space rule the GUI uses
+# (Dsht.Gui.Avalonia/Markers/UpdateCenterMarkers.cs, DecodeNext).
+function DecodeNext([string]$v) {
+    if ($v -eq '' -or $v -eq '-') { return '' }
+    return $v.Replace('%20', ' ')
 }
-function NoteFor($map, [string]$profile) {
-    if ($map.ContainsKey($profile)) { return $map[$profile] }
+function NextOf([string]$out, [string]$profile) {
+    return (DecodeNext (FieldOf (RowOf $out $profile) 'next'))
+}
+function SharedNote([string]$out) {
+    # @() is required: PowerShell unwraps a one-element array on assignment, and then $n[0] would be
+    # the first CHARACTER of the note (that is exactly the crash this line used to produce).
+    $n = @(Notes $out)
+    if ($n.Count -gt 0) { return $n[0].Trim() }
     return ''
 }
 function HasDiag([string]$out) {
@@ -138,11 +147,11 @@ New-Item -ItemType Directory -Path $bare -Force | Out-Null
 
 # Expected CLI phrases (Chinese text) built from code points, so this file stays pure ASCII and
 # needs no UTF-8 BOM (the repo gates on "non-ASCII .ps1 must carry a BOM"). Decoded:
-#   $zhManaged      = U+7531 + " dsh " + U+684C U+9762 U+7AEF U+72EC U+5360 U+7BA1 U+7406
-#                     = the desktop guidance line ("managed exclusively by the dsh desktop app")
+#   $zhManaged      = U+7531 + " dsh " + U+684C U+9762 U+7AEF + U+81EA U+5DF1 + U+7BA1 U+7406
+#                     = "managed by the dsh desktop app itself" (the desktop guidance wording, 2026-10-11)
 #   $zhNotInstalled = U+672A U+5B89 U+88C5  = "not installed" (the state word we require)
 #   $zhInstalled    = U+5DF2 U+88C5         = "installed" (must NOT be claimed when the plugin is absent)
-$zhManaged = -join ([char]0x7531, ' dsh ', [char]0x684C, [char]0x9762, [char]0x7AEF, [char]0x72EC, [char]0x5360, [char]0x7BA1, [char]0x7406)
+$zhManaged = -join ([char]0x7531, ' dsh ', [char]0x684C, [char]0x9762, [char]0x7AEF, [char]0x81EA, [char]0x5DF1, [char]0x7BA1, [char]0x7406)
 $zhNotInstalled = -join ([char]0x672A, [char]0x5B89, [char]0x88C5)
 $zhInstalled = -join ([char]0x5DF2, [char]0x88C5)
 
@@ -183,7 +192,7 @@ $rowStale = RowOf $out 'stale'
 $rowLegacy = RowOf $out 'legacy'
 $rowAhead = RowOf $out 'ahead'
 $rowNone = RowOf $out 'none'
-$map = NoteMap $out
+$sharedNote = SharedNote $out
 
 Check 'row desktop: older than bundled -> update-available, installed=0.1.0, latest=bundled' `
     ((StateOf $rowDesk) -eq 'update-available' -and (FieldOf $rowDesk 'installed') -eq '0.1.0' -and (FieldOf $rowDesk 'latest') -eq $bver) `
@@ -202,24 +211,30 @@ Check 'row none: real profile without the plugin -> not-installed with installed
 Check 'a junk directory under profiles\ is NOT reported as a profile' `
     ((RowOf $out 'junkdir') -eq '') 'junkdir produced a row'
 Check 'exactly 6 plugin rows (one per real profile); every row keeps the ITEM field names and kind=plugin' `
-    ((ItemLines $out).Count -eq 6 -and (@(ItemLines $out | Where-Object { $_ -notmatch ' kind=plugin ' }).Count -eq 0)) `
+    ((ItemLines $out).Count -eq 6 -and (@(ItemLines $out | Where-Object { $_ -notmatch ' kind=plugin( |$)' }).Count -eq 0)) `
     ('rows=' + (ItemLines $out).Count)
 Check 'no DIAG when the baseline is available (the row really does have a latest)' `
     (-not (HasDiag $out)) (DiagText $out)
-Check 'one NOTE per row, in row order (the GUI binds them the same way)' `
-    ((Notes $out).Count -eq 6) ('notes=' + (Notes $out).Count)
+Check 'ONE shared NOTE and ONE shared URL for the whole id (6 rows, 1 note, 1 url) - the same sentence is no longer repeated per profile' `
+    ((Notes $out).Count -eq 1 -and (Urls $out).Count -eq 1) `
+    ('notes=' + (Notes $out).Count + ' urls=' + (Urls $out).Count)
+Check 'every row carries its own next= guidance (one per row, so a row can never pick up another row''s guidance)' `
+    (@(ItemLines $out | Where-Object { (FieldOf $_ 'next') -eq '' }).Count -eq 0) `
+    ((ItemLines $out | Where-Object { (FieldOf $_ 'next') -eq '' }) -join ' | ')
+Check 'the shared NOTE still states what the baseline is (it is now emitted once for the whole id, not dropped)' `
+    ($sharedNote.Contains('plugin\dsh-minato-bridge') -or $sharedNote.Contains('plugin/dsh-minato-bridge')) $sharedNote
 Check 'web guidance names: bridge-install --profile web --yes' `
-    ((NoteFor $map 'web').Contains('bridge-install --profile web --yes')) (NoteFor $map 'web')
+    ((NextOf $out 'web') -eq 'bridge-install --profile web --yes') (NextOf $out 'web')
 Check 'desktop guidance says the profile is managed by the dsh desktop app, and does NOT promise a bridge-install command' `
-    ((NoteFor $map 'desktop').Contains($zhManaged) -and (-not (NoteFor $map 'desktop').Contains('bridge-install'))) (NoteFor $map 'desktop')
-Check 'per-profile guidance really differs (desktop NOTE != web NOTE)' `
-    ((NoteFor $map 'desktop') -ne (NoteFor $map 'web')) 'identical NOTE text'
-Check 'the content-mismatch row points at the hashed file in its NOTE (snapshot.js)' `
-    ((NoteFor $map 'stale').Contains('snapshot.js')) (NoteFor $map 'stale')
+    ((NextOf $out 'desktop').Contains($zhManaged) -and (-not (NextOf $out 'desktop').Contains('bridge-install'))) (NextOf $out 'desktop')
+Check 'per-profile guidance really differs (desktop next != web next)' `
+    ((NextOf $out 'desktop') -ne (NextOf $out 'web')) 'identical next text'
+Check 'the content-mismatch row points at the hashed file in its own next= (snapshot.js)' `
+    ((NextOf $out 'stale').Contains('snapshot.js')) (NextOf $out 'stale')
 Check 'the not-installed row says not-installed and never claims an installed version' `
-    ((NoteFor $map 'none').Contains($zhNotInstalled) -and (-not (NoteFor $map 'none').Contains($zhInstalled + ' '))) (NoteFor $map 'none')
+    ((NextOf $out 'none').Contains($zhNotInstalled) -and (-not (NextOf $out 'none').Contains($zhInstalled + ' '))) (NextOf $out 'none')
 Check 'a not-installed profile is not told to run the web command' `
-    (-not (NoteFor $map 'none').Contains('bridge-install --profile web')) (NoteFor $map 'none')
+    (-not (NextOf $out 'none').Contains('bridge-install --profile web')) (NextOf $out 'none')
 
 # ---- B. the honesty path: an exe dir WITHOUT the bundled plugin (source builds look like this) ----
 Write-Host ''

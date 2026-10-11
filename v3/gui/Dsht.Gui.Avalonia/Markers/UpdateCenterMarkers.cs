@@ -1,0 +1,295 @@
+using System;
+using System.Collections.Generic;
+using System.Text;
+
+namespace Dsht.Gui.Avalonia.Markers
+{
+    /// <summary>更新页（`update-center`）标记行的**解析**（2026-10-11 ✓ 纯函数 ✓ 可测 ✓ 不引用 Avalonia ✓）。
+    ///
+    /// ★★★ 为什么单独抽出来：**同一个 id 会有多行** —— 桥接插件**每个 profile 一行** ✓
+    ///   （同一插件装在不同 profile、版本还可能不同 ✓ 都要看得见 ✓）。
+    ///   ✗ 旧写法是"URL/NOTE/LOG 按**出现顺序**配给同 id 的第 1、2、3 行" ✗ ——
+    ///     那是个**脆弱约定**：CLI 只要少发/多发一行，指引就串到别人身上（而且看起来还挺正常 ✗）。
+    ///   ✓ 现在：**按 id 归组** ✓ —— URL/NOTE/LOG 是**这个 id 的共用信息**（与第几行无关 ✓）；
+    ///     每行自己独有的东西只有一个 `next=`（该 profile 该状态下的修复指引 ✓ CLI 随该行发出 ✓）。
+    ///   ★ CLI 侧对应改动：URL 只发一次、长 NOTE 只发一次（同一段说明原先重复 N 遍 ✗）、
+    ///     每行多一个 `next=`（`NextOf` ✓ 空格写成 `%20` 以保持"一行一值" ✓ 见 CLI `EncodeNext` ✓）。
+    ///
+    /// 解析纪律（与其它 Markers 一致）：认不出的行**跳过** ✓ 字段缺了就留默认值 ✓ **不猜** ✗ 不抛 ✗。</summary>
+    public static class UpdateCenterMarkers
+    {
+        /// <summary>一个 `UPDATECENTER_ITEM` 行（**一行 = 一个 profile 的一份实数据** ✓）。</summary>
+        public sealed class Item
+        {
+            public string Id = "";
+            public string Kind = "";
+            public string Installed = "unknown";
+            public string Latest = "unknown";
+            public string State = "unknown";
+            public string Profile = "";
+            /// <summary>该行**独有**的下一步（CLI 的 `next=` ✓ 已解码 ✓ 老 CLI / 普通行 → 空串 ✓）。</summary>
+            public string Next = "";
+            /// <summary>该 id 的共用信息（**与本行是第几行无关** ✓ 见类注释）：多个不同值按出现序保留 ✓。</summary>
+            public List<string> Urls = new List<string>();
+            public List<string> Notes = new List<string>();
+            public List<string> Logs = new List<string>();
+        }
+
+        /// <summary>`%20` → 空格（CLI `EncodeNext` 的逆 ✓ **只还原这一个字符** ✓）。
+        /// 没有 `%20` → 原样返回 ✓；空 / `-` → 空串 ✓（CLI 用 `-` 表示"这一行没有额外指引" ✓ **不是**一句文案 ✗）。</summary>
+        public static string DecodeNext(string s)
+        {
+            if (string.IsNullOrEmpty(s) || s == "-") return "";
+            return s.Replace("%20", " ");
+        }
+
+        /// <summary>该行是否有**可显示的**下一步（空 / `-` → 没有 ✓）。</summary>
+        public static bool HasNext(string decoded)
+        {
+            return !string.IsNullOrEmpty(decoded) && decoded != "-";
+        }
+
+        /// <summary>按 `UPDATECENTER_` 前缀扫全部行 ✓ **按 id 归组** ✓ 返回的 Item 顺序 = ITEM 行出现序 ✓。</summary>
+        public static List<Item> Parse(string raw)
+        {
+            List<Item> list = new List<Item>();
+            if (string.IsNullOrEmpty(raw)) return list;
+            string[] ls = raw.Replace("\r\n", "\n").Split('\n');
+            Dictionary<string, Item> byId = new Dictionary<string, Item>(StringComparer.Ordinal);
+            for (int i = 0; i < ls.Length; i++)
+            {
+                string t = ls[i] == null ? "" : ls[i].Trim();
+                if (!t.StartsWith("UPDATECENTER_", StringComparison.Ordinal)) continue;
+                string[] parts = t.Split(' ');
+                // ★ 标记行 = `UPDATECENTER_<词> <id> <值…>` ✓ 少于 3 段 = **不是**一条标记行 ✓
+                //   ★★ 而且 id 后面**必须还有内容** ✗ —— NOTE 是自由文本 ✓ 它换行后的某一行正文
+                //   可能恰好以 `UPDATECENTER_ITEM ` 开头（真机实测 ✓ 会凭空多出一张卡 ✗）→ 只认
+                //   `标记词<空格>id<空格>…` 这一种形状 ✓ 长度正好等于 `UPDATECENTER_ITEM <id>` 的那一行
+                //   不是 ITEM 行 ✓（ITEM 行末尾永远跟着 ` kind=` 字段 ✓ 见 CLI ✓）。
+                if (parts.Length < 3) continue;
+                if (parts[1].Length == 0 || parts[2].Length == 0) continue;
+                string tag = parts[0];
+                string id = parts[1];
+                // ★★ 真机实测：NOTE 长文换行后的一行正文可以是 `UPDATECENTER_ITEM webui`（只有标记词 + id ✓）
+                //   → 它会被当成**第二个 webui 条目** ✗✗（截图上就是两张一模一样的卡 ✓）
+                //   ✓ ITEM 行永远带 `kind=` 字段（CLI 侧字段名与 kind 逐字不变 ✓）→ 认不出字段 = 续行 ✓ 跳过 ✓
+                //   ✗ 不丢真行 ✗：CLI 的每一条 ITEM 都带 kind= ✓（`verify_plugin_update_baseline.ps1` 也这么断言行 ✓）
+                if (tag == "UPDATECENTER_ITEM" && t.IndexOf(" kind=", StringComparison.Ordinal) < 0) continue;
+                if (tag == "UPDATECENTER_ITEM")
+                {
+                    Item it = new Item();
+                    it.Id = id;
+                    for (int k = 2; k < parts.Length; k++)
+                    {
+                        int eq = parts[k].IndexOf('=');
+                        if (eq <= 0) continue;
+                        string kk = parts[k].Substring(0, eq);
+                        string vv = parts[k].Substring(eq + 1);
+                        if (kk == "kind") it.Kind = vv;
+                        else if (kk == "installed") it.Installed = vv;
+                        else if (kk == "latest") it.Latest = vv;
+                        else if (kk == "state") it.State = vv;
+                        else if (kk == "profile") it.Profile = vv;
+                        else if (kk == "next") it.Next = DecodeNext(vv);
+                    }
+                    list.Add(it);
+                    if (!byId.ContainsKey(id)) byId[id] = it;   // 归组用**第一条**（只用来挂共用的 URL/NOTE/LOG ✓）
+                    continue;
+                }
+                if (tag == "UPDATECENTER_URL" || tag == "UPDATECENTER_NOTE" || tag == "UPDATECENTER_LOG")
+                {
+                    // 值 = 标记词与 id 之后的**整段原文**（说明里本来就有空格 ✓ 不能按空格切 ✓）
+                    string val = t.Substring(tag.Length + 1 + id.Length).Trim();
+                    Item host;
+                    if (!byId.TryGetValue(id, out host) || host == null) continue;   // 没有 ITEM 行 → 安全忽略 ✓
+                    List<string> into = tag == "UPDATECENTER_URL" ? host.Urls : (tag == "UPDATECENTER_NOTE" ? host.Notes : host.Logs);
+                    AddDistinct(into, val);
+                    continue;
+                }
+                // UPDATECENTER_DIAG / _OK / _BEGIN / 以后新增的标记行：**不在这里处理** ✓
+                // （DIAG 由 UpdateDiagnosis 从整段原文里取 ✓ 这里只解析 ITEM/URL/NOTE/LOG ✓）
+            }
+            SharePerId(list);
+            return list;
+        }
+
+        /// <summary>把每个 id 的**共用信息**（URL/NOTE/LOG ✓）铺给该 id 的**每一行** ✓
+        /// —— 于是"取某一行的 Urls[0] / Notes[0]"永远拿到的是**这个 id 的**那一份 ✓
+        ///   ✗ 与"它排在第几行"无关 ✗（那正是旧的脆弱约定 ✗ 见类注释）。只在本组内共享 ✓ 不跨 id 串 ✗。</summary>
+        private static void SharePerId(List<Item> list)
+        {
+            Dictionary<string, List<Item>> map = new Dictionary<string, List<Item>>(StringComparer.Ordinal);
+            for (int i = 0; i < list.Count; i++)
+            {
+                List<Item> g;
+                if (!map.TryGetValue(list[i].Id, out g)) { g = new List<Item>(); map[list[i].Id] = g; }
+                g.Add(list[i]);
+            }
+            foreach (KeyValuePair<string, List<Item>> kv in map)
+            {
+                List<Item> g = kv.Value;
+                if (g.Count < 2) continue;
+                string url = UrlOf(g), note = NoteOf(g), log = LogOf(g);
+                for (int i = 0; i < g.Count; i++)
+                {
+                    g[i].Urls = SplitLines(url);
+                    g[i].Notes = SplitLines(note);
+                    g[i].Logs = SplitLines(log);
+                }
+            }
+        }
+
+        /// <summary>把拼好的多行文本拆回列表 ✓（空 → 空表 ✓ 命令行只有一条时就是单元素 ✓）。</summary>
+        private static List<string> SplitLines(string joined)
+        {
+            List<string> outp = new List<string>();
+            if (string.IsNullOrEmpty(joined)) return outp;
+            string[] ls = joined.Replace("\r\n", "\n").Split('\n');
+            for (int i = 0; i < ls.Length; i++) AddDistinct(outp, ls[i]);
+            return outp;
+        }
+
+        /// <summary>把同一个 id 的各行合成**一张卡**要先分出来的组 ✓（顺序 = 组内首次出现的顺序 ✓ 可复现 ✓）。
+        /// 只有一个成员的组也照常返回 ✓（调用方决定要不要走合并路径 ✓）。</summary>
+        public static List<List<Item>> GroupById(List<Item> items)
+        {
+            List<List<Item>> groups = new List<List<Item>>();
+            if (items == null) return groups;
+            Dictionary<string, List<Item>> map = new Dictionary<string, List<Item>>(StringComparer.Ordinal);
+            for (int i = 0; i < items.Count; i++)
+            {
+                Item it = items[i];
+                List<Item> g;
+                if (!map.TryGetValue(it.Id, out g)) { g = new List<Item>(); map[it.Id] = g; groups.Add(g); }
+                g.Add(it);
+            }
+            return groups;
+        }
+
+        /// <summary>某个 id 的**共用 URL** ✓：取**第一个非空且不是 unknown** 的（CLI 现在只发一条 ✓
+        /// 老 CLI 的多条也一样对 ✓ —— 同一个仓库地址 ✓ 后两条重复没意义 ✗）；都没有 → 空串 ✓ 不编 ✗。</summary>
+        public static string UrlOf(List<Item> group)
+        {
+            if (group == null) return "";
+            for (int i = 0; i < group.Count; i++)
+            {
+                List<string> u = group[i].Urls;
+                for (int k = 0; k < u.Count; k++)
+                {
+                    string v = u[k] == null ? "" : u[k].Trim();
+                    if (v.Length > 0 && v != "unknown") return v;
+                }
+            }
+            return "";
+        }
+
+        /// <summary>某个 id 的**共用说明** ✓：所有**不同**的 NOTE 按出现序用换行拼起来 ✓。
+        /// CLI 现在只发一条 → 原样返回 ✓；老 CLI 每个 profile 各发一条（内容可能不同）→ **一条都不丢** ✓
+        /// （完全相同的重复会去重 ✓ 那正是这次要消掉的冗余 ✓）。没有 → 空串 ✓。</summary>
+        public static string NoteOf(List<Item> group)
+        {
+            List<string> all = new List<string>();
+            if (group == null) return "";
+            for (int i = 0; i < group.Count; i++)
+            {
+                List<string> n = group[i].Notes;
+                for (int k = 0; k < n.Count; k++) AddDistinct(all, n[k]);
+            }
+            return string.Join("\n", all.ToArray());
+        }
+
+        /// <summary>某个 id 的**共用的更新日志**（同上 ✓ 通常只有 webui 一条 ✓）。</summary>
+        public static string LogOf(List<Item> group)
+        {
+            List<string> all = new List<string>();
+            if (group == null) return "";
+            for (int i = 0; i < group.Count; i++)
+            {
+                List<string> n = group[i].Logs;
+                for (int k = 0; k < n.Count; k++) AddDistinct(all, n[k]);
+            }
+            return string.Join("\n", all.ToArray());
+        }
+
+        // ================================================================ 每个 profile 一行的显示
+
+        /// <summary>某一行"已装 → 基准"的**版本段** ✓（基准 = 工具箱自带那一份 ✓ 不是网上的最新版 ✓）。
+        /// 三种真实情形分开说 ✓：基准不可用（latest=unknown ✓ 不编 ✗）/ 未安装 / 已装：</summary>
+        public static string RowVersionText(string installed, string latest, string state)
+        {
+            bool baseOk = !string.IsNullOrEmpty(latest) && latest != "unknown";
+            bool instOk = !string.IsNullOrEmpty(installed) && installed != "unknown";
+            if (!baseOk)
+                return instOk
+                    ? ("已装 " + VersionMarkers.TagOf(installed) + "　→　工具箱自带的基准不可用（CLI 报 latest=unknown，原因见诊断行）")
+                    : "未安装（CLI 报 installed=unknown）；工具箱自带的基准也不可用";
+            if (!instOk) return "未安装";
+            string t = "已装 " + VersionMarkers.TagOf(installed) + "　→　工具箱自带 " + VersionMarkers.TagOf(latest);
+            if (state == "content-mismatch")
+                t += "　——　版本号相同，但 snapshot.js / index.js 的内容哈希与工具箱自带的不同（半旧或被改过；只看版本号看不出来）";
+            else if (state == "newer-than-bundled")
+                t += "　——　已装版本高于工具箱自带（不当作「有更新」）";
+            return t;
+        }
+
+        /// <summary>某一行**显示的整句** ✓（版本段 · 状态 · 该行独有的下一步 ✓ 三样都要看得见 ✓）。
+        /// profile 名字**不在这里** ✗ —— 它由合并卡的第一列单独显示 ✓。</summary>
+        public static string RowText(Item it)
+        {
+            if (it == null) return "";
+            StringBuilder sb = new StringBuilder();
+            sb.Append(RowVersionText(it.Installed, it.Latest, it.State));
+            string st = UpdateDiagnosis.StateText(it.Kind, it.State, it.Latest, it.Installed);
+            if (!string.IsNullOrEmpty(st)) sb.Append("　·　").Append(st);
+            string next = DecodeNext(it.Next);
+            if (HasNext(next)) sb.Append("　　").Append(next);
+            return sb.ToString();
+        }
+
+        /// <summary>合并卡的**正文**：每个 profile 一行 ✓（`profile &lt;tab&gt; 整句` ✓）。
+        /// ★ 这就是"同一插件三行都要渲染出来"的那段文本本身 ✓（LogicTests 直接断言它 ✓
+        ///   ✗ 不是断言"某处的 UI 代码看起来像在循环" ✗）。</summary>
+        public static string RowsText(List<Item> group)
+        {
+            if (group == null || group.Count == 0) return "";
+            StringBuilder sb = new StringBuilder();
+            for (int i = 0; i < group.Count; i++)
+            {
+                if (i > 0) sb.Append('\n');
+                sb.Append(ProfileOf(group[i])).Append('\t').Append(RowText(group[i]));
+            }
+            return sb.ToString();
+        }
+
+        /// <summary>这一行的 profile 名 ✓（认不出 → 如实写出来 ✓ 不编一个名字 ✗）。</summary>
+        public static string ProfileOf(Item it)
+        {
+            if (it == null || string.IsNullOrEmpty(it.Profile)) return "（未报 profile）";
+            return it.Profile;
+        }
+
+        /// <summary>合并卡的整体状态 ✓：取**最需要你看一眼**的那一行的 state ✓（逐行状态在正文里都有 ✓）。
+        /// 排序（前者优先）：unknown（基准不可用 → 诊断行要贴出来 ✓）&gt; content-mismatch（半旧 ✓ 只看版本号抓不住 ✓）
+        /// &gt; update-available &gt; newer-than-bundled &gt; not-installed &gt; up-to-date ✓。认不出的 state → 排在最后 ✓ 不吞 ✗。</summary>
+        public static string OverallState(List<Item> group)
+        {
+            if (group == null || group.Count == 0) return "unknown";
+            string[] known = new string[] { "unknown", "content-mismatch", "update-available", "newer-than-bundled", "not-installed", "up-to-date" };
+            for (int k = 0; k < known.Length; k++)
+            {
+                for (int i = 0; i < group.Count; i++) if (group[i].State == known[k]) return known[k];
+            }
+            // 一个**已知**状态都没有 → 全是 GUI 不认识的值 ✓ 原样贴第一个 ✓（✗ 不吞成「未知」✗）
+            return group[0].State;
+        }
+
+        private static void AddDistinct(List<string> list, string v)
+        {
+            if (v == null) return;
+            string s = v.Trim();
+            if (s.Length == 0) return;
+            for (int i = 0; i < list.Count; i++) if (string.Equals(list[i], s, StringComparison.Ordinal)) return;
+            list.Add(s);
+        }
+    }
+}

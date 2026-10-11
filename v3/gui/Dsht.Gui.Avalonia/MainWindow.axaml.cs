@@ -2384,7 +2384,17 @@ namespace Dsht.Gui.Avalonia
                     }
                     if (!p.WaitForExit(30000)) { try { p.Kill(); } catch { } return "（超时 30 秒，已结束该进程）"; }   // 只读流保持 30 秒（见 TimeoutForMs 注释 ✓）
                     string err = seT.Result;
-                    if (!string.IsNullOrEmpty(err)) sb.Append("[stderr] ").Append(err);
+                    // ★★★ 2026-10-11 **实测抓到的解析污染** ✗✗（更新页上凭空多出一张 webui 卡 ✓）
+                    //   本方法返回的全文**同时**喂给页面解析器（`_rawOutput` ✓ 更新页/体检页都按标记行解析它 ✓）
+                    //   ✗ 旧写法把 stderr 拼成 `"[stderr] " + err` ✗ —— 只有**第一行**带前缀 ✓
+                    //   → stderr 里换行之后的每一行都成了"裸标记行" ✗
+                    //   → 真机实证：CLI 往 stderr 打了一行诊断（INTEGRITY_SKIPPED ✓ 中文 ✓ 里面根本没有标记词 ✓）
+                    //     而**它前面那段 NOTE 长文**换行后恰好以 `UPDATECENTER_ITEM webui …` 开头 ✓
+                    //     （NOTE 是自由文本 ✓ 我们自己的 CLI 就会这么换行 ✓）
+                    //     → 那个续行被当成**第二张 webui 卡**渲染出来 ✓✓（同一张卡出现两遍 ✗）
+                    //   ✓ 现在：stderr 的**每一行**都带 `[stderr] ` 前缀 ✓ → 不可能被误认成标记行 ✓
+                    //     诊断**仍然可见**（✗ 不静默丢掉 ✗）—— 只是不再冒充 CLI 的标准输出 ✓
+                    if (!string.IsNullOrEmpty(err)) sb.Append(PrefixStderr(err));
                     return sb.Length == 0 ? "（无输出）" : sb.ToString();
                 }
             }
@@ -2392,6 +2402,21 @@ namespace Dsht.Gui.Avalonia
             {
                 return "运行 CLI 失败: " + ex.Message;
             }
+        }
+
+        /// <summary>把 CLI 的 stderr 逐行打上 `[stderr] ` 前缀 ✓（**每一行**都要 ✗ 只给第一行打 =
+        /// 后面每一行都变成"裸标记行"✗ → 会被页面解析器当成真条目 ✓ 真机实测过 ✓）。
+        /// 空行跳过（不追加无意义的空行 ✓）。</summary>
+        private static string PrefixStderr(string err)
+        {
+            StringBuilder o = new StringBuilder();
+            string[] ls = err.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n');
+            for (int i = 0; i < ls.Length; i++)
+            {
+                if (ls[i].Length == 0) continue;
+                o.Append("[stderr] ").Append(ls[i]).Append("\r\n");
+            }
+            return o.ToString();
         }
 
         /// <summary>把流式行**投递回 UI 线程** ✓：追加进原文 + 体检页记入逐行列表 + 立即重画 ✓✓。
