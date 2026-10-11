@@ -26,6 +26,15 @@ namespace Dsht.Gui.Avalonia.Markers
             return null;
         }
 
+        /// <summary>显示用的 tag ✓：`3.0.7` → `v3.0.7` ✓（CLI 的标记行里是**归一化**的 `3.0.7` ✓ 显示才加 v ✓）。
+        /// **只加前缀** ✓ —— 不补零、不切段、不排序、不比较 ✓（版本比较是 CLI 的事 ✓ GUI 只显示 ✗不重算 ✓）；
+        /// 已经带 v 的原样返回 ✓；空串原样返回 ✓（✗ 不凭空造一个 v ✗）。</summary>
+        public static string TagOf(string v)
+        {
+            if (string.IsNullOrEmpty(v)) return v;
+            return (v[0] == 'v' || v[0] == 'V') ? v : ("v" + v);
+        }
+
         /// <summary>一个实读到的桥接插件 package.json。</summary>
         public sealed class BridgeHit
         {
@@ -207,30 +216,44 @@ namespace Dsht.Gui.Avalonia.Markers
             return "未识别（kind=" + k + " state=" + s + "）";
         }
 
-        /// <summary>版本行（长 ✓）：把"已装什么 / 最新能不能拿到 / 为什么"说全 ✓。</summary>
+        /// <summary>版本行（长 ✓）：把"已装什么 / 最新能不能拿到 / 为什么"说全 ✓。
+        /// ★ 2026-10-11：两个版本号都按 **tag 形态**显示（`vX.Y.Z` ✓ 与 GitHub release tag 同形 ✓）
+        ///   —— **只影响显示** ✓（CLI 的 `UPDATECENTER_ITEM … installed=/latest=` 里是**归一化**的 `3.0.7` ✓
+        ///      字段本身一个字不改 ✓ 也**不替 CLI 编一个版本号** ✗：只有 CLI 真的给了非 unknown 的值才显示 ✓）。</summary>
         public static string VersionText(string kind, string state, string latest, string installed)
         {
             bool instKnown = !(string.IsNullOrEmpty(installed) || installed == "unknown");
             if (kind == "desktop" && !instKnown)
                 return "未检测到官方桌面端（本工具只在 %LOCALAPPDATA%\\Programs\\DeepSeek Harness 下找它 ✗ 不猜版本 ✗）";
-            string head = instKnown ? ("已装 " + installed) : "已装版本：未检测到（CLI 报 installed=unknown）";
+            string head = instKnown ? ("已装 " + VersionMarkers.TagOf(installed)) : "已装版本：未检测到（CLI 报 installed=unknown）";
             if (!string.IsNullOrEmpty(latest) && latest != "unknown")
-                return head + "　→　最新 " + latest;
+                return head + "　→　最新 " + VersionMarkers.TagOf(latest);
             if (kind == "webui")
                 return head + "　→　最新版本：取不到最新版本（离线，或 npm 返回值未通过白名单）";
             if (kind == "minato")
-                return head + "　→　最新版本：CLI 不提供（本工具只报自己报的版本 ✗ 不猜最新版 ✗）";
+                return head + "　→　最新版本：CLI 没给 latest（只有**老 CLI** 才这样 —— 新 CLI 会查 GitHub 的 /releases/latest ✓；本工具**不猜**最新版 ✗）";
             if (kind == "plugin")
-                return head + "　→　最新版本：CLI 不提供（插件由各自作者维护；本工具只读它的 package.json 里的已装版本 ✗ 不猜最新版 ✗）";
+                return head + "　→　最新版本：CLI 不提供（插件随工具箱发布，**没有独立的版本渠道** ✗ 与本工具的 tag 不在一个序列上 ✗ 不猜最新版 ✗）";
             if (kind == "desktop")
                 return head + "　→　版本比对：本工具不做（官方桌面端只去官方页更新）";
             return head + "　→　最新版本：CLI 的标记行里没有 latest 字段（✗ 不猜 ✗）";
         }
 
         /// <summary>诊断补充行（只有"本该有最新版却拿不到"才给 ✓ 其余返回空串 ✗ 不噪声 ✓）。
-        /// 优先贴 CLI 自己打的**原始原因**（`…_FAIL <文案>` ✓）—— 没有就如实说"CLI 这次没打原因" ✓ 不替它编 ✗。</summary>
+        /// 优先贴 CLI 自己打的**原始原因**：`UPDATECENTER_DIAG <id> <原因>`（CLI 3.0.7+ ✓ 2026-10-11 加 ✓）
+        /// → 再退到 `…_FAIL <文案>` ✓ —— 都没有就如实说"CLI 这次没打原因" ✓ 不替它编 ✗。</summary>
         public static string HintText(string kind, string state, string latest, string installed, string raw)
         {
+            // minato（**本工具自己** ✓）：现在 CLI 会真去查 GitHub 的 /releases/latest ✓
+            //   → 取不到时它有 DIAG 行 ✓ 这里必须把它贴出来 ✓（否则用户只看到"没给 latest" ✗ 而不知道是离线还是别的原因 ✗）
+            if (kind == "minato")
+            {
+                if (!string.IsNullOrEmpty(latest) && latest != "unknown") return "";
+                string d = DiagOf(raw, kind);
+                if (!string.IsNullOrEmpty(d)) return "诊断：CLI 原文里的原因 —— " + d;
+                if (!string.IsNullOrEmpty(state) && state != "unknown") return "";
+                return "诊断：CLI 这次没打原因行（老 CLI 不查本工具的更新 ✓）→ 本工具不替它编原因 ✗；换与新版本配套的 dsh-minato.exe 后重试 ✓";
+            }
             if (kind != "webui") return "";
             if (!string.IsNullOrEmpty(latest) && latest != "unknown") return "";
             string why = FailReason(raw);
@@ -238,6 +261,26 @@ namespace Dsht.Gui.Avalonia.Markers
             if (!string.IsNullOrEmpty(raw) && raw.IndexOf("取不到更新日志", StringComparison.Ordinal) >= 0)
                 return "诊断：最新版本与更新日志**都**没取到 → 基本可以断定是离线（或 npm 不在 PATH）；CLI 这次没打原因行，本工具不替它编原因 ✗";
             return "诊断：CLI 这次没打原因行（update-center 不带原因行）→ 常见原因：离线 / npm 不在 PATH / registry 返回值未通过白名单；点「检查更新」可看 CLI 的 update-info 怎么说 ✓";
+        }
+
+        /// <summary>取 CLI 自己打的诊断原因：`UPDATECENTER_DIAG <id> <原因>`（CLI 2026-10-11 起 ✓）。
+        /// **按前缀取** ✓（不按 `_FAIL` 那种正则 ✓ —— 原因文案里可能有空格/冒号/中文标点 ✓ 前缀最稳 ✓）。
+        /// 只认给定 id 的那一条 ✓；没有 → 空串 ✓ **不编** ✗。</summary>
+        public static string DiagOf(string raw, string id)
+        {
+            if (string.IsNullOrEmpty(raw) || string.IsNullOrEmpty(id)) return "";
+            string tag = "UPDATECENTER_DIAG " + id + " ";
+            string[] ls = raw.Replace("\r\n", "\n").Split('\n');
+            for (int i = 0; i < ls.Length; i++)
+            {
+                string t = ls[i] == null ? "" : ls[i].Trim();
+                if (t.StartsWith(tag, StringComparison.Ordinal))
+                {
+                    string v = t.Substring(tag.Length).Trim();
+                    if (v.Length > 0) return v;
+                }
+            }
+            return "";
         }
 
         /// <summary>取 CLI 原始的失败原因：第一条形如 `<全大写标记词>_FAIL <文案>` 的行 ✓。

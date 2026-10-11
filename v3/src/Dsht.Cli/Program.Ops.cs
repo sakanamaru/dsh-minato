@@ -44,6 +44,8 @@ namespace Dsht.Cli
         ///   `UPDATECENTER_ITEM <id> kind=<webui|desktop|minato|plugin> installed=<v|unknown> latest=<v|unknown> state=<up-to-date|update-available|unknown|external>`
         ///   `UPDATECENTER_URL <id> <地址>`       ← GitHub / 官方安装页 ✓
         ///   `UPDATECENTER_NOTE <id> <说明>`      ← 更新前风险与确认要求 ✓
+        ///   `UPDATECENTER_DIAG <id> <说明>`      ← **取不到最新版时的原始原因** ✓（状态码 / 超时 ✓ 2026-10-11 加 ✓
+        ///                                          只在真没取到时出现 ✓ ✗ 不塞进 NOTE ✗ GUI 不认识 → 忽略 ✓）
         ///   `UPDATECENTER_LOG <id> <一行日志>`   ← 更新日志（best-effort ✓ 取不到就说取不到 ✓）
         /// 纪律：**只读** ✓ 不改任何东西 ✓；取不到的字段写 `unknown` ✓ **不猜** ✗</summary>
         private static int UpdateCenter(ServiceRegistry reg, string[] args)
@@ -108,10 +110,44 @@ namespace Dsht.Cli
             try { selfVer = DshtVersionString(); } catch { }
             ids.Add("minato");
             List<string> minatoPart = new List<string>();
-            minatoPart.Add("UPDATECENTER_ITEM minato kind=minato installed=" + selfVer + " latest=unknown state=unknown");
+            // ★★★ 2026-10-11 **本体自查更新** —— 修维护者那句「本体检查不了本体的更新」 ✓✓
+            //   ✗ 原来这一行是写死的 `latest=unknown state=unknown` ✗ → 界面只能说
+            //     「CLI 不查最新版」✓ 而 CLI 明明**能**查（FetchLatestRelease 早就在，只是没给它用 ✗）
+            //   ✓ 现在：查 GitHub 的 **`/releases/latest`** ✓✓
+            //     · 该端点**天然排除预发布** ✓ 正合"stable 只提示正式版" ✓（✗ 不自己排 tag 列表 ✗）
+            //     · 版本号从**编译期常量**来（DshtVersionString ✓）→ 判定与 `version` 命令同源 ✓
+            //       ✗ 不反射、不硬编码第二份版本号 ✗
+            //   · 失败**绝不回落成 unknown 就完事** ✗：把超时/状态码原文写进 `UPDATECENTER_DIAG` ✓（各自独立 ✓
+            //     本体查询失败**不影响** ①webui / ②desktop / ④插件 / ⑤更新日志 任何一行 ✓）
+            //   · **只报告** ✓：不下载、不替换文件 ✗；下载入口仍由下面的 UPDATECENTER_URL 给 ✓
+            string minatoTag = null, minatoWhy = null;
+            FetchLatestStableTag("sakanamaru", "dsh-minato", out minatoTag, out minatoWhy);
+            string minatoLatest = "unknown", minatoState = "unknown";
+            if (!string.IsNullOrEmpty(minatoTag))
+            {
+                minatoLatest = minatoTag;
+                minatoState = selfVer != "unknown"
+                    ? (selfVer == minatoTag ? "up-to-date"
+                        : (Dsht.Domain.Services.VersionComparer.Compare(selfVer, minatoTag) < 0 ? "update-available" : "newer-than-latest"))
+                    : "unknown";
+            }
+            minatoPart.Add("UPDATECENTER_ITEM minato kind=minato installed=" + selfVer + " latest=" + minatoLatest + " state=" + minatoState);
             minatoPart.Add("UPDATECENTER_URL minato https://github.com/sakanamaru/dsh-minato");
-            minatoPart.Add("UPDATECENTER_NOTE minato " + T("本工具的更新**不碰你的数据** ✓（不动 ~/.dsh、不动备份、不动配置 ✓）；需要你确认 ✓",
-                "updating this tool does not touch your data; it runs only after you confirm"));
+            minatoPart.Add("UPDATECENTER_NOTE minato " + T("本工具的更新**不碰你的数据** ✓（不动 ~/.dsh、不动备份、不动配置 ✓）；**只报告、不自动更新** ✓（下载入口见上面的地址 ✓）需要你确认 ✓",
+                "updating this tool does not touch your data; report only, never auto-updates; runs only after you confirm"));
+            // ★ 失败/异常**单独一行说原因** ✓（✗ 不塞进 NOTE ✗ —— NOTE 是"更新前风险" ✓ 语义不同 ✓）
+            //   · GUI 只解析 ITEM/URL/NOTE/LOG ✓ 这一行它**不认识 → 安全忽略** ✓（不破坏解析 ✓）
+            //   · 只在"本该有 latest 却没有"时才打 ✓（绝不噪声 ✓ 也**绝不**拿它假装成功 ✗✓）
+            string minatoDiag = null;
+            if (!string.IsNullOrEmpty(minatoWhy))
+            {
+                minatoDiag = T("没取到最新版（只报告 ✓ 不假装「已是最新」✗）：", "could not fetch the latest version (report only; it does not pretend to be up to date): ") + minatoWhy;
+            }
+            else if (string.IsNullOrEmpty(minatoTag) && selfVer == "unknown")
+            {
+                minatoDiag = T("连本工具自己的版本都没读出来（编译期常量不可用 ✗）→ 无法比对谁更新 ✓", "this tool's own version could not be read, so there is nothing to compare against");
+            }
+            if (minatoDiag != null) minatoPart.Add("UPDATECENTER_DIAG minato " + minatoDiag);
             AddPart(lines, emit, minatoPart);
 
             // —— ④ 已安装插件（从各 profile 的 node_modules 扫 ✓ 取 GitHub 地址 ✓✓）——
@@ -149,8 +185,8 @@ namespace Dsht.Cli
                             // 只在缺字段时才问 ✓（npm view 每次要 1~2 秒 ✗ 不能对每个插件都问 ✓）
                             if (string.IsNullOrEmpty(repo)) repo = NpmRepoOf(name);
                             plugPart.Add("UPDATECENTER_URL " + pid + " " + (string.IsNullOrEmpty(repo) ? "unknown" : repo));
-                            plugPart.Add("UPDATECENTER_NOTE " + pid + " " + T("插件更新**先描述风险再确认** ✓（版本变化可能改行为 ✓）；更新前**自动备份** ✓ 插件由各自作者维护 ✓ 本工具不替它担保 ✓",
-                                "plugin updates describe the risk and ask first; the data root is backed up"));
+                            plugPart.Add("UPDATECENTER_NOTE " + pid + " " + T("**没有独立的版本渠道** ✓ —— 插件随工具箱发布，它的版本号（package.json 的 version ✓）与工具箱 tag（如 v3.0.7 ✓）不在一个序列上 → **无可比的 latest** ✓ 所以这里 `latest=unknown` 是**事实** ✗ 不是「还没查」✗；本工具也**不会拿工具箱 tag 当插件的 latest** ✗（那是编 ✗）。插件更新**先描述风险再确认** ✓（版本变化可能改行为 ✓）；更新前**自动备份** ✓ 插件由各自作者维护 ✓ 本工具不替它担保 ✓",
+                                "no independent release channel: this plugin ships with the toolkit, so its version (package.json) and the toolkit tag (e.g. v3.0.7) are not the same series - there is no comparable latest, so latest=unknown is a FACT, not a pending lookup, and this tool will not pass the toolkit tag off as the plugin's latest. plugin updates describe the risk and ask first; the data root is backed up"));
                             AddPart(lines, emit, plugPart);
                         }
                     }

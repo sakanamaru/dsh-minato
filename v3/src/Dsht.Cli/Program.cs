@@ -384,6 +384,73 @@ Console.WriteLine("  config-get | config-set <key> <value>");
             return "";
         }
 
+        /// <summary>取某个仓库最新**正式** Release 的 tag ✓（本体自查更新用 ✓ 2026-10-11 ✓）。
+        /// 端点用 GitHub 的 **`/releases/latest`** ✓ —— 它**天然排除预发布与草稿** ✓
+        /// （✗ 不自己拉 tag 列表再排序 ✗ 那是重造轮子且容易把 -rc.x 当成正式版 ✗）。
+        /// 与上面 <see cref="FetchLatestRelease"/> 的两个**有意**不同（那里服务于更新日志 ✓ 保持原样 ✓）：
+        /// ① 端点不同（那里是 `?per_page=1` ✓ 会含预发布 ✓）；
+        /// ② 这里**不兜底 atom**：成功/失败都回一个**说得出口的原因** ✓
+        ///    （`HTTP 404` / `超时（6 秒）` / `连不上 …` ✓）→ 上层写进 NOTE 行 ✓
+        ///    ✗ 绝不"失败就写 unknown 完事" ✗。
+        /// 找到 → tag 归一化（去掉前缀 v ✓；带 -rc/-pre/-alpha/-beta 的**预发布**一律拒收 ✓）；
+        /// 返回 false 时 <paramref name="tag"/> 恒为 null ✓ 调用方必须把 <paramref name="why"/> 说出去 ✓。</summary>
+        private static bool FetchLatestStableTag(string owner, string repo, out string tag, out string why)
+        {
+            tag = null;
+            why = null;
+            try
+            {
+                // 与 FetchLatestRelease 同一处历史坑：.NET 4.0 编译时默认只有 TLS 1.0 → GitHub 要求 1.2
+                // （枚举不存在 → 用数值 3072）；.NET 8 上这行是幂等的 no-op ✓。
+                try { System.Net.ServicePointManager.SecurityProtocol = (System.Net.SecurityProtocolType)3072; } catch { }
+                string url = "https://api.github.com/repos/" + owner + "/" + repo + "/releases/latest";
+                System.Net.HttpWebRequest req = (System.Net.HttpWebRequest)System.Net.WebRequest.Create(url);
+                req.UserAgent = "dsh-minato";
+                req.Accept = "application/vnd.github+json";
+                req.Timeout = 6000;
+                req.ReadWriteTimeout = 6000;
+                string body;
+                try
+                {
+                    using (System.Net.HttpWebResponse resp = (System.Net.HttpWebResponse)req.GetResponse())
+                    using (System.IO.StreamReader sr = new System.IO.StreamReader(resp.GetResponseStream()))
+                        body = sr.ReadToEnd();
+                }
+                catch (System.Net.WebException we)
+                {
+                    // ★ 如实写原因 ✓（✗ 不许吞掉 ✗）：超时 / HTTP 状态码 / 连不上，三种分开说 ✓
+                    System.Net.HttpWebResponse er = we.Response as System.Net.HttpWebResponse;
+                    if (er != null)
+                    {
+                        int code = (int)er.StatusCode;
+                        er.Close();
+                        why = code == 404
+                            ? T("HTTP 404 —— 这个仓库没有**正式** Release（只有预发布也算没有 ✓ `/releases/latest` 就是这么定义的 ✓）", "HTTP 404 - this repository has no stable release (prereleases do not count; that is how /releases/latest is defined)")
+                            : ("HTTP " + code + " " + we.Message.Trim());
+                    }
+                    else if (we.Status == System.Net.WebExceptionStatus.Timeout)
+                        why = T("超时（6 秒内没回应 ✓ 网络慢或不通 ✓）", "timed out (no answer within 6 seconds)");
+                    else
+                        why = we.Status + "：" + we.Message.Trim();
+                    return false;
+                }
+                string raw = JsonStr(body, "tag_name");
+                if (string.IsNullOrEmpty(raw)) { why = T("GitHub 返回里没有 tag_name 字段 ✓", "the GitHub answer has no tag_name field"); return false; }
+                string t = raw.Trim();
+                if (t.Length > 1 && (t[0] == 'v' || t[0] == 'V') && t[1] >= '0' && t[1] <= '9') t = t.Substring(1);   // v3.0.7 → 3.0.7 ✓（只去「v+数字」✓ 别把别的 tag 削坏 ✓）
+                // 预发布防御 ✓：`/releases/latest` 本就不给预发布 ✓ 万一仓库把它标成正式版也**不许**当 stable 报 ✗
+                if (System.Text.RegularExpressions.Regex.IsMatch(t, "-(rc|pre|alpha|beta|dev)[.0-9-]", System.Text.RegularExpressions.RegexOptions.IgnoreCase))
+                { why = T("最新 Release 是预发布版（", "the newest release is a prerelease (") + t + T("）→ 按「只提示正式版」的约定不收 ✓", "); per the stable-only rule it is not taken"); return false; }
+                tag = t;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                why = ex.GetType().Name + "：" + ex.Message;   // 例如 UriFormat / 平台网络栈异常 —— 照样说清 ✓ 不吞 ✗
+                return false;
+            }
+        }
+
         /// <summary>本工具自己的版本串 ✓（取不到就 unknown ✓ 不猜 ✗）。</summary>
         private static string DshtVersionString()
         {
