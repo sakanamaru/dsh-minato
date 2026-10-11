@@ -339,8 +339,119 @@ namespace Dsht.Gui.LogicTests
                 BoardMetrics.ChartSignature(null, 7, null, day1) == BoardMetrics.ChartSignature(null, 7, null, day1)
                 && BoardMetrics.ChartSignature(SessionsMarkers.Parse("SESSIONS_FAIL test_x"), 7, null, day1) != BoardMetrics.ChartSignature(null, 7, null, day1));
 
+            // —— 版本显示 + 更新状态诊断（2026-10-11 ✓✓）——
+            //   铁律（逐条断言 ✓）：版本号只能来自**实读** ✗ 不许写死 ✓；"取不到最新版本"✗ 不许笼统写成「未知」✗。
+            Check("版本·CLI：`DSHT_VERSION 3.0.7` 逐字解析 ✓",
+                VersionMarkers.ParseCliVersion("DSHT_VERSION 3.0.7") == "3.0.7");
+            Check("版本·CLI：前后有其它行也认（GUI 只挑这一行 ✓）；多词 / 空值不认（✗ 不猜 ✓）",
+                VersionMarkers.ParseCliVersion("noise\n  DSHT_VERSION 1.2.3-rc.1  \ntail") == "1.2.3-rc.1"
+                && VersionMarkers.ParseCliVersion("DSHT_VERSION 1.2 3") == null
+                && VersionMarkers.ParseCliVersion("DSHT_VERSION ") == null);
+            Check("版本·CLI：v2.x 的「未知参数：version」原文 → null（旧 CLI 如实说读不到 ✓ 不编 ✗）",
+                VersionMarkers.ParseCliVersion("未知参数：version\n  DeepSeek Harness Toolkit V2.7.3") == null
+                && VersionMarkers.ParseCliVersion("") == null && VersionMarkers.ParseCliVersion(null) == null);
+            Check("版本·JSON：只认整词 version 字段（dshVersion / versions 都不算 ✓）",
+                VersionMarkers.JsonStringField("{\"dshVersion\":\"9.9.9\",\"version\":\"0.2.0\"}", "version") == "0.2.0"
+                && VersionMarkers.JsonStringField("{\"versions\":{\"a\":1}}", "version") == ""
+                && VersionMarkers.JsonStringField("{}", "version") == "" && VersionMarkers.JsonStringField(null, "version") == "");
+            Check("版本·桥接：候选路径**按序**（desktop → web → 数据根 plugin\\ ✓ 找到第一个即可 ✓）",
+                VersionMarkers.BridgeCandidates("C:\\h").Count >= 3
+                && VersionMarkers.BridgeCandidates("C:\\h")[0] == System.IO.Path.Combine("C:\\h", "profiles", "desktop", "node_modules", "dsh-minato-bridge", "package.json")
+                && VersionMarkers.BridgeCandidates("C:\\h")[1] == System.IO.Path.Combine("C:\\h", "profiles", "web", "node_modules", "dsh-minato-bridge", "package.json"));
+            Check("版本·桥接：profile 名从路径实认（认不出 → 空串 ✗ 不猜 ✓）",
+                VersionMarkers.ProfileOf("C:\\h\\profiles\\web\\node_modules\\dsh-minato-bridge\\package.json") == "web"
+                && VersionMarkers.ProfileOf("C:\\h\\plugin\\dsh-minato-bridge\\package.json") == "");
+            // 隔离不变式：显式数据根 / DSH_HOME **绝不许回落**真实 ~\.dsh ✗（否则隔离测试里会读到真实主目录的插件 ✓ 实测踩过 ✓）
+            Check("版本·桥接：显式数据根只用它自己（✗ 不回落真实主目录 ✗ 候选 5 个 ✓）",
+                VersionMarkers.BridgeRoots("C:\\h").Count == 1 && VersionMarkers.BridgeRoots("C:\\h")[0] == "C:\\h"
+                && VersionMarkers.BridgeCandidates("C:\\h").Count == 5);
+            string envSaved = Environment.GetEnvironmentVariable("DSH_HOME");
+            Environment.SetEnvironmentVariable("DSH_HOME", "C:\\fake-home");
+            bool envOnlyOk = VersionMarkers.BridgeRoots(null).Count == 1 && VersionMarkers.BridgeRoots(null)[0] == "C:\\fake-home";
+            Environment.SetEnvironmentVariable("DSH_HOME", envSaved);
+            Check("版本·桥接：设了 DSH_HOME → 只用它（与 CLI 的 DataRoot 同口径 ✓ 隔离下不读错人 ✓）", envOnlyOk);
+            Check("版本·桥接：**真机实测**——按候选扫一遍，命中项必须真的存在、且文件里真是那个 version（✗ 不编版本号 ✓）",
+                BridgeRealReadOk());
+            Check("版本·桥接：一个都没实读到 → 「未安装」（✗ 绝不编一个版本号 ✗）",
+                VersionMarkers.DescribeBridge(null) == "未安装"
+                && VersionMarkers.DescribeBridge(new List<VersionMarkers.BridgeHit>()) == "未安装");
+            Check("版本·桥接：多 profile 版本不同 → 分别报；同版本 → 合并（诚实 ✓ 不取第一个就完事 ✓）",
+                VersionMarkers.DescribeBridge(new List<VersionMarkers.BridgeHit> {
+                    new VersionMarkers.BridgeHit { Version = "0.1.0", Profile = "desktop" },
+                    new VersionMarkers.BridgeHit { Version = "0.2.0", Profile = "web" } }) == "0.1.0（desktop） / 0.2.0（web）"
+                && VersionMarkers.DescribeBridge(new List<VersionMarkers.BridgeHit> {
+                    new VersionMarkers.BridgeHit { Version = "0.2.0", Profile = "desktop" },
+                    new VersionMarkers.BridgeHit { Version = "0.2.0", Profile = "web" } }) == "0.2.0（desktop、web）");
+
+            Check("诊断·四态照译：已是最新 / 有更新 / 比最新还新 / 在官方页更新",
+                UpdateDiagnosis.StateText("webui", "up-to-date", "1.0.0", "1.0.0") == "已是最新"
+                && UpdateDiagnosis.StateText("webui", "update-available", "1.0.0", "0.9.0") == "有更新"
+                && UpdateDiagnosis.StateText("webui", "newer-than-latest", "1.0.0", "1.1.0") == "比最新还新"
+                && UpdateDiagnosis.StateText("desktop", "external", "unknown", "0.2.0-rc.2") == "在官方页更新");
+            Check("诊断·① 真取不到（webui state=unknown）→ 「取不到最新版」✗ 不再是笼统的「未知」✗",
+                UpdateDiagnosis.StateText("webui", "unknown", "unknown", "0.1.5-rc.2") == "取不到最新版");
+            Check("诊断·② CLI 本来就不查（minato / 插件）→ 明说「CLI 不查最新版」（跟真取不到**分开** ✓）",
+                UpdateDiagnosis.StateText("minato", "unknown", "unknown", "3.0.7") == "CLI 不查最新版"
+                && UpdateDiagnosis.StateText("plugin", "unknown", "unknown", "0.2.0") == "CLI 不查最新版");
+            Check("诊断·③ 桌面端没找到 → 「未检测到桌面端」（不是取不到，也不是未知 ✓）",
+                UpdateDiagnosis.StateText("desktop", "unknown", "unknown", "unknown") == "未检测到桌面端");
+            Check("诊断·CLI 报了个 GUI 不认识的状态 → **把原值贴出来** ✓ 不吞成「未知」✗",
+                UpdateDiagnosis.StateText("webui", "weird-state", "1.0.0", "1.0.0").Contains("weird-state")
+                && UpdateDiagnosis.StateText("mystery", "", "", "").Contains("空"));
+            Check("诊断·**任何**输入都不再产出「未知」两个字（用户报的那条 ✓✓）",
+                !UpdateDiagnosis.StateText("webui", "unknown", "unknown", "1").Contains("未知")
+                && !UpdateDiagnosis.StateText("minato", "unknown", "unknown", "1").Contains("未知")
+                && !UpdateDiagnosis.StateText("plugin", "", "", "").Contains("未知")
+                && !UpdateDiagnosis.StateText("desktop", "unknown", "unknown", "unknown").Contains("未知")
+                && !UpdateDiagnosis.StateText("mystery", "", "", "").Contains("未知"));
+            Check("诊断·拿到了 → 版本号（已装 X → 最新 Y ✓）",
+                UpdateDiagnosis.VersionText("webui", "update-available", "0.2.0-rc.2", "0.1.5-rc.2") == "已装 0.1.5-rc.2　→　最新 0.2.0-rc.2");
+            Check("诊断·webui 取不到 → 明说离线/白名单；插件与本工具 → 明说 CLI 不提供（✗ 不再写 unknown ✗）",
+                UpdateDiagnosis.VersionText("webui", "unknown", "unknown", "0.1.5").Contains("取不到最新版本（离线，或 npm 返回值未通过白名单）")
+                && UpdateDiagnosis.VersionText("plugin", "unknown", "unknown", "0.2.0").Contains("CLI 不提供")
+                && UpdateDiagnosis.VersionText("minato", "unknown", "unknown", "3.0.7").Contains("CLI 不提供"));
+            Check("诊断·installed=unknown 不许原样给用户看 unknown（→ 未检测到 ✓）",
+                UpdateDiagnosis.VersionText("webui", "unknown", "unknown", "unknown").Contains("未检测到")
+                && UpdateDiagnosis.VersionText("desktop", "unknown", "unknown", "unknown").Contains("未检测到官方桌面端"));
+            Check("诊断·原因：贴 CLI 原始的 `…_FAIL <文案>`（全大写标记词才认 ✓ 普通文本不误报 ✓）",
+                UpdateDiagnosis.FailReason("x\nUPDATEINFO_FAIL 拿不到可信的最新版本（离线，或 npm 返回值未通过白名单）\ny") == "拿不到可信的最新版本（离线，或 npm 返回值未通过白名单）"
+                && UpdateDiagnosis.FailReason("普通文本里出现 _FAIL 这种词") == ""
+                && UpdateDiagnosis.FailReason("lower_FAIL x") == "" && UpdateDiagnosis.FailReason(null) == "");
+            Check("诊断·原文里有 _FAIL → 诊断行贴它（✗ 不替 CLI 编原因 ✓）；没有 → 如实说「这次没打原因行」✓",
+                UpdateDiagnosis.HintText("webui", "unknown", "unknown", "1", "UPDATEINFO_FAIL 离线").Contains("离线")
+                && UpdateDiagnosis.HintText("webui", "unknown", "unknown", "1", "UPDATECENTER_ITEM webui kind=webui").Contains("没打原因行"));
+            Check("诊断·诊断行只在「本该有最新版却拿不到」时出现（拿到了 / minato / 插件 → 空串 ✓ 不噪声 ✓）",
+                UpdateDiagnosis.HintText("webui", "update-available", "1.0.0", "0.9.0", "x") == ""
+                && UpdateDiagnosis.HintText("minato", "unknown", "unknown", "3.0.7", "x") == ""
+                && UpdateDiagnosis.HintText("plugin", "unknown", "unknown", "0.2.0", "x") == "");
+            Check("诊断·★老 CLI（原文里没有任何 UPDATECENTER_ 行）→「该 CLI 版本过旧，无法检查更新」✓",
+                UpdateDiagnosis.EmptyTitle("未知参数：update-center\n  DeepSeek Harness Toolkit V2.7.3", false) == "该 CLI 版本过旧，无法检查更新"
+                && UpdateDiagnosis.EmptyDetail("未知参数：update-center", false).Contains("UPDATECENTER_ITEM"));
+            Check("诊断·空态三态分开：还在读 / 还没有输出 / CLI 支持但一个组件都没报",
+                UpdateDiagnosis.EmptyTitle("", true).StartsWith("正在读取")
+                && UpdateDiagnosis.EmptyTitle("", false) == "还没读到更新信息"
+                && UpdateDiagnosis.EmptyTitle("UPDATECENTER_OK 0", false) == "CLI 支持更新检查，但这次一个组件都没报");
+
             Console.WriteLine("== " + _pass + "/" + (_pass + _fail) + " passed, " + _fail + " failed ==");
             return _fail == 0 ? 0 : 1;
+        }
+
+        /// <summary>真机实测（2026-10-11）：按 GUI 用的同一套候选路径扫一遍桥接插件，
+        /// 每个命中项都必须**真的**在那个文件里（复读一遍原文核对 ✓）。
+        /// 意图：证明界面上的版本是**读来的** ✗ 不是写死的 ✓；顺带把实测结果打进测试日志 ✓。</summary>
+        private static bool BridgeRealReadOk()
+        {
+            List<VersionMarkers.BridgeHit> hits = VersionMarkers.ScanBridge(VersionMarkers.BridgeCandidates(null));
+            Console.WriteLine("  [INFO] 桥接插件实测：" + VersionMarkers.DescribeBridge(hits)
+                + "（候选 " + VersionMarkers.BridgeCandidates(null).Count + " 个）");
+            for (int i = 0; i < hits.Count; i++)
+            {
+                Console.WriteLine("  [INFO]   ← " + hits[i].Path);
+                if (!System.IO.File.Exists(hits[i].Path)) return false;
+                string txt = System.IO.File.ReadAllText(hits[i].Path);
+                if (VersionMarkers.JsonStringField(txt, "version") != hits[i].Version) return false;
+            }
+            return true;
         }
     }
 }

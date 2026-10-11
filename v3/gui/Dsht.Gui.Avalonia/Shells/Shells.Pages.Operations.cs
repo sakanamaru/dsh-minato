@@ -603,7 +603,9 @@ namespace Dsht.Gui.Avalonia.Shells
 
             {
 
-                s.Children.Add(EmptyState("还没读到更新信息", "点上面的「检查更新」试试（只读，不动任何东西）。"));
+                // ★★★ 2026-10-11：这里原来只会说「还没读到更新信息」✗ —— 三种情况（还在读 / 真没跑 / **老 CLI 没这些标记行**）
+                //   被同一句话吞掉 ✓ 用户无从判断 ✓ 判定与文案都放进纯函数 ✓ 有单测 ✓（✗ 不新增标记行 ✓）
+                s.Children.Add(EmptyState(UpdateDiagnosis.EmptyTitle(raw, host.IsLoading), UpdateDiagnosis.EmptyDetail(raw, host.IsLoading)));
 
                 return s;
 
@@ -635,9 +637,15 @@ namespace Dsht.Gui.Avalonia.Shells
 
 
 
-                // 版本行 ✓（取不到就写 unknown ✓ 不猜 ✗）
+                // 版本行 ✓（★ 2026-10-11：取不到就**说清是哪种取不到** ✓ 不再只写一个 unknown ✗ 见 UpdItem.VersionText ✓）
 
-                card.Children.Add(T("已装 " + it.Installed + "　→　最新 " + it.Latest, 11.5, Palette.TextDim));
+                card.Children.Add(T(it.VersionText, 11.5, Palette.TextDim));
+
+                // 诊断行 ✓（★ 2026-10-11：只有"本该有最新版却拿不到"才有内容 ✓ 附 CLI 原始原因 ✓ 不编 ✗）
+
+                if (!string.IsNullOrEmpty(it.HintText))
+
+                    card.Children.Add(T(it.HintText, 11.5, Palette.Warn));
 
 
 
@@ -797,11 +805,38 @@ namespace Dsht.Gui.Avalonia.Shells
 
                     if (State == "external") return "在官方页更新";
 
-                    return "未知";
+                    // ★★★ 2026-10-11 修复：这里原来**一律**返回「未知」✗✗ —— 用户看到的就是那条"升级提示未知" ✓
+                    //   真因：CLI 的 update-center 对 minato / 插件**故意**报 `latest=unknown state=unknown`（它根本不查 ✓），
+                    //         对 webui 报 unknown 才是**真取不到**（离线 / npm 白名单拒 ✓），desktop 找不到时报 unknown ✓
+                    //         —— 三种完全不同的情况被同一个「未知」吞掉了 ✗
+                    //   ✓ 现在：按**已知事实**分情况说清 ✓（纯函数在 Markers/VersionMarkers.cs ✓ 有单测 ✓）
+                    //           ✗ 不笼统写"未知" ✗ 不编"最新版" ✗ 也**不新增 CLI 标记行** ✓（不碰契约 ✓✓）
+                    return UpdateDiagnosis.StateText(Kind, State, Latest, Installed);
 
                 }
 
             }
+
+            /// <summary>版本行 ✓（取不到也**说清是哪种取不到** ✓ 不再笼统写 unknown ✗）。</summary>
+            public string VersionText
+
+            {
+
+                get { return UpdateDiagnosis.VersionText(Kind, State, Latest, Installed); }
+
+            }
+
+            /// <summary>诊断补充行 ✓（只有"本该有最新版却拿不到"才有内容 ✓ 其余空串 ✓）。</summary>
+            public string HintText
+
+            {
+
+                get { return UpdateDiagnosis.HintText(Kind, State, Latest, Installed, Raw); }
+
+            }
+
+            /// <summary>整段原文 ✓（诊断要贴 CLI 自己打的**原始原因** ✓ 见 UpdateDiagnosis.HintText ✓）。</summary>
+            public string Raw = "";
 
             public IBrush StateBrush
 
@@ -870,6 +905,8 @@ namespace Dsht.Gui.Avalonia.Shells
                     UpdItem it = new UpdItem();
 
                     it.Id = parts[1];
+
+                    it.Raw = raw;   // ★ 整段原文（诊断要贴 CLI 自己打的原因 ✓ 见 HintText ✓）
 
                     for (int k = 2; k < parts.Length; k++)
 
@@ -1358,6 +1395,19 @@ namespace Dsht.Gui.Avalonia.Shells
                 Text = d.Count + " 个 profile · " + totalBundles + " 个组合包 · 其中第三方插件 " + totalThird + " 个（数据来自各 profile 的 package.json 里 dsh.profile.bundles）",
 
                 Foreground = Palette.TextDim, FontSize = 12, TextWrapping = TextWrapping.Wrap
+
+            });
+
+            // ★ 版本显示（2026-10-11 ✓ 任务 A 的顺手项）：本页也把**工具箱版本 + 桥接插件版本**写出来 ✓
+            //   比页脚多一样东西 —— **读了哪个文件** ✓（核对用 ✓ 页脚放不下 ✓）。
+            //   纪律：都来自实读 ✓ 读不到就如实说读不到 / 未安装 ✗ 不编版本号 ✗。
+            s.Children.Add(new TextBlock
+
+            {
+
+                Text = "工具箱版本：" + host.CliVersionText + "（实读 CLI 的 DSHT_VERSION 行）\n桥接插件版本：" + host.BridgeVersionText + "（实读 package.json 的 version 字段；" + host.BridgeSourceText + "）",
+
+                Foreground = Palette.TextFaint, FontSize = 11.5, TextWrapping = TextWrapping.Wrap
 
             });
 

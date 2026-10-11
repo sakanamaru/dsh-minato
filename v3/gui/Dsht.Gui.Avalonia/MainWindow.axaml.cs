@@ -144,6 +144,9 @@ namespace Dsht.Gui.Avalonia
                 }
             }
             catch { }
+            // ★★ 版本显示（2026-10-11）：首帧之前**同步取一次**两个版本 ✓✓
+            //   （与上面那次 config-get 同一姿势 ✓ 只此一次 ✓ 页脚从此不再为空 ✗ 也不每拍起进程 ✗）
+            EnsureVersions();
             _loading = true;
             BuildShell();
             Refresh();
@@ -1215,8 +1218,10 @@ namespace Dsht.Gui.Avalonia
         {
             get
             {
-                if (_data == null) return "数据来源：—";
-                return _data.SourceText + "　投影目录：" + _data.Root + "　（GUI 不引用核心程序集，只解析 CLI 标记行）";
+                // ★ 2026-10-11：**只追加**两个版本 ✓ 原有文案一字不动 ✓✓
+                string tail = "　工具箱 " + CliVersionText + "　桥接插件 " + BridgeVersionText + "　（GUI 不引用核心程序集，只解析 CLI 标记行）";
+                if (_data == null) return "数据来源：—" + tail;
+                return _data.SourceText + "　投影目录：" + _data.Root + tail;
             }
         }
 
@@ -1860,6 +1865,17 @@ namespace Dsht.Gui.Avalonia
         {
             string cli = CliPath();
             if (cli != null && !_autoStartTried) _ = AutoStartOnceAsync(cli);   // 启动时自动起一次 ✓（内部有"只一次 + 只在没跑时"约束 ✓）
+            // ★ 版本显示（2026-10-11）：正常路径在构造函数里就取好了 ✓ 这里只补**当时没取到**的情形
+            //   （启动时 CLI 不在 → 用户后来放进来了 → 点刷新 ✓）。后台跑 ✗ 不占 UI 线程 ✓；到了只刷字段 ✓。
+            if (cli != null && _cliVersion == null)
+                _ = System.Threading.Tasks.Task.Run(delegate
+                {
+                    EnsureVersions();
+                    global::Avalonia.Threading.Dispatcher.UIThread.Post(delegate
+                    {
+                        if (_liveFields.Count > 0) RefreshLiveFields(); else BuildShell();
+                    });
+                });
             if (cli == null)
             {
                 _data = null;
@@ -2071,6 +2087,75 @@ namespace Dsht.Gui.Avalonia
         }
         /// <summary>配置写入后**立刻让缓存失效** ✓✓（否则设置页改了看不到变化 ✗）。</summary>
         private static void InvalidateCfgCache() { _cfgCache = null; _cfgCacheAt = System.DateTime.MinValue; }
+
+        // —— ★★ 版本显示（2026-10-11）：页脚要「工具箱 x.y.z」+「桥接插件 x.y.z」✓✓ ——
+        //   纪律：版本号**只能来自实读** ✗ 一个都不许写死 ✓
+        //   缓存（✗ 别每拍都起进程 ✗）：`version` 只在**首次**（或 CLI 路径变了）时跑一次 ✓
+        //   —— CLI 是几十 MB 的自包含 exe，一次 `version` 就是一次进程启动 ✓ 而它**永不变化** ✓
+        //   桥接插件版本 = **GUI 侧读文件** ✓（✗ 不为此新增 CLI 标记行 ✗ 那会碰标记行契约 ✓）
+        private string _cliVersionProbedPath = null;                        // 已探测过的 CLI 路径（变了才重探 ✓）
+        private string _cliVersion = null;                                  // 实读 `DSHT_VERSION x.y.z` ✓ 读不到 = null ✓
+        private bool _bridgeProbed = false;
+        private readonly List<VersionMarkers.BridgeHit> _bridgeHits = new List<VersionMarkers.BridgeHit>();
+
+        /// <summary>取一次两个版本（幂等 ✓ 已取到就什么都不做 ✓）。启动时同步取一次 → 首帧页脚就是对的 ✓；
+        /// 之后 CLI 路径若变化（DSHT_CLI / 换了同目录的 exe）→ 重新取 ✓。</summary>
+        private void EnsureVersions()
+        {
+            if (!_bridgeProbed)
+            {
+                _bridgeProbed = true;   // 先占位 ✓ 防重入 ✓（文件读很快 ✓ 失败也只是「未安装」✓ 不如实说不存在的版本 ✓）
+                try
+                {
+                    _bridgeHits.Clear();
+                    _bridgeHits.AddRange(VersionMarkers.ScanBridge(VersionMarkers.BridgeCandidates(null)));
+                }
+                catch { _bridgeHits.Clear(); }
+            }
+            string cli = CliPath();
+            if (cli == null) return;
+            if (_cliVersion != null && string.Equals(_cliVersionProbedPath, cli, StringComparison.OrdinalIgnoreCase)) return;
+            _cliVersionProbedPath = cli;
+            try { _cliVersion = VersionMarkers.ParseCliVersion(Run(cli, "version")); } catch { _cliVersion = null; }
+        }
+
+        /// <summary>页脚里的工具箱版本 ✓ —— 读不到就**如实说读不到** ✓ 不编 ✗。</summary>
+        public string CliVersionText
+        {
+            get { return string.IsNullOrEmpty(_cliVersion) ? "版本未读到（CLI 没打 DSHT_VERSION 行）" : _cliVersion; }
+        }
+
+        /// <summary>页脚里的桥接插件版本 ✓ —— 一个 package.json 都没实读到 → 「未安装」✓ 不编版本号 ✗。</summary>
+        public string BridgeVersionText
+        {
+            get { return VersionMarkers.DescribeBridge(_bridgeHits); }
+        }
+
+        /// <summary>桥接插件的实测来源（形态与插件页用 ✓ 把**读了哪个文件**写出来 ✓ 便于核对 ✗ 不藏 ✓）。</summary>
+        public string BridgeSourceText
+        {
+            get
+            {
+                if (_bridgeHits.Count == 0) return "未安装（按序试过：" + BridgeCandidateShort() + "，都没读到 version 字段）";
+                StringBuilder sb = new StringBuilder();
+                for (int i = 0; i < _bridgeHits.Count; i++)
+                {
+                    if (i > 0) sb.Append("；");
+                    sb.Append(_bridgeHits[i].Version).Append(" ← ").Append(_bridgeHits[i].Path);
+                }
+                return sb.ToString();
+            }
+        }
+
+        private static string BridgeCandidateShort()
+        {
+            try
+            {
+                List<string> c = VersionMarkers.BridgeCandidates(null);
+                return c.Count + " 个候选路径";
+            }
+            catch { return "候选路径"; }
+        }
 
         // —— close_action 接线（2026-10-06 用户要求"无效选项接上"）：ask=确认 / tray=系统托盘 / exit=直退 ——
         private async void ConfirmExitAsync()

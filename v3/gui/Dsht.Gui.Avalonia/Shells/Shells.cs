@@ -742,13 +742,18 @@ namespace Dsht.Gui.Avalonia.Shells
 
         private static Control Footer(MainWindow host)
         {
+            // ★ 版本显示（2026-10-11）：页脚这一行现在**长**了（数据来源 + 投影目录 + 工具箱版本 + 桥接插件版本 + 纪律）
+            //   → 换行照旧 ✓（TextWrapping.Wrap ✓ 容器宽度就是窗口宽度 ✓ 长文案换行不截断 ✓）
+            //   → 并注册成**字段级刷新** ✓：版本是后台补的（启动时 CLI 还不在的情形）✓ 到了原地换字 ✗ 不整页重建 ✓
+            TextBlock ft = new TextBlock { Text = host.SourceText, Foreground = Palette.TextFaint, FontSize = 11, TextWrapping = TextWrapping.Wrap };
+            host.Live(delegate { ft.Text = host.SourceText; });
             return new Border
             {
                 Background = Palette.SidebarBg,
                 BorderBrush = Palette.Border,
                 BorderThickness = new Thickness(0, 1, 0, 0),
                 Padding = new Thickness(24, 7),
-                Child = new TextBlock { Text = host.SourceText, Foreground = Palette.TextFaint, FontSize = 11, TextWrapping = TextWrapping.Wrap }
+                Child = ft
             };
         }
 
