@@ -263,6 +263,82 @@ namespace Dsht.Gui.LogicTests
                 && !SessionsMarkers.TryParseCustomRange("2026-10-01", out cf, out ct, out ce)
                 && !SessionsMarkers.TryParseCustomRange("", out cf, out ct, out ce));
 
+            // ============ 看板体验修复（2026-10-11 ✓✓）：BoardMetrics 纯函数 ============
+            // —— LevelSum：三档对比表的一行（Σ bucket=own ✓ HasTokens=false 不进求和 ✗ 不假装 0 ✓）——
+            SessionsSnapshot lv = new SessionsSnapshot();
+            lv.WinEligible = 3;
+            lv.AggRows.Add(new SessAggRow { Id = "a", Bucket = "own", HasTokens = true, HasStats = true, Uncached = 100, CacheRead = 50, CacheWrite = 7, Output = 40, Turns = 2 });
+            lv.AggRows.Add(new SessAggRow { Id = "b", Bucket = "own", HasTokens = true, HasStats = true, Uncached = 10, CacheRead = 0, CacheWrite = 0, Output = 5, Turns = 1 });
+            lv.AggRows.Add(new SessAggRow { Id = "c", Bucket = "own", HasTokens = false, HasStats = false, Turns = 9 });
+            lv.AggRows.Add(new SessAggRow { Id = "a", Bucket = "sub", HasTokens = true, HasStats = true, Uncached = 999, CacheRead = 999, CacheWrite = 999, Output = 999, Turns = 99 });
+            BoardMetrics.LevelSum sm = BoardMetrics.SumOwnRows(lv);
+            Check("体验修复·三档表：LevelSum 只加 bucket=own 且 HasTokens 的行（sub 行/未知行不进 ✓✓ 会话数=WinEligible ✓）",
+                sm.Sessions == 3 && sm.Uncached == 110 && sm.CacheRead == 50 && sm.CacheWrite == 7 && sm.Output == 45 && sm.In == 160);
+            Check("体验修复·三档表：turns 只加 HasStats 的行；token 未知行数单列如实标注（✗ 不假装 0 ✓）",
+                sm.Turns == 3 && sm.TokUnknown == 1);
+            Check("体验修复·三档表：null/空快照 → 全 0（✗ 不猜 ✓「未提供」文案归界面层 ✓）",
+                BoardMetrics.SumOwnRows(null).Sessions == 0 && BoardMetrics.SumOwnRows(new SessionsSnapshot()).In == 0);
+
+            // —— Top5：输入(未命中+缓存)降序 · 只进「数值完整」(HasTokens && HasStats)的会话 · 并列按 id 字典序（确定性 ✓）——
+            SessionsSnapshot tp = new SessionsSnapshot();
+            tp.Rows.Add(new SessionRow { Id = "s-big", Title = "大会话" });
+            tp.Rows.Add(new SessionRow { Id = "s-tie-a" });   // 无标题 → TitleText 人话兜底 ✓
+            tp.Rows.Add(new SessionRow { Id = "s-tie-b", Title = "并列B" });
+            tp.AggRows.Add(new SessAggRow { Id = "s-big", Bucket = "own", HasTokens = true, HasStats = true, Uncached = 900, CacheRead = 100, Output = 901, Turns = 5 });
+            tp.AggRows.Add(new SessAggRow { Id = "s-tie-b", Bucket = "own", HasTokens = true, HasStats = true, Uncached = 500, CacheRead = 0, Output = 60, Turns = 1 });
+            tp.AggRows.Add(new SessAggRow { Id = "s-tie-a", Bucket = "own", HasTokens = true, HasStats = true, Uncached = 500, CacheRead = 0, Output = 70, Turns = 2 });
+            tp.AggRows.Add(new SessAggRow { Id = "s-mid", Bucket = "own", HasTokens = true, HasStats = true, Uncached = 200, CacheRead = 0, Output = 21, Turns = 1 });
+            tp.AggRows.Add(new SessAggRow { Id = "s-unknown", Bucket = "own", HasTokens = false, HasStats = false, Uncached = 99999, Output = 99999, Turns = 99 });
+            tp.AggRows.Add(new SessAggRow { Id = "s-six", Bucket = "own", HasTokens = true, HasStats = true, Uncached = 100, CacheRead = 0, Output = 11, Turns = 1 });
+            tp.AggRows.Add(new SessAggRow { Id = "s-seven", Bucket = "own", HasTokens = true, HasStats = true, Uncached = 50, CacheRead = 0, Output = 6, Turns = 1 });
+            SessAggRow tpSub = new SessAggRow { Id = "s-big", Bucket = "sub", HasTokens = true, HasStats = true, Uncached = 1, CacheRead = 1, Output = 1, Turns = 1 };
+            tp.AggRows.Add(tpSub);
+            List<BoardMetrics.TopRow> top = BoardMetrics.Top5ByInput(tp);
+            Check("体验修复·Top5：输入降序取 5；token/轮次未知与 sub 行不进榜 ✓✓",
+                top.Count == 5 && top[0].Id == "s-big" && top[0].In == 1000 && top[3].Id == "s-mid" && top[4].Id == "s-six");
+            Check("体验修复·Top5：并列按会话 id 字典序（Ordinal ✓ 两次运行同序 ✓）",
+                top[1].Id == "s-tie-a" && top[2].Id == "s-tie-b");
+            Check("体验修复·Top5：行带 输出/轮次（表格列数据源 ✓）",
+                top[0].Output == 901 && top[0].Turns == 5 && top[1].Output == 70 && top[1].Turns == 2);
+            Check("体验修复·Top5：标题取 SESSION 行 TitleText（无标题 → 人话兜底 ✓）；SESSION 行缺失 → 短 id 兜底（不空白 ✗ 不猜 ✓）",
+                top[0].Title == "大会话" && top[1].Title == "（未命名会话）" && top[4].Title == "s-six");
+            Check("体验修复·Top5：null/空快照 → 空榜 ✓",
+                BoardMetrics.Top5ByInput(null).Count == 0 && BoardMetrics.Top5ByInput(new SessionsSnapshot()).Count == 0);
+
+            // —— ChartSignature：图表重画签名（同输入同签名 = 「值未变 → 不重画」的依据 ✓✓）——
+            DateTime day1 = new DateTime(2026, 10, 11);
+            string sigA = BoardMetrics.ChartSignature(SessionsMarkers.Parse(real), 7, null, day1);
+            Check("体验修复·签名：同一份数据两次解析 → 签名相同（✓✓ 纯函数短路重画的依据 ✓✓）",
+                sigA == BoardMetrics.ChartSignature(SessionsMarkers.Parse(real), 7, null, day1));
+            Check("体验修复·签名：仅 chartDays 变 → 签名变（切图表范围档要重画 ✓）",
+                BoardMetrics.ChartSignature(SessionsMarkers.Parse(real), 14, null, day1) != sigA);
+            Check("体验修复·签名：跨天（today 变）→ 签名变（按日分桶要重画 ✓ 且不读时钟、today 由调用方传 ✓）",
+                BoardMetrics.ChartSignature(SessionsMarkers.Parse(real), 7, null, day1.AddDays(1)) != sigA);
+            Check("体验修复·签名：行内输入 token 变 1 → 签名变 ✓",
+                BoardMetrics.ChartSignature(SessionsMarkers.Parse(real.Replace("in=5161243", "in=5161244")), 7, null, day1) != sigA);
+            Check("体验修复·签名：命中率变 → 签名变（分布图输入 ✓）",
+                BoardMetrics.ChartSignature(SessionsMarkers.Parse(real.Replace("hit=96.2", "hit=95.2")), 7, null, day1) != sigA);
+            Check("体验修复·签名：最后活动时间变 → 签名变（热力图输入 ✓）",
+                BoardMetrics.ChartSignature(SessionsMarkers.Parse(real.Replace("last=2026-09-23T01:48:28Z", "last=2026-09-24T01:48:28Z")), 7, null, day1) != sigA);
+            Check("体验修复·签名：体检计数变 → 签名变（体检分布图输入 ✓）",
+                BoardMetrics.ChartSignature(SessionsMarkers.Parse(real), 7, new DoctorSummary { Ok = true, Pass = 3, Warn = 1 }, day1)
+                != BoardMetrics.ChartSignature(SessionsMarkers.Parse(real), 7, new DoctorSummary { Ok = true, Pass = 3, Warn = 2 }, day1));
+            SessionsSnapshot cAgg = SessionsMarkers.Parse(real);
+            cAgg.AggRows.Add(new SessAggRow { Id = "new-eligible", Bucket = "own" });
+            Check("体验修复·签名：eligible 集变（AggRows 增员）→ 签名变（winFilter 输入 ✓）",
+                BoardMetrics.ChartSignature(cAgg, 7, null, day1) != sigA);
+            SessionsSnapshot cTime = SessionsMarkers.Parse(real);
+            cTime.TimeRows.Add(new SessTimeRow { Id = "x", Has = true, LlmMs = 1 });
+            Check("体验修复·签名：耗时行集变 → 签名变（耗时图输入 ✓）",
+                BoardMetrics.ChartSignature(cTime, 7, null, day1) != sigA);
+            SessionsSnapshot cCtx = SessionsMarkers.Parse(real);
+            cCtx.CtxRows.Add(new SessCtxRow { Id = "x", Has = true, System = 1 });
+            Check("体验修复·签名：上下文行集变 → 签名变（Token 分类图输入 ✓）",
+                BoardMetrics.ChartSignature(cCtx, 7, null, day1) != sigA);
+            Check("体验修复·签名：null 快照 → 固定串（✗ 不抛 ✓）；失败快照与 null 不同（失败原因进签名 ✓）",
+                BoardMetrics.ChartSignature(null, 7, null, day1) == BoardMetrics.ChartSignature(null, 7, null, day1)
+                && BoardMetrics.ChartSignature(SessionsMarkers.Parse("SESSIONS_FAIL test_x"), 7, null, day1) != BoardMetrics.ChartSignature(null, 7, null, day1));
+
             Console.WriteLine("== " + _pass + "/" + (_pass + _fail) + " passed, " + _fail + " failed ==");
             return _fail == 0 ? 0 : 1;
         }

@@ -234,7 +234,11 @@ namespace Dsht.Gui.Avalonia.Shells
         }
 
         /// <summary>segmented 切换器：凹陷底 + 选中项浮起为卡片色。</summary>
-        private static Control Segmented(string[] items, int active, Action<int> pick)
+        private static Control Segmented(string[] items, int active, Action<int> pick) { return Segmented(items, active, pick, null, null); }
+
+        /// <summary>分段 chips。看板体验修复（2026-10-11 ✓✓）：可选 `liveHost/liveActive` ——
+        /// 给了就注册字段刷新：高亮跟着**取值函数**走 ✓ 切换不再依赖整页重建 ✓（取值函数 ✗ 不是快照 ✗）。</summary>
+        private static Control Segmented(string[] items, int active, Action<int> pick, MainWindow liveHost, Func<int> liveActive)
         {
             StackPanel inner = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 2 };
             for (int i = 0; i < items.Length; i++)
@@ -250,6 +254,20 @@ namespace Dsht.Gui.Avalonia.Shells
                     Padding = new Thickness(12, 5)
                 };
                 b.Click += delegate { pick(idx); };
+                if (liveHost != null && liveActive != null)
+                {
+                    TextBlock tc = (TextBlock)b.Content;
+                    liveHost.Live(delegate
+                    {
+                        bool on2 = liveActive() == idx;
+                        IBrush bg = on2 ? Palette.CardBg : Brushes.Transparent;
+                        if (!ReferenceEquals(b.Background, bg)) b.Background = bg;
+                        IBrush fg = on2 ? Palette.Text : Palette.TextDim;
+                        if (!ReferenceEquals(tc.Foreground, fg)) tc.Foreground = fg;
+                        FontWeight w = on2 ? FontWeight.SemiBold : FontWeight.Normal;
+                        if (tc.FontWeight != w) tc.FontWeight = w;
+                    });
+                }
                 inner.Children.Add(b);
             }
             // ★★ **用户反馈（2026-09-30）**：「子菜单在不同布局可能不显示」✓✓
@@ -360,8 +378,8 @@ namespace Dsht.Gui.Avalonia.Shells
             {
                 BorderBrush = Palette.Border,
                 BorderThickness = new Thickness(0, 0, 0, 1),
-                Padding = new Thickness(24, 10, 24, 10),
-                Child = Segmented(host.SubTabs, host.SubTab, delegate(int i) { host.SetSubTab(i); })
+                Padding = new Thickness(24, 8, 24, 8),   // ★ 体验修复：纵向各收 2px（指标页一屏 ✓ 横向不变 ✓）
+                Child = Segmented(host.SubTabs, host.SubTab, delegate(int i) { host.SetSubTab(i); }, host, delegate { return host.SubTab; })
             };
             Grid.SetRow(subs, 0);
             Control title = PageHeader(host);
@@ -384,7 +402,7 @@ namespace Dsht.Gui.Avalonia.Shells
             Grid g = new Grid { RowDefinitions = new RowDefinitions("Auto,Auto,Auto,*") };
             Control nav = MainNavStrip(host);
             Grid.SetRow(nav, 0);
-            Border tabs = new Border { Margin = new Thickness(24, 14, 24, 0), Child = Segmented(host.SubTabs, host.SubTab, delegate(int i) { host.SetSubTab(i); }) };
+            Border tabs = new Border { Margin = new Thickness(24, 14, 24, 0), Child = Segmented(host.SubTabs, host.SubTab, delegate(int i) { host.SetSubTab(i); }, host, delegate { return host.SubTab; }) };
             Grid.SetRow(tabs, 1);
             Control title = PageHeader(host);
             Grid.SetRow(title, 2);
@@ -402,7 +420,7 @@ namespace Dsht.Gui.Avalonia.Shells
             Grid g = new Grid { RowDefinitions = new RowDefinitions("Auto,Auto,*") };
             Control nav = MainNavStrip(host);
             Grid.SetRow(nav, 0);
-            Border tabs = new Border { Margin = new Thickness(24, 14, 24, 0), Child = Segmented(host.SubTabs, host.SubTab, delegate(int i) { host.SetSubTab(i); }) };
+            Border tabs = new Border { Margin = new Thickness(24, 14, 24, 0), Child = Segmented(host.SubTabs, host.SubTab, delegate(int i) { host.SetSubTab(i); }, host, delegate { return host.SubTab; }) };
             Grid.SetRow(tabs, 1);
 
             StackPanel body = new StackPanel { Margin = PageMargin, Spacing = ShapeTokens.S16 };
@@ -483,8 +501,8 @@ namespace Dsht.Gui.Avalonia.Shells
             {
                 BorderBrush = Palette.Border,
                 BorderThickness = new Thickness(0, 0, 0, 1),
-                Padding = new Thickness(24, 10, 24, 10),
-                Child = Segmented(host.SubTabs, host.SubTab, delegate(int i) { host.SetSubTab(i); })
+                Padding = new Thickness(24, 8, 24, 8),   // ★ 体验修复：纵向各收 2px（指标页一屏 ✓ 横向不变 ✓）
+                Child = Segmented(host.SubTabs, host.SubTab, delegate(int i) { host.SetSubTab(i); }, host, delegate { return host.SubTab; })
             };
             Grid.SetRow(subs, 0);
             Control head = PageHeader(host);
@@ -584,12 +602,23 @@ namespace Dsht.Gui.Avalonia.Shells
                     MinWidth = ModeBtnW,
                     HorizontalContentAlignment = global::Avalonia.Layout.HorizontalAlignment.Center
                 };
+                // ★ 看板体验修复（2026-10-11 ✓✓）：切换不再 BuildShell → 高亮走字段刷新 ✓ 点击瞬换 ✓
+                TextBlock tc = (TextBlock)b.Content;
+                host.Live(delegate
+                {
+                    bool on2 = host.StartMode == idx;
+                    IBrush bg = on2 ? Palette.Accent : Palette.CardHover;
+                    if (!ReferenceEquals(b.Background, bg)) b.Background = bg;
+                    IBrush fg = on2 ? Palette.OnAccent : Palette.TextDim;
+                    if (!ReferenceEquals(tc.Foreground, fg)) tc.Foreground = fg;
+                });
                 b.Click += delegate { host.SetStartMode(idx); };
                 s.Children.Add(b);
             }
             Button dep = new Button
             {
-                Content = T(cur == 1 ? "下载" : "安装", 11.5, Palette.Text),
+                // ★ 看板体验修复：文案随启动方式原地换 ✓（LiveText ✓ 取值函数 ✗ 不是快照 ✓ 样式与原来逐字对齐 ✓）
+                Content = host.LiveText(cur == 1 ? "下载" : "安装", delegate { return host.StartMode == 1 ? "下载" : "安装"; }),
                 Background = Palette.CardHover,
                 BorderThickness = new Thickness(0),
                 CornerRadius = new CornerRadius(ShapeTokens.RCtrl),
@@ -598,6 +627,7 @@ namespace Dsht.Gui.Avalonia.Shells
                 HorizontalContentAlignment = global::Avalonia.Layout.HorizontalAlignment.Center,
                 Margin = new Thickness(6, 0, 0, 0)
             };
+            TextBlock depT = (TextBlock)dep.Content; depT.FontSize = 11.5; depT.Foreground = Palette.Text;
             dep.Click += delegate { host.DeployForMode(); };
             if (host.ActionBusy) { dep.IsEnabled = false; dep.Opacity = 0.55; }   // ★ 有动作在跑 → 别再引诱人点（2026-10-04 ✓）
             s.Children.Add(dep);
@@ -693,7 +723,11 @@ namespace Dsht.Gui.Avalonia.Shells
             StackPanel s = new StackPanel { Spacing = 4 };
             if (withMargin) s.Margin = new Thickness(24, 18, 24, 12);
             s.Children.Add(T(host.PageTitle, ShapeTokens.FsPage, Palette.Text, FontWeight.SemiBold));
-            s.Children.Add(new TextBlock { Text = StripMd(host.SubtitleText), Foreground = Palette.TextDim, FontSize = 12.5, TextWrapping = TextWrapping.Wrap });
+            // ★ 看板体验修复（2026-10-11 ✓✓）：副标题（含「图表 = 当前窗口 · 按日分桶」随标签切换的那句）
+            //   走 LiveText 原地换 ✓ 不再依赖整页重建 ✓（取值函数 ✗ 不是快照 ✓ 样式与原来逐项对齐 ✓）
+            TextBlock sub = host.LiveText(StripMd(host.SubtitleText), delegate { return StripMd(host.SubtitleText); });
+            sub.Foreground = Palette.TextDim; sub.FontSize = 12.5; sub.TextWrapping = TextWrapping.Wrap;
+            s.Children.Add(sub);
             g.Children.Add(s);
             // 提案A：概览/看板页的「自动刷新」收进页眉行右侧 ✓（内容流不再被它占一整行 ✓）
             // ★ 看板重排（2026-10-09 ✓✓）：看板（MainSection==1）两个子标签都显示 ✓（「图表」页也要能刷 ✓）；

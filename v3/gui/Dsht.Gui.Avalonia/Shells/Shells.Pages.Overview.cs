@@ -285,7 +285,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             TextBlock v = host.LiveText(value(), value);
 
-            v.FontSize = 22;   // 美学B4：与 StatCard 统一为 22 ✓ v.FontWeight = FontWeight.SemiBold; v.Foreground = valueBrush; v.Margin = new Thickness(0, 8, 0, 0);
+            v.FontSize = 22;   // 美学B4：与 StatCard 统一为 22 ✓ v.FontWeight = FontWeight.SemiBold; v.Foreground = valueBrush; v.Margin = new Thickness(0, 5, 0, 0);   // ★ 体验修复：8→5（一屏 ✓）
 
             s.Children.Add(v);
 
@@ -319,7 +319,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             }
 
-            Border card = Card(s, new Thickness(0, 0, col == 3 ? 0 : 12, 0), new Thickness(16, 14));
+            Border card = Card(s, new Thickness(0, 0, col == 3 ? 0 : 12, 0), new Thickness(16, 8));   // ★ 体验修复：纵向压一档（指标页一屏 ✓ 字号/内容不变 ✓）
 
             Grid.SetColumn(card, col);
 
@@ -431,40 +431,74 @@ namespace Dsht.Gui.Avalonia.Shells
         ///   上方两段旧注释曾自相矛盾（指标/图表分标签 → 又合成单页）—— 现在是第二次拆分，以此段为准 ✓。</summary>
         private static Control BoardContent(MainWindow host)
         {
-            StackPanel s = new StackPanel { Margin = PageMargin, Spacing = ShapeTokens.S16 };
-            // —— 子标签「图表」（§2-7 ✓✓）：筛选条 + 图 ✓ KPI / 总计卡 / 回执不在这里 ✓
-            if (host.SubTab == 1)
-            {
-                s.Children.Add(BoardFilterBar(host));   // 图随窗口/口径 ✓ C.4 脚注在此出现本屏唯一一次（图内不再重复 ✓ §1 ✓）
-                s.Children.Add(ChartsBody(host));
-                return s;
-            }
-            // —— 主标签「指标」✓✓ 顺序 = KPI → 筛选 → 总计 → 回执（§2-9 ✓）——
-            s.Children.Add(KpiStrip(host));
+            StackPanel s = new StackPanel { Margin = new Thickness(24, 8, 24, 8), Spacing = ShapeTokens.S16 };   // ★ 体验修复：看板页纵向边距压半（一屏 ✓ 横向不变 ✓ 别页不动 ✓）
+            // ★★ 看板体验修复（2026-10-11 ✓✓ 规格 docs\看板体验修复-派单-Kimi-2026-10-11.md ✓✓）：
+            //   ✗ 原来「指标/图表」切换 = 只建一棵子树 + `BuildShell()` 整页重建 → 闪 160ms ✗ 滚动回顶 ✗✗
+            //   ✓ 现在两棵子树**都建好**、切换只切 `IsVisible` ✓ 零重建 ✓ 零闪烁 ✓ 不跳滚动 ✓✓
+            //   （CLI 数据照旧按原节奏刷 ✗ 不降刷新频率 ✓；两棵树同一时刻只有一棵可见 ✗ 没有双份 CLI 开销 ✓）
+            // —— 子标签「指标」✓✓ 顺序 = KPI → 筛选 → 总计 → 三档对比 → Top5 → 回执细条（§2-9 + 体验修复 ✓）——
+            StackPanel metrics = new StackPanel { Spacing = ShapeTokens.S12 };   // 12px ✓（规格：卡间距 12~16 ✓ 一屏放下 ✓）
+            metrics.Children.Add(KpiStrip(host));
             // 筛选条：窗口档 + 「自定义…」+ 口径 chips + fork 口径差「?」入口（B.5 ✓ §2-4 ✓）+ C.4 固定脚注（本屏唯一一次 ✓ §1 ✓）
-            s.Children.Add(BoardFilterBar(host));
-            SessionsSnapshot bd = host.Data;
-            // 总计卡（§2-5 ✓✓）：固定总计块 + 窗口总计块合一 ✓ 文案逐字保留 ✓ 卡内不再重复 C.4（筛选条已印 ✓ §1 ✓）
-            Control totals = (bd == null || !bd.Ok) ? null : BoardTotalsCard(bd);
-            if (totals != null) s.Children.Add(totals);
-            // 操作回执 → 细条（§2-6 ✓✓ 不再占一整卡 ✓；「检测到官方桌面端正在运行 → 不启动 webui」等动作提示就走这条 ✓）
-            if (!string.IsNullOrEmpty(host.ActionLog))
-                s.Children.Add(ReceiptStrip(host.ActionLog));
-            else
-                s.Children.Add(ReceiptStrip("还没有操作 —— 侧栏底部可以一键启动 / 停止 dsh；结果会显示在这里并弹 toast。"));
+            metrics.Children.Add(BoardFilterBar(host));
+            // 总计卡（§2-5 ✓✓ 文案逐字保留 ✓ 字段级刷新 ✓）；三档对比表 + Top5（体验修复 ✓✓ 一屏放下 ✓）
+            metrics.Children.Add(BoardTotalsCard(host));
+            metrics.Children.Add(BoardLevelCompareCard(host));
+            metrics.Children.Add(BoardTop5Card(host));
+            // 操作回执细条**常显**（§2-6 ✓ 体验修复 ✓✓）：空也要占住高度 ✗ 不许整卡消失 ✓
+            metrics.Children.Add(ReceiptStrip(host));
+            // —— 子标签「图表」（§2-7 ✓✓）：筛选条（同一口径入口 ✓ 两标签共享 ✓）+ 范围档卡 + 七张图 ✓
+            StackPanel charts = new StackPanel { Spacing = ShapeTokens.S16 };
+            charts.Children.Add(BoardFilterBar(host));   // 图随窗口/口径 ✓ C.4 脚注本屏唯一一次（图内不再重复 ✓ §1 ✓）
+            charts.Children.Add(ChartRangeCard(host));
+            charts.Children.Add(ChartsBody(host));
+            bool m0 = host.SubTab != 1;
+            metrics.IsVisible = m0; charts.IsVisible = !m0;
+            host.Live(delegate   // ★ 切换 = 只切可见性 ✓（SetSubTab → RefreshLiveFields 走到这里 ✓✓）
+            {
+                bool m = host.SubTab != 1;
+                if (metrics.IsVisible != m) metrics.IsVisible = m;
+                if (charts.IsVisible == m) charts.IsVisible = !m;
+            });
+            s.Children.Add(metrics);
+            s.Children.Add(charts);
+            // ★ 结构变化守卫：切换不再整页重建后，**结构真变**（首次拿到数据 / 失败 / 血缘出现或消失 → 口径 chips 形态变 ✓）
+            //   仍重建一次 ✗ 不许"结构变了界面没跟上" ✗✓（RebuildBoard 不淡入 ✓ 不闪 ✓ 只在签名真变时触发 ✓）
+            string sig0 = BoardStructSig(host.Data);
+            host.Live(delegate
+            {
+                if (BoardStructSig(host.Data) != sig0) host.RebuildBoard();
+            });
             return s;
         }
 
-        /// <summary>回执细条（看板重排 §2-6 ✓✓）：半高细条承载操作回执/运行提示 ✗ 不再占整卡 ✓。</summary>
-        private static Control ReceiptStrip(string text)
+        /// <summary>看板结构签名：数据 ok 态 + 血缘态（决定口径 chips 可点/静态两形态 ✓）。没变 = 纯字段刷新就够 ✓。</summary>
+        private static string BoardStructSig(SessionsSnapshot d)
         {
+            return (d == null ? "null" : d.Ok ? "ok" : "fail") + "|" + (d != null && d.LineageOk ? "lin" : "nolin");
+        }
+
+        /// <summary>回执细条（看板重排 §2-6 ✓✓）：半高细条承载操作回执/运行提示 ✗ 不再占整卡 ✓。
+        /// ★ 看板体验修复（2026-10-11 ✓✓）：**常显** ✓ 空状态「暂无操作回执」占住高度 ✗ 不许整卡消失 ✓；
+        ///   文字走 LiveText ✓ NoteBoard 写完原地换 ✗ 不再等整页重建 ✓。</summary>
+        private static Control ReceiptStrip(MainWindow host)
+        {
+            TextBlock tb = host.LiveText(ReceiptText(host.ActionLog), delegate { return ReceiptText(host.ActionLog); });
+            tb.FontSize = 11.5; tb.Foreground = Palette.TextDim;
             return new Border
             {
                 Background = Palette.CardHover,
                 CornerRadius = new CornerRadius(ShapeTokens.RCtrl),
-                Padding = new Thickness(12, 6),
-                Child = T(text, 11.5, Palette.TextDim)
+                Padding = new Thickness(12, 4),   // ★ 体验修复：纵向压一档（一屏 ✓ 常显 ✓）
+                Child = tb
             };
+        }
+
+        private static string ReceiptText(string log)
+        {
+            return string.IsNullOrEmpty(log)
+                ? "暂无操作回执 —— 侧栏底部可以一键启动 / 停止 dsh；结果会显示在这里并弹 toast。"   // ★ 空状态常显 ✗ 不消失 ✓
+                : log;
         }
 
         /// <summary>看板筛选条（看板第一批 · 规格 §4.1 ✓✓；第三批 2026-10-09 ✓✓ 规格 §11.7-E ✓✓；重排 2026-10-09 ✓✓ §2-3/§2-4 ✓✓）：
@@ -489,7 +523,17 @@ namespace Dsht.Gui.Avalonia.Shells
                     CornerRadius = new CornerRadius(ShapeTokens.RCtrl),
                     Padding = new Thickness(12, 5)
                 };
-                rb.Click += delegate { host.BoardDays = dd; host.Refresh(); };   // 设档 ⇒ 自动清自定义区间（互斥 ✓）
+                rb.Click += delegate { host.BoardDays = dd; host.RefreshBoard(); };   // ★ 体验修复：设档 ⇒ 清自定义区间 ✓ 本地高亮**先换** ✓ 再静默拉 ✗ 不整页重建 ✓
+                // ★ 看板体验修复（2026-10-11 ✓✓）：高亮走字段刷新 —— 点击瞬换 ✓（自定义区间生效 ⇒ 预设档都不亮 ✓ 同一规则 ✓）
+                TextBlock rbt = (TextBlock)rb.Content;
+                host.Live(delegate
+                {
+                    bool on2 = host.BoardDays == dd && host.BoardFrom == null;
+                    IBrush bg = on2 ? Palette.Accent : Palette.CardHover;
+                    if (!ReferenceEquals(rb.Background, bg)) rb.Background = bg;
+                    IBrush fg = on2 ? Palette.OnAccent : Palette.TextDim;
+                    if (!ReferenceEquals(rbt.Foreground, fg)) rbt.Foreground = fg;
+                });
                 // UIA/无障碍名（截图脚本按名字找按钮 ✓ 读屏也能念出来 ✓ 与可见文案一致 ✓）
                 global::Avalonia.Automation.AutomationProperties.SetName(rb, names[oi]);
                 row.Children.Add(rb);
@@ -512,13 +556,25 @@ namespace Dsht.Gui.Avalonia.Shells
                 if (!SessionsMarkers.TryParseCustomRange(typed, out f2, out t2, out err2))
                 {
                     host.NoteBoard("自定义日期区间未生效：" + err2 + "（✗ 不默认补端点 ✗ 不猜 ✓ 重新点「自定义…」再输 ✓）");
-                    host.Refresh();
+                    host.RefreshBoard();   // ★ 体验修复：回执条/toast 即时 ✓ 不再整页重建 ✓
                     return;
                 }
                 host.SetBoardCustomRange(f2, t2);
-                host.Refresh();
+                host.RefreshBoard();   // ★ 体验修复：chip 文案先换 ✓ 再静默拉 ✓
             };
             global::Avalonia.Automation.AutomationProperties.SetName(cb, "自定义…");
+            // ★ 看板体验修复（2026-10-11 ✓✓）：自定义 chip 文案/高亮走字段刷新 —— 设了区间立即亮「自定义：from~to」✓
+            TextBlock cbt = (TextBlock)cb.Content;
+            host.Live(delegate
+            {
+                bool c2 = host.BoardFrom != null && host.BoardTo != null;
+                string t2 = c2 ? "自定义：" + host.BoardFrom + "~" + host.BoardTo : "自定义…";
+                if (cbt.Text != t2) cbt.Text = t2;
+                IBrush bg = c2 ? Palette.Accent : Palette.CardHover;
+                if (!ReferenceEquals(cb.Background, bg)) cb.Background = bg;
+                IBrush fg = c2 ? Palette.OnAccent : Palette.TextDim;
+                if (!ReferenceEquals(cbt.Foreground, fg)) cbt.Foreground = fg;
+            });
             row.Children.Add(cb);
             // 口径选择器（第三批 ✓✓ 规格 §11.7-E-1 ✓✓：lineage=ok ⇒ 三档全可点；lineage=none ⇒ 血缘两档保持不可点静态形态
             //   + 「需桥插件血缘」✗ 不做灰按钮假象 ✓ 沿用第一批形态纪律 ✓；高亮以 SESSWIN_META 实发 level 为准 ✓✓）
@@ -543,37 +599,52 @@ namespace Dsht.Gui.Avalonia.Shells
             //   入口显眼（描边强调 ✓ 悬浮提示 ✓ 无障碍名 ✓）；文案 = SessionsMarkers.ForkDiffText 逐字 ✗ 一字未改 ✓
             //   （「相差 N 个会话」N 实时取 SESSWIN_META fork_sessions ✓ 取不到 ⇒ unknown ✓ 0 照显 ✓ D-7 ✓）；
             //   可见条件与旧裸行完全相同（lineage=ok 且 level ∈ {global, parents_sub} ✓）—— 只换呈现 ✗ 不改口径 ✓
-            if (bd0 != null && bd0.Ok && bd0.HasWinMeta && bd0.LineageOk
-                && (bd0.WinLevel == "global" || bd0.WinLevel == "parents_sub"))
+            // ★ 看板体验修复（2026-10-11 ✓✓）：「？口径差」入口**常驻容器**，显隐走字段刷新 ✓（不再靠整页重建出现/消失 ✓）
+            //   可见条件与旧版逐字相同（lineage=ok 且 level ∈ {global, parents_sub} ✓）—— 只换呈现 ✗ 不改口径 ✓
+            Button qb = new Button
             {
-                Button qb = new Button
-                {
-                    Content = T("？口径差", 11.5, Palette.Accent),
-                    Background = Palette.CardHover,
-                    BorderBrush = Palette.Accent,
-                    BorderThickness = new Thickness(1),
-                    CornerRadius = new CornerRadius(ShapeTokens.RCtrl),
-                    Padding = new Thickness(10, 5),
-                    VerticalAlignment = VerticalAlignment.Center
-                };
-                StackPanel fc = new StackPanel { Spacing = ShapeTokens.S8 };
-                fc.Children.Add(T("为什么「全局」和「父会话+子代理」数字不一样？", 13, Palette.Text, FontWeight.SemiBold));
-                TextBlock ft = T(SessionsMarkers.ForkDiffText(bd0.ForkSessions), 11.5, Palette.TextDim);
-                ft.TextWrapping = TextWrapping.Wrap;
-                ft.MaxWidth = 460;
-                fc.Children.Add(ft);
-                Control fcard = Card(fc, new Thickness(0), new Thickness(14, 10));
-                fcard.MaxWidth = 500;
-                qb.Flyout = new Flyout { Content = fcard };
-                ToolTip.SetTip(qb, "fork 会话算不算？点开看口径说明");
-                global::Avalonia.Automation.AutomationProperties.SetName(qb, "口径：fork 说明");
-                row.Children.Add(qb);
-            }
+                Content = T("？口径差", 11.5, Palette.Accent),
+                Background = Palette.CardHover,
+                BorderBrush = Palette.Accent,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(ShapeTokens.RCtrl),
+                Padding = new Thickness(10, 5),
+                VerticalAlignment = VerticalAlignment.Center
+            };
+            StackPanel fc = new StackPanel { Spacing = ShapeTokens.S8 };
+            fc.Children.Add(T("为什么「全局」和「父会话+子代理」数字不一样？", 13, Palette.Text, FontWeight.SemiBold));
+            // 「相差 N 个会话」N 实时取 SESSWIN_META fork_sessions ✓ 取不到 ⇒ unknown ✓ 0 照显 ✓ D-7 ✓（LiveText ✓ 文案 = ForkDiffText 逐字 ✓）
+            TextBlock ft = host.LiveText(
+                SessionsMarkers.ForkDiffText(bd0 != null ? bd0.ForkSessions : -1),
+                delegate { SessionsSnapshot dd = host.Data; return SessionsMarkers.ForkDiffText(dd != null ? dd.ForkSessions : -1); });
+            ft.FontSize = 11.5; ft.Foreground = Palette.TextDim;
+            ft.TextWrapping = TextWrapping.Wrap;
+            ft.MaxWidth = 460;
+            fc.Children.Add(ft);
+            Control fcard = Card(fc, new Thickness(0), new Thickness(14, 10));
+            fcard.MaxWidth = 500;
+            qb.Flyout = new Flyout { Content = fcard };
+            ToolTip.SetTip(qb, "fork 会话算不算？点开看口径说明");
+            global::Avalonia.Automation.AutomationProperties.SetName(qb, "口径：fork 说明");
+            Border qbHost = new Border { Child = qb };
+            host.Live(delegate
+            {
+                SessionsSnapshot d0 = host.Data;
+                bool v = d0 != null && d0.Ok && d0.HasWinMeta && d0.LineageOk
+                    && (d0.WinLevel == "global" || d0.WinLevel == "parents_sub");
+                if (qbHost.IsVisible != v) qbHost.IsVisible = v;
+            });
+            qbHost.IsVisible = bd0 != null && bd0.Ok && bd0.HasWinMeta && bd0.LineageOk
+                && (bd0.WinLevel == "global" || bd0.WinLevel == "parents_sub");
+            row.Children.Add(qbHost);
             col.Children.Add(row);
-            SessionsSnapshot d = host.Data;
-            if (d != null && d.HasWinMeta && d.WinTruth0)
-                col.Children.Add(T(SessionsMarkers.TruthFootnote, 11.5, Palette.TextFaint));
-            return Card(col, new Thickness(0), new Thickness(14, 10));
+            // C.4 固定脚注（**每屏恰好一次，就印在这里** ✓ 重排 §1 ✓✓）：显隐走字段刷新 ✓ 文案逐字未动 ✓
+            TextBlock c4 = host.LiveText(
+                (bd0 != null && bd0.HasWinMeta && bd0.WinTruth0) ? SessionsMarkers.TruthFootnote : "",
+                delegate { SessionsSnapshot dd = host.Data; return (dd != null && dd.HasWinMeta && dd.WinTruth0) ? SessionsMarkers.TruthFootnote : ""; });
+            c4.FontSize = 11.5; c4.Foreground = Palette.TextFaint;
+            col.Children.Add(c4);
+            return Card(col, new Thickness(0), new Thickness(14, 6));   // ★ 体验修复：纵向压一档（一屏 ✓ 内容不变 ✓）
         }
 
         /// <summary>口径 chip（静态标签 ✗ 不是按钮 ✓ 血缘缺失时血缘两档永远点不了 —— 用不可点的形态，不做「灰按钮」假象 ✓）。</summary>
@@ -601,7 +672,20 @@ namespace Dsht.Gui.Avalonia.Shells
                 CornerRadius = new CornerRadius(ShapeTokens.RCtrl),
                 Padding = new Thickness(12, 5)
             };
-            b.Click += delegate { host.BoardLevel = level; host.Refresh(); };
+            // ★ 看板体验修复（2026-10-11 ✓✓）：高亮仍**以 CLI 实发 WinLevel 为准**（诚实 ✓ 不预测 ✓）——
+            //   点击后静默拉数，数据一到字段刷新换高亮 ✓ 不再整页重建 ✓
+            TextBlock tc = (TextBlock)b.Content;
+            host.Live(delegate
+            {
+                SessionsSnapshot d0 = host.Data;
+                string eff = (d0 != null && !string.IsNullOrEmpty(d0.WinLevel) && d0.WinLevel != "unknown") ? d0.WinLevel : "global";
+                bool on2 = eff == level;
+                IBrush bg = on2 ? Palette.Accent : Palette.CardHover;
+                if (!ReferenceEquals(b.Background, bg)) b.Background = bg;
+                IBrush fg = on2 ? Palette.OnAccent : Palette.TextDim;
+                if (!ReferenceEquals(tc.Foreground, fg)) tc.Foreground = fg;
+            });
+            b.Click += delegate { host.BoardLevel = level; host.RefreshBoard(); };   // ★ 体验修复：静默拉 ✗ 不整页重建 ✓
             global::Avalonia.Automation.AutomationProperties.SetName(b, "口径：" + text);
             return b;
         }
@@ -613,60 +697,244 @@ namespace Dsht.Gui.Avalonia.Shells
         /// C.4 脚注**不在卡内重复** —— 筛选条已印、每屏恰好一次（规格 §1 原话：全页只出现一次 ✓✓ 文案未动 ✓ 只挪位置 ✓）。
         /// 数据面不变：固定块 = SESSAGG_TOTAL scope=store（无视窗口过滤 ✓ 规格 §4.2 ✓✓）；
         /// 窗口块 = SESSAGG_SESSION 行（= eligible 集合 ✓）GUI 侧求和（规格 §4.1 ✓✓ 自定义区间 days=unknown 也显 ✓ D4 ✓）。
-        /// 任一块可用即渲染 ✓ 都不可用 → 不出卡 ✓。</summary>
-        private static Control BoardTotalsCard(SessionsSnapshot d)
+        /// 任一块可用即渲染 ✓ 都不可用 → 不出卡 ✓。
+        /// ★ 看板体验修复（2026-10-11 ✓✓）：文案逐字保留 ✓ 只是改成**字段级取值**（LiveText ✓ 取值函数 ✗ 不是快照 ✓）
+        ///   + 节/卡显隐走 IsVisible ✓ —— 切档/切口径不再整页重建 ✓ 数字原地换 ✓。</summary>
+        private static Control BoardTotalsCard(MainWindow host)
         {
-            bool hasTotal = d.HasAggTotal;
-            bool hasWin = d.HasWinMeta && (d.WinDays > 0 || d.WinFrom != "-");   // 与旧两卡的出现条件分别逐字相同 ✓
-            if (!hasTotal && !hasWin) return null;
-            StackPanel c = new StackPanel { Spacing = 8 };
-            if (hasTotal)
+            SessionsSnapshot d0 = host.Data;
+            bool hasTotal0 = d0 != null && d0.HasAggTotal;
+            bool hasWin0 = d0 != null && d0.HasWinMeta && (d0.WinDays > 0 || d0.WinFrom != "-");   // 与旧两卡的出现条件分别逐字相同 ✓
+            StackPanel c = new StackPanel { Spacing = 4 };   // ★ 体验修复：卡内节奏压一档（一屏放下 ✓ 文案不变 ✓）
+
+            // —— 固定总计块：无视窗口过滤 ✓ scope=store ✓（与旧 BoardTotalCard 逐字一致 ✓）——
+            StackPanel secT = new StackPanel { Spacing = 4 };
+            secT.Children.Add(LvLine(host, 13, Palette.Text, FontWeight.Bold, delegate
             {
-                // —— 固定总计块：无视窗口过滤 ✓ scope=store ✓（与旧 BoardTotalCard 逐字一致 ✓）
-                c.Children.Add(T("总计（全部 " + d.AggSessions + " 个会话 · 不随上方筛选变化）", 13, Palette.Text, FontWeight.Bold));
-                c.Children.Add(T("输入 " + SessionRow.Human(d.AggUncached + d.AggCacheRead)
-                    + " token（其中缓存读 " + SessionRow.Human(d.AggCacheRead) + " · 缓存写 " + SessionRow.Human(d.AggCacheWrite) + "）"
-                    + "　输出 " + SessionRow.Human(d.AggOutput) + " token", 12, Palette.TextDim));
-                string span = (d.AggFirstDay.Length > 0 && d.AggFirstDay != "unknown" && d.AggLastDay.Length > 0 && d.AggLastDay != "unknown")
+                SessionsSnapshot d = host.Data;
+                return "总计（全部 " + (d != null ? d.AggSessions : 0) + " 个会话 · 不随上方筛选变化）";
+            }));
+            secT.Children.Add(LvLine(host, 12, Palette.TextDim, FontWeight.Normal, delegate
+            {
+                SessionsSnapshot d = host.Data;
+                long un = d != null ? d.AggUncached : 0, cr = d != null ? d.AggCacheRead : 0;
+                long cw = d != null ? d.AggCacheWrite : 0, ou = d != null ? d.AggOutput : 0;
+                return "输入 " + SessionRow.Human(un + cr)
+                    + " token（其中缓存读 " + SessionRow.Human(cr) + " · 缓存写 " + SessionRow.Human(cw) + "）"
+                    + "　输出 " + SessionRow.Human(ou) + " token";
+            }));
+            secT.Children.Add(LvLine(host, 11.5, Palette.TextFaint, FontWeight.Normal, delegate
+            {
+                SessionsSnapshot d = host.Data;
+                string span = (d != null && d.AggFirstDay.Length > 0 && d.AggFirstDay != "unknown" && d.AggLastDay.Length > 0 && d.AggLastDay != "unknown")
                     ? d.AggFirstDay + " ~ " + d.AggLastDay : "未知（不猜）";
-                c.Children.Add(T("非空会话 " + d.AggNonBlank + " 个 · 活动跨度（本地日期）" + span
-                    + " · token 未知的会话未计入求和（不假装 0）", 11.5, Palette.TextFaint));
-            }
-            if (hasWin)
+                return "非空会话 " + (d != null ? d.AggNonBlank : 0) + " 个 · 活动跨度（本地日期）" + span
+                    + " · token 未知的会话未计入求和（不假装 0）";
+            }));
+            Border secTHost = new Border { Child = secT, IsVisible = hasTotal0 };
+            host.Live(delegate
             {
-                if (hasTotal) c.Children.Add(new Border { Height = 1, Background = Palette.Border, Opacity = 0.5, Margin = new Thickness(0, 2) });   // 两节分隔线 ✓
-                // —— 窗口总计块：eligible 集 GUI 侧求和 ✓（与旧 BoardWindowCard 逐字一致 ✓ 仅去掉卡内第二遍 C.4 ✓ §1 ✓）——
-                long uncached = 0, cacheRead = 0, cacheWrite = 0, output = 0, turns = 0, tokKnown = 0, tokUnknown = 0;
-                for (int i = 0; i < d.AggRows.Count; i++)
-                {
-                    SessAggRow r = d.AggRows[i];
-                    if (r == null) continue;
-                    if (r.HasTokens)
-                    {
-                        tokKnown++;
-                        uncached += r.Uncached; cacheRead += r.CacheRead; cacheWrite += r.CacheWrite; output += r.Output;
-                    }
-                    else tokUnknown++;
-                    if (r.HasStats) turns += r.Turns;
-                }
+                SessionsSnapshot d = host.Data;
+                bool v = d != null && d.HasAggTotal;
+                if (secTHost.IsVisible != v) secTHost.IsVisible = v;
+            });
+            c.Children.Add(secTHost);
+
+            // 两节分隔线 ✓
+            Border div = new Border { Height = 1, Background = Palette.Border, Opacity = 0.5, Margin = new Thickness(0, 2), IsVisible = hasTotal0 && hasWin0 };
+            host.Live(delegate
+            {
+                SessionsSnapshot d = host.Data;
+                bool v = d != null && d.HasAggTotal && d.HasWinMeta && (d.WinDays > 0 || d.WinFrom != "-");
+                if (div.IsVisible != v) div.IsVisible = v;
+            });
+            c.Children.Add(div);
+
+            // —— 窗口总计块：eligible 集 GUI 侧求和 ✓（与旧 BoardWindowCard 逐字一致 ✓✓ 求和走 BoardMetrics.SumOwnRows ✓ 与三档表同一纯函数 ✓）——
+            StackPanel secW = new StackPanel { Spacing = 4 };
+            secW.Children.Add(LvLine(host, 13, Palette.Text, FontWeight.Bold, delegate
+            {
+                SessionsSnapshot d = host.Data;
+                if (d == null) return "";
                 // 自定义区间 ⇒ 标题改显「自定义区间 from~to」（D4 ✓ 规格 §11.7-E-4 ✓✓）；窗口档 ⇒ 原「近 N 天」不动 ✓
-                string winTitle = d.WinDays > 0
+                return d.WinDays > 0
                     ? "近 " + d.WinDays + " 天窗口总计（" + d.WinEligible + " 个会话有活动）"
                     : "自定义区间 " + d.WinFrom + "~" + d.WinTo + " 窗口总计（" + d.WinEligible + " 个会话有活动）";
-                c.Children.Add(T(winTitle, 13, Palette.Text, FontWeight.Bold));
-                c.Children.Add(T("输入 " + SessionRow.Human(uncached + cacheRead)
-                    + " token（其中缓存读 " + SessionRow.Human(cacheRead) + " · 缓存写 " + SessionRow.Human(cacheWrite) + "）"
-                    + "　输出 " + SessionRow.Human(output) + " token　轮次 " + turns, 12, Palette.TextDim));
+            }));
+            secW.Children.Add(LvLine(host, 12, Palette.TextDim, FontWeight.Normal, delegate
+            {
+                BoardMetrics.LevelSum s = BoardMetrics.SumOwnRows(host.Data);
+                return "输入 " + SessionRow.Human(s.In)
+                    + " token（其中缓存读 " + SessionRow.Human(s.CacheRead) + " · 缓存写 " + SessionRow.Human(s.CacheWrite) + "）"
+                    + "　输出 " + SessionRow.Human(s.Output) + " token　轮次 " + s.Turns;
+            }));
+            secW.Children.Add(LvLine(host, 11.5, Palette.TextFaint, FontWeight.Normal, delegate
+            {
+                SessionsSnapshot d = host.Data;
+                if (d == null) return "";
                 string range = (d.WinFrom != "-" && d.WinTo != "-") ? d.WinFrom + " ~ " + d.WinTo + "（右端不含 · 时区 " + (d.WinTz.Length > 0 ? d.WinTz : "未知") + "）" : "窗口范围未知";
                 string miss = d.WinUnknownLast > 0
                     ? " · 另有 " + d.WinUnknownLast + " 个会话没有最后活动时间 → 不进窗口（不猜日期 ✓ 已计入上方总计卡 ✓）"
                     : "";
-                string unk = tokUnknown > 0
-                    ? " · " + tokUnknown + " 个会话 token 未知（未计入求和 ✓ 不假装 0 ✓）"
+                BoardMetrics.LevelSum s = BoardMetrics.SumOwnRows(d);
+                string unk = s.TokUnknown > 0
+                    ? " · " + s.TokUnknown + " 个会话 token 未知（未计入求和 ✓ 不假装 0 ✓）"
                     : "";
-                c.Children.Add(T("窗口：" + range + miss + unk, 11.5, Palette.TextFaint));
+                return "窗口：" + range + miss + unk;
+            }));
+            Border secWHost = new Border { Child = secW, IsVisible = hasWin0 };
+            host.Live(delegate
+            {
+                SessionsSnapshot d = host.Data;
+                bool v = d != null && d.HasWinMeta && (d.WinDays > 0 || d.WinFrom != "-");
+                if (secWHost.IsVisible != v) secWHost.IsVisible = v;
+            });
+            c.Children.Add(secWHost);
+
+            Control card = Card(c, new Thickness(0), new Thickness(18, 8));   // ★ 体验修复：纵向压一档（一屏 ✓ 文案不变 ✓）
+            card.IsVisible = hasTotal0 || hasWin0;   // 任一块可用即渲染 ✓ 都不可用 → 不显示 ✓（条件逐字同旧 ✓）
+            host.Live(delegate
+            {
+                SessionsSnapshot d = host.Data;
+                bool v = d != null && (d.HasAggTotal || (d.HasWinMeta && (d.WinDays > 0 || d.WinFrom != "-")));
+                if (card.IsVisible != v) card.IsVisible = v;
+            });
+            return card;
+        }
+
+        /// <summary>样式化 LiveText（看板体验修复 2026-10-11 ✓✓）：取值函数 ✗ 不是快照 ✓；样式逐项对齐原静态版本 ✓。</summary>
+        private static TextBlock LvLine(MainWindow host, double size, IBrush fg, FontWeight w, Func<string> f)
+        {
+            TextBlock t = host.LiveText(f(), f);
+            t.FontSize = size; t.Foreground = fg; t.FontWeight = w;
+            return t;
+        }
+
+        /// <summary>★ 三档对比表（2026-10-11 看板体验修复 ✓✓ 规格 docs\看板体验修复-派单-Kimi-2026-10-11.md ✓✓）：
+        /// 行 = 全局 / 仅父会话 / 父会话+子代理 ✓ 列 = 口径 / 会话 / 输入（合计（未命中 A + 缓存 B）单行 ✓）/ 输出 / 备注 ✓。
+        /// 数据源：当前档复用本页同一响应 ✓ 其余档后台各跑一次 `sessions<同窗口> --level X`（MainWindow.EnsureBoardLevelAggs ✓ 4s 节奏 ✓ 窗键校验 ✓）；
+        /// 数字 = `SESSAGG_SESSION bucket=own` 求和（BoardMetrics.SumOwnRows ✓ 与总计卡同一纯函数 ✓ HasTokens=false 不计入 ✗ 不假装 0 ✓）。
+        /// 降级如实：未回来 → 「读取中…」✗ 不编 ✓；血缘不可用 → 「需桥插件血缘」✓；老 CLI → 「当前数据源未提供」✓；拉取失败 → 「未知（不猜 ✓）」✓。
+        /// fork 排除说明在「父会话+子代理」行备注 ✓（fork 口径差全文在筛选条「？口径差」✗ 一字未删 ✓）。</summary>
+        private static Control BoardLevelCompareCard(MainWindow host)
+        {
+            StackPanel c = new StackPanel { Spacing = 4 };   // ★ 体验修复：卡内节奏压一档（一屏 ✓）
+            c.Children.Add(T("三档口径对比（同一窗口 · 并排）", 13, Palette.Text, FontWeight.Bold));
+            Grid g = new Grid { ColumnDefinitions = new ColumnDefinitions("110,60,*,110,170"), RowDefinitions = new RowDefinitions("Auto,Auto,Auto,Auto") };
+            AddLvCell(g, T("口径", 11, Palette.TextFaint), 0, 0);
+            AddLvCell(g, T("会话", 11, Palette.TextFaint), 0, 1);
+            AddLvCell(g, T("输入 token", 11, Palette.TextFaint), 0, 2);
+            AddLvCell(g, T("输出 token", 11, Palette.TextFaint), 0, 3);
+            AddLvCell(g, T("备注", 11, Palette.TextFaint), 0, 4);
+            string[] levels = new string[] { "global", "parents", "parents_sub" };
+            string[] names = new string[] { "全局", "仅父会话", "父会话+子代理" };
+            for (int i = 0; i < levels.Length; i++)
+            {
+                string lv = levels[i];
+                int row = i + 1;
+                AddLvCell(g, T(names[i], 11.5, Palette.Text, FontWeight.SemiBold), row, 0);
+                AddLvCell(g, LvLine(host, 11.5, Palette.Text, FontWeight.Normal, delegate { return LvRow(host, lv)[0]; }), row, 1);
+                // 输入列单行：合计（未命中 A + 缓存 B）✓（规格 ✓✓ 一屏 ✓；降级时明细为空 → 只显主值 ✓）
+                AddLvCell(g, LvLine(host, 11.5, Palette.Text, FontWeight.Normal, delegate
+                {
+                    string[] r = LvRow(host, lv);
+                    return r[2].Length == 0 ? r[1] : r[1] + "（" + r[2] + "）";
+                }), row, 2);
+                AddLvCell(g, LvLine(host, 11.5, Palette.Text, FontWeight.Normal, delegate { return LvRow(host, lv)[3]; }), row, 3);
+                TextBlock note = LvLine(host, 10.5, Palette.TextFaint, FontWeight.Normal, delegate { return LvRow(host, lv)[4]; });
+                note.TextWrapping = TextWrapping.Wrap;
+                AddLvCell(g, note, row, 4);
             }
-            return Card(c, new Thickness(0), new Thickness(18, 16));
+            c.Children.Add(g);
+            TextBlock fn = T("数字 = SESSAGG_SESSION bucket=own 求和 · token 未知的会话未计入（不假装 0 ✓）· 范围 = 当前窗口 eligible 集；「读取中…」= 该档正在后台拉取 ✗ 不编数 ✓", 10.5, Palette.TextFaint);
+            fn.TextWrapping = TextWrapping.Wrap;
+            c.Children.Add(fn);
+            return Card(c, new Thickness(0), new Thickness(18, 8));
+        }
+
+        private static void AddLvCell(Grid g, Control cell, int row, int col)
+        {
+            Grid.SetRow(cell, row); Grid.SetColumn(cell, col);
+            cell.Margin = new Thickness(0, 0, 8, 2);   // ★ 体验修复：行距压一档（一屏 ✓）
+            cell.VerticalAlignment = VerticalAlignment.Center;
+            g.Children.Add(cell);
+        }
+
+        /// <summary>三档对比表一行五列的取值（看板体验修复 ✓✓）：每个格子 LiveText 调它 ✓ 降级文案集中在这里 ✗ 不编数 ✓。</summary>
+        private static string[] LvRow(MainWindow host, string lv)
+        {
+            SessionsSnapshot cur = host.Data;
+            if (cur == null) return LvRowDeg("读取中…", "");
+            if (!cur.Ok) return LvRowDeg("—", "看板数据不可用");
+            if (!cur.HasWinMeta) return LvRowDeg("—", "当前数据源未提供");
+            if (lv != "global" && !cur.LineageOk) return LvRowDeg("—", "需桥插件血缘");
+            SessionsSnapshot d = host.LevelSnap(lv);
+            if (d == null) return LvRowDeg("读取中…", "");
+            if (!d.Ok || !d.HasWinMeta) return LvRowDeg("—", "未知（不猜 ✓）");
+            BoardMetrics.LevelSum s = BoardMetrics.SumOwnRows(d);
+            string note;
+            if (lv == "global") note = "—";
+            else if (lv == "parents") note = "不含子代理";
+            else note = d.ForkSessions >= 0 ? "fork " + d.ForkSessions + " 个已排除" : "fork 数未知（不猜 ✓）";
+            if (s.TokUnknown > 0) note = (note == "—" ? "" : note + "；") + s.TokUnknown + " 个 token 未知未计入";
+            return new string[] {
+                s.Sessions + "",
+                SessionRow.Human(s.In),
+                "未命中 " + SessionRow.Human(s.Uncached) + " + 缓存 " + SessionRow.Human(s.CacheRead),
+                SessionRow.Human(s.Output),
+                note };
+        }
+
+        private static string[] LvRowDeg(string num, string note) { return new string[] { num, num, "", num, note }; }
+
+        /// <summary>★ 输入 Top 5（2026-10-11 看板体验修复 ✓✓）：按输入降序 ✓ 仅列数值完整的会话（token 或轮次未知的不进榜 ✓ 不猜 ✓）✓
+        /// 范围 = 当前窗口 eligible 集 ✓；榜单内容变化才重建行区（签名比较 ✓ 不变 = 零重画 ✓✓ 与图区同一规则 ✓）。</summary>
+        private static Control BoardTop5Card(MainWindow host)
+        {
+            StackPanel c = new StackPanel { Spacing = 4 };   // ★ 体验修复：卡内节奏压一档（一屏 ✓）
+            c.Children.Add(T("输入 Top 5（当前窗口）", 13, Palette.Text, FontWeight.Bold));
+            StackPanel rows = new StackPanel { Spacing = 2 };   // ★ 行距压一档（一屏 ✓）
+            BuildTop5Rows(host, rows);
+            string sig0 = BoardMetrics.ChartSignature(host.Data, host.ChartDays, host.Doctor, System.DateTime.Now.Date);
+            host.Live(delegate
+            {
+                string sg = BoardMetrics.ChartSignature(host.Data, host.ChartDays, host.Doctor, System.DateTime.Now.Date);
+                if (sg != sig0) { sig0 = sg; rows.Children.Clear(); BuildTop5Rows(host, rows); }   // ★ 只在榜变才重建 ✓✓
+            });
+            c.Children.Add(rows);
+            TextBlock fn = T("按输入降序 · 仅列数值完整的会话（token 或轮次未知的不进榜 ✓ 不猜 ✓）· 范围 = 当前窗口 eligible 集", 10.5, Palette.TextFaint);
+            fn.TextWrapping = TextWrapping.Wrap;
+            c.Children.Add(fn);
+            return Card(c, new Thickness(0), new Thickness(18, 8));
+        }
+
+        private static void BuildTop5Rows(MainWindow host, StackPanel rows)
+        {
+            List<BoardMetrics.TopRow> top = BoardMetrics.Top5ByInput(host.Data);
+            if (top == null || top.Count == 0)
+            {
+                rows.Children.Add(T("暂无数值完整的会话（token 或轮次未知的不进榜 ✓ 不猜 ✓）", 11.5, Palette.TextDim));
+                return;
+            }
+            Grid g = new Grid { ColumnDefinitions = new ColumnDefinitions("*,90,90,70") };
+            g.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
+            AddLvCell(g, T("会话", 11, Palette.TextFaint), 0, 0);
+            AddLvCell(g, T("输入", 11, Palette.TextFaint), 0, 1);
+            AddLvCell(g, T("输出", 11, Palette.TextFaint), 0, 2);
+            AddLvCell(g, T("轮次", 11, Palette.TextFaint), 0, 3);
+            for (int i = 0; i < top.Count; i++)
+            {
+                BoardMetrics.TopRow r = top[i];
+                int row = i + 1;
+                g.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
+                TextBlock title = T(r.Title, 11.5, Palette.Text);
+                title.TextTrimming = TextTrimming.CharacterEllipsis;
+                AddLvCell(g, title, row, 0);
+                AddLvCell(g, T(SessionRow.Human(r.In), 11.5, Palette.Text), row, 1);
+                AddLvCell(g, T(SessionRow.Human(r.Output), 11.5, Palette.TextDim), row, 2);
+                AddLvCell(g, T(r.Turns + "", 11.5, Palette.TextDim), row, 3);
+            }
+            rows.Children.Add(g);
         }
 
         private static Control StatusDetail(MainWindow host)
@@ -1096,9 +1364,58 @@ namespace Dsht.Gui.Avalonia.Shells
 
         }
 
-        /// **手绘**（Grid + Border 柱），不引入任何图表依赖；日期用 ISO 字符串前缀比对，不做时区/日历运算（不猜）。</summary>
-
+        /// <summary>图组宿主（★ 看板体验修复 2026-10-11 ✓✓）：内容签名 = `BoardMetrics.ChartSignature`（纯函数 ✓ LogicTests 锁 ✓）——
+        /// **签名不变 → 一行都不重画** ✓✓；签名变 → **只重建图区**（chartHost.Child）✗ 不整页重建 ✓ 不闪 ✓ 不跳滚动 ✓。
+        /// 注：自动刷新的静默路径照旧跑 ✗ 刷新频率一丝没降 ✓ 只是没变就不重画 ✓。</summary>
         private static Control ChartsBody(MainWindow host)
+        {
+            Border chartHost = new Border { Child = ChartsBodyInner(host) };
+            string sig0 = BoardMetrics.ChartSignature(host.Data, host.ChartDays, host.Doctor, System.DateTime.Now.Date);
+            host.Live(delegate
+            {
+                string sg = BoardMetrics.ChartSignature(host.Data, host.ChartDays, host.Doctor, System.DateTime.Now.Date);
+                if (sg != sig0) { sig0 = sg; chartHost.Child = ChartsBodyInner(host); }   // ★ 只在输入真变才重画 ✓✓
+            });
+            return chartHost;
+        }
+
+        /// <summary>「近 N 天」范围档卡（★ 看板体验修复 2026-10-11 ✓✓）：从图组拆出 —— 切档只重画分桶图 ✗ 这张卡不动 ✓
+        /// 高亮走字段刷新 ✓ 点击瞬换 ✓（SetChartDays 现在是纯本地重分桶 ✓ 不跑 CLI ✓）。</summary>
+        private static Control ChartRangeCard(MainWindow host)
+        {
+            StackPanel range = new StackPanel { Orientation = Orientation.Horizontal, Spacing = ShapeTokens.S8 };
+            int[] opts = new int[] { 7, 14, 30 };
+            for (int oi = 0; oi < opts.Length; oi++)
+            {
+                int dd = opts[oi];
+                bool on = host.ChartDays == dd;
+                Button rb = new Button
+                {
+                    Content = T("近 " + dd + " 天", 11.5, on ? Palette.OnAccent : Palette.TextDim),
+                    Background = on ? Palette.Accent : Palette.CardHover,
+                    BorderThickness = new Thickness(0),
+                    CornerRadius = new CornerRadius(ShapeTokens.RCtrl),
+                    Padding = new Thickness(12, 5)
+                };
+                TextBlock rt = (TextBlock)rb.Content;
+                host.Live(delegate
+                {
+                    bool on2 = host.ChartDays == dd;
+                    IBrush bg = on2 ? Palette.Accent : Palette.CardHover;
+                    if (!ReferenceEquals(rb.Background, bg)) rb.Background = bg;
+                    IBrush fg = on2 ? Palette.OnAccent : Palette.TextDim;
+                    if (!ReferenceEquals(rt.Foreground, fg)) rt.Foreground = fg;
+                });
+                rb.Click += delegate { host.SetChartDays(dd); };
+                range.Children.Add(rb);
+            }
+            return Card(range, new Thickness(0), new Thickness(14, 10));
+        }
+
+        /// **手绘**（Grid + Border 柱），不引入任何图表依赖；日期用 ISO 字符串前缀比对，不做时区/日历运算（不猜）。
+        /// ★ 看板体验修复（2026-10-11 ✓✓）：原 ChartsBody 本体 —— 范围档卡已拆成 ChartRangeCard ✓ 本函数只在签名变时被重建 ✓。</summary>
+
+        private static Control ChartsBodyInner(MainWindow host)
 
         {
 
@@ -1127,44 +1444,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
 
             // ① 近 N 天新增会话（N = 7/14/30 可切）
-
-            // 日期范围切换 ✓（用户要求 ✓）
-
-            StackPanel range = new StackPanel { Orientation = Orientation.Horizontal, Spacing = ShapeTokens.S8 };
-
-            int[] opts = new int[] { 7, 14, 30 };
-
-            for (int oi = 0; oi < opts.Length; oi++)
-
-            {
-
-                int dd = opts[oi];
-
-                bool on = host.ChartDays == dd;
-
-                Button rb = new Button
-
-                {
-
-                    Content = T("近 " + dd + " 天", 11.5, on ? Palette.OnAccent : Palette.TextDim),
-
-                    Background = on ? Palette.Accent : Palette.CardHover,
-
-                    BorderThickness = new Thickness(0),
-
-                    CornerRadius = new CornerRadius(ShapeTokens.RCtrl),
-
-                    Padding = new Thickness(12, 5)
-
-                };
-
-                rb.Click += delegate { host.SetChartDays(dd); };
-
-                range.Children.Add(rb);
-
-            }
-
-            s.Children.Add(Card(range, new Thickness(0), new Thickness(14, 10)));
+            // ★ 看板体验修复（2026-10-11 ✓✓）：范围档 chips 已拆成 ChartRangeCard（在 BoardContent 里加 ✓ 本函数只在签名变时重建 ✓）
 
             int days = host.ChartDays;   // 7/14/30 可切 ✓（用户要求："看板第二页图表内可以切换日期分布查看图表" ✓✓）
 

@@ -502,8 +502,13 @@ namespace Dsht.Gui.Avalonia
         // —— 排障开关的值（从 CLI 的 config-get 读 ✓ 用户要求的那三个 ✓）——
         public string BrowserMode = "auto";
         public bool UiParallel = true;
-        public void SetChartDays(int d) { ChartDays = d; BuildShell(); }
-        public void SetStartMode(int m) { StartMode = m; BuildShell(); }
+        // ★★ 看板体验修复（2026-10-11 ✓✓）：这两个"切换"**不再 BuildShell** ✗✗
+        //   ✗ 原来切一下就重建整棵视觉树 → 整页闪 160ms + 滚动回顶 + 筛选条重排 ✗✗
+        //   ✓ 现在：只改本地状态 → RefreshLiveFields() 原地刷 ✓
+        //     · 图表范围档：分桶是**纯本地计算**（数据没变 ✓ 不动 CLI ✓）→ 图表签名变 → **只重画图表区** ✓
+        //     · 启动方式：两颗 chips 高亮 + 「安装/下载」文案都走字段刷新 ✓
+        public void SetChartDays(int d) { if (ChartDays == d) return; ChartDays = d; RefreshLiveFields(); }
+        public void SetStartMode(int m) { if (StartMode == m) return; StartMode = m; RefreshLiveFields(); }
 
         /// <summary>一键部署：按当前方式行动 ✓（用户要求："web/desktop 也要加一键部署，desktop 直接官网下安装包就行" ✓✓）
         /// · webui   → 调 CLI 的 install（装/升级 dsh 本体 ✓ 官方 npm 包 ✓）
@@ -1151,15 +1156,24 @@ namespace Dsht.Gui.Avalonia
         public void NoteBoard(string text)
         {
             _actionLog = text ?? "";
+            // ★ 看板体验修复（2026-10-11 ✓✓）：看板筛选不再整页重建 → toast 不能再等 BuildShell 那一下 ✗
+            //   → 回执条文字走 LiveText 原地换 ✓ toast **这里立即弹** ✓（去重逻辑与 BuildShell 同一套 ✓ 不会弹两次 ✓）
+            if (!string.IsNullOrEmpty(_actionLog) && _actionLog != _lastToasted)
+            {
+                _lastToasted = _actionLog;
+                ShowToast(_actionLog, _lastActionLevel);
+            }
         }
         /// <summary>sessions/overview 命令串的筛选后缀：
         /// 自定义区间优先生效（--from/--to ✓ D4 ✓）；否则窗口档（>0 → " --days N"；0 → 空 ✓ CLI 省略 = 总计 ✓）；
         /// 口径档非 null → 追加 " --level X"（null = 交给 CLI/配置 ✓）。</summary>
-        private string BoardArgsSuffix()
+        private string BoardArgsSuffix() { return BoardArgsSuffix(_boardLevel); }
+        /// <summary>带口径覆盖的后缀 ✓（三档对比表要按**同一窗口**逐档取数 ✓ 窗口参数与当前筛选逐字一致 ✓✓）。</summary>
+        private string BoardArgsSuffix(string level)
         {
             string suf = _boardDays > 0 ? " --days " + _boardDays.ToString(System.Globalization.CultureInfo.InvariantCulture) : "";
             if (_boardFrom != null && _boardTo != null) suf = " --from " + _boardFrom + " --to " + _boardTo;
-            if (_boardLevel != null) suf += " --level " + _boardLevel;
+            if (level != null) suf += " --level " + level;
             return suf;
         }
         public string RawOutput { get { return _rawOutput; } }
@@ -1236,6 +1250,13 @@ namespace Dsht.Gui.Avalonia
                 // 子菜单即"排序视角"：总览=最后活动，命中率=低→高，解码=快→慢，压力=高→低
                 // 子菜单只决定"看什么"（列表 / 统计）；排序一律交给工具栏的下拉 —— 原先两者都管排序，互相冲突。
                 Rerender();
+            }
+            else if (_mainSection == 1)
+            {
+                // ★★ 看板体验修复（2026-10-11 ✓✓）：看板的「指标/图表」切换**不再 BuildShell** ✗✗
+                //   两棵子树在 BoardContent 里已经**都建好** ✓ 切换只改可见性 + chips 高亮 + 页头副标题 ✓
+                //   → 零重建 ✓ 不闪 ✗ 不跳滚动 ✓✓（CLI 数据照旧按原节奏刷 ✗ 不降刷新频率 ✓）
+                RefreshLiveFields();
             }
             else
             {
@@ -1500,6 +1521,102 @@ namespace Dsht.Gui.Avalonia
             InvalidateCliCache();
             _silentRefresh = true;
             RefreshCore();
+        }
+
+        /// <summary>看板筛选（窗口档 / 口径档 / 自定义区间）后的刷新 ✓✓（看板体验修复 2026-10-11 ✓✓）。
+        ///   ✗ 原来：chip 一点 → `Refresh()` → 数据一到就 `BuildShell()` 整页重建 → 闪 160ms + 滚动回顶 ✗✗
+        ///   ✓ 现在：① 先 `RefreshLiveFields()` 一拍 —— 本地态高亮（窗口档 chips ✓ 自定义区间文案 ✓）**立刻**换 ✓ 点击有即时反馈 ✓
+        ///           ② 再**静默**拉数据 —— 新筛选 = 新命令串 = 新缓存键 ✓ **一定真跑 CLI** ✗ 不吃旧缓存 ✗ 不降刷新频率 ✓
+        ///           ③ 数据到手只刷字段 ✗ 不整页重建 ✗ 不亮加载浮层 ✗ 不淡入 ✓ → 不闪 ✗ 不跳滚动 ✓✓
+        ///   口径档高亮仍等 CLI 实发的 WinLevel 回来再换（诚实 ✓ 说法与代码一致 ✓ 见筛选条旁注 ✓）。</summary>
+        public void RefreshBoard()
+        {
+            RefreshLiveFields();
+            _silentRefresh = true;
+            RefreshCore();
+        }
+
+        /// <summary>看板结构守卫专用整页重建（看板体验修复 2026-10-11 ✓✓）：
+        /// 只在结构签名真变时调用（首次拿到数据 / 失败 / 血缘出现消失 ✓）；**不淡入** ✓ 一闪都没有 ✓。</summary>
+        public void RebuildBoard()
+        {
+            _fadeNextBuild = false;
+            BuildShell();
+        }
+
+        // —— 三档对比表数据源（2026-10-11 看板体验修复 ✓✓）——
+        //   CLI 每次只发一档（`--level X` ✗ 没有"一次给三档"的标记 ✓ 实测夹具输出 ✓）→
+        //   当前档直接复用 _data（同一个 CLI 响应 ✓ 三档表与总计卡天然同口径 ✓），
+        //   其余档后台各发一次 `sessions<同一窗口> --level X`（RunCached 4s TTL ✓ 节奏与现有缓存一致 ✗ 不降刷新频率 ✓）。
+        //   火忘式 Task.Run + UIThread.Post 回来**只刷字段** ✓（与余额检测同一模式 ✓✓）。
+        //   血缘不可用（lineage!=ok）→ 非 global 档不拉 ✓ CLI 必然 FAIL ✗ 不浪费进程 ✓ 表格如实降级「需桥插件血缘」✗ 不猜 ✓。
+        private Dsht.Gui.Avalonia.Markers.SessionsSnapshot _lvGlobal, _lvParents, _lvParentsSub;
+        private string _lvKey = "";                                // 窗口键（days/from~to，**不含 level**）—— 键变 → 三档缓存作废 ✓
+        private System.DateTime _lvAt = System.DateTime.MinValue;  // 4 秒一拍上限 ✓（与 RunCached TTL 同节奏 ✓）
+        private int _lvBusyG, _lvBusyP, _lvBusyPS;                 // 每档一把防重入锁（0/1 ✓ 两档可并行 ✓ 一拍至多两个额外进程 ✓）
+
+        /// <summary>三档对比表读数：level = global / parents / parents_sub。
+        /// 当前档 → _data（同一响应 ✓）；其余档 → 后台缓存（还没回来 → null → 界面显示「读取中…」✗ 不编 ✓）。</summary>
+        public Dsht.Gui.Avalonia.Markers.SessionsSnapshot LevelSnap(string level)
+        {
+            Dsht.Gui.Avalonia.Markers.SessionsSnapshot cur = _data;
+            string curLv = cur != null && !string.IsNullOrEmpty(cur.WinLevel) && cur.WinLevel != "unknown" ? cur.WinLevel : "global";
+            if (level == curLv) return cur;
+            if (level == "global") return _lvGlobal;
+            if (level == "parents") return _lvParents;
+            if (level == "parents_sub") return _lvParentsSub;
+            return null;
+        }
+
+        /// <summary>指标页刷新后顺手补齐另外两档（只在指标页 ✓ 别页一个进程都不多花 ✓）。</summary>
+        private void EnsureBoardLevelAggs(string cli)
+        {
+            if (_mainSection != 1 || _subTab != 0) return;
+            Dsht.Gui.Avalonia.Markers.SessionsSnapshot cur = _data;
+            string key = _boardDays.ToString(System.Globalization.CultureInfo.InvariantCulture) + "|" + (_boardFrom ?? "-") + "|" + (_boardTo ?? "-");
+            if (key != _lvKey) { _lvKey = key; _lvGlobal = null; _lvParents = null; _lvParentsSub = null; }   // 窗口变了 → 旧档作废 ✓
+            if (cur == null || !cur.Ok || !cur.HasWinMeta) return;   // 失败 / 老 CLI 无窗口元数据 → 不拉 ✓ 表格如实「当前数据源未提供」✓
+            if ((System.DateTime.UtcNow - _lvAt).TotalSeconds < 4.0) return;                    // 节奏 = RunCached TTL ✗ 不降频率 ✓
+            _lvAt = System.DateTime.UtcNow;
+            bool lin = cur.LineageOk;
+            FetchBoardLevel(cli, "global", lin);
+            FetchBoardLevel(cli, "parents", lin);
+            FetchBoardLevel(cli, "parents_sub", lin);
+        }
+
+        private void FetchBoardLevel(string cli, string level, bool lineageOk)
+        {
+            if (string.IsNullOrEmpty(cli)) return;
+            if (level != "global" && !lineageOk) return;   // 无血缘 → 非 global 档必然 FAIL ✗ 不浪费进程 ✓ 界面如实降级 ✓
+            Dsht.Gui.Avalonia.Markers.SessionsSnapshot cur = _data;
+            string curLv = cur != null && !string.IsNullOrEmpty(cur.WinLevel) && cur.WinLevel != "unknown" ? cur.WinLevel : "global";
+            if (curLv == level) return;                    // 当前档就是 _data ✓ 不必再拉 ✓
+            string keyAtFire = _lvKey;                     // ★ 慢响应回来时窗口可能已换 → 按发射时的键验收 ✗ 不串档 ✓✓
+            int slot = level == "global" ? 0 : level == "parents" ? 1 : 2;
+            if (slot == 0 && System.Threading.Interlocked.CompareExchange(ref _lvBusyG, 1, 0) != 0) return;
+            if (slot == 1 && System.Threading.Interlocked.CompareExchange(ref _lvBusyP, 1, 0) != 0) return;
+            if (slot == 2 && System.Threading.Interlocked.CompareExchange(ref _lvBusyPS, 1, 0) != 0) return;
+            string args = "sessions" + BoardArgsSuffix(level);
+            System.Threading.Tasks.Task.Run(delegate
+            {
+                string outp = null;
+                try { outp = RunCached(cli, args); } catch { }
+                Dsht.Gui.Avalonia.Markers.SessionsSnapshot snap = SessionsMarkers.Parse(outp);   // Parse(null) → !Ok ✓ 安全 ✓
+                global::Avalonia.Threading.Dispatcher.UIThread.Post(delegate
+                {
+                    if (keyAtFire == _lvKey)   // 键没变才入库 ✓（变了 → 丢弃 ✗ 不许旧窗口的数字混进新窗口 ✓✓）
+                    {
+                        if (slot == 0) _lvGlobal = snap;
+                        else if (slot == 1) _lvParents = snap;
+                        else _lvParentsSub = snap;
+                    }
+                    if (slot == 0) System.Threading.Interlocked.Exchange(ref _lvBusyG, 0);
+                    else if (slot == 1) System.Threading.Interlocked.Exchange(ref _lvBusyP, 0);
+                    else System.Threading.Interlocked.Exchange(ref _lvBusyPS, 0);
+                    // 只刷字段 ✗ 不重建 ✓（已切走、本页没注册字段 → 空转 ✓ 无害 ✓）
+                    if (_liveFields.Count > 0) RefreshLiveFields();
+                });
+            });
         }
 
         // —— DeepSeek 余额检测（2026-10-02 用户要求 ✓✓）——
@@ -1775,6 +1892,7 @@ namespace Dsht.Gui.Avalonia
                 _profiles = ProfilesMarkers.Parse(_rawOutput);
                 _data = SessionsMarkers.Parse(_rawOutput);
                 _backups = SummaryMarkers.ParseBackups(_rawOutput);
+                EnsureBoardLevelAggs(cli);   // ★ 看板体验修复：指标页三档对比表的另外两档后台补齐（火忘 ✓ 只刷字段 ✓ 别页不花 ✓）
                 string cfgText2 = await System.Threading.Tasks.Task.Run(delegate { return CfgCached(cli); });   // ✓ 缓存 ✓ 省一次进程启动 ✓✓
                 ParseTroubleshootSwitches(cfgText2);
                 if (_doctor == null) _doctor = new DoctorSummary();
