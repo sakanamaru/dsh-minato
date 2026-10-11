@@ -619,10 +619,14 @@ namespace Dsht.Gui.Avalonia.Shells
                 delegate { SessionsSnapshot dd = host.Data; return SessionsMarkers.ForkDiffText(dd != null ? dd.ForkSessions : -1); });
             ft.FontSize = 11.5; ft.Foreground = Palette.TextDim;
             ft.TextWrapping = TextWrapping.Wrap;
-            ft.MaxWidth = 460;
+            // ★ 2026-10-11（维护者报"口径说明显示有问题"✓）：这里原来用 **MaxWidth（上限 ✗）** →
+            //   Flyout 测量按上限算，放不下的尾部字形被**直接裁掉** ✗ 不推到下一行 ✓
+            //   实测症状：换行处吞掉「话，但」三个字（第一行停在"指向别的会"、第二行直接"origin 不是…"✗）
+            //   修法：**确定宽度**（Wrap 只有在宽度确定时才会把整字推到下一行 ✓）
+            ft.Width = 452;
             fc.Children.Add(ft);
             Control fcard = Card(fc, new Thickness(0), new Thickness(14, 10));
-            fcard.MaxWidth = 500;
+            fcard.Width = 480;   // = 452 + 左右各 14 内边距 ✓ 确定宽度 ✗ 不用 MaxWidth ✓
             qb.Flyout = new Flyout { Content = fcard };
             ToolTip.SetTip(qb, "fork 会话算不算？点开看口径说明");
             global::Avalonia.Automation.AutomationProperties.SetName(qb, "口径：fork 说明");
