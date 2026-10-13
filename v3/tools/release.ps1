@@ -626,7 +626,7 @@ function Invoke-SelfTest {
         if ($pr.Passed -eq $s.P -and $pr.Failed -eq $s.F) {
             ST-Ok ('解析：' + $s.Name) ($s.Parse + ' → passed=' + $pr.Passed + ' failed=' + $pr.Failed + ' · ' + $pr.Summary)
         } else {
-            $parserBad++
+            $parserBad = $true
             ST-Fail ('解析：' + $s.Name) ("期望 passed=" + $s.P + " failed=" + $s.F + "，实际 passed=" + $pr.Passed + " failed=" + $pr.Failed)
         }
     }
