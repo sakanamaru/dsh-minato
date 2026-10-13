@@ -375,10 +375,10 @@ function Parse-GateOutput([string]$text, [string]$parse) {
             $summary = if ($m.Success) { "$passed/$($m.Groups[2].Value) passed, $failed failed" } else { '未解析到结果行' }
         }
         'replicate' {
-            $ok = $text.Contains('本地 CI 复刻：全部通过')
-            $failed = if ($ok) { 0 } else { 1 }
+            $gateOk = $text.Contains('本地 CI 复刻：全部通过')
+            $failed = if ($gateOk) { 0 } else { 1 }
             $passed = 0
-            $summary = if ($ok) { '全部通过' } else { '未出现 全部通过' }
+            $summary = if ($gateOk) { '全部通过' } else { '未出现 全部通过' }
         }
         'switchover' {
             $ready = ([regex]::Matches($text, '\[READY\]')).Count
@@ -783,20 +783,20 @@ if ($DryRun -and $SkipGate) {
     $gates = Get-GateList $Repo $dotnetExe
     foreach ($g in $gates) {
         $r = Invoke-Gate $g
-        $ok = ($r.Rc -eq $g.Expect -and $r.Failed -eq 0)
-        if ($g.Parse -eq 'build') { $ok = ($r.Rc -eq 0 -and $r.Failed -eq 0 -and $r.Passed -eq 0) }
-        if ($g.Parse -eq 'switchover') { $ok = ($r.Rc -eq 0 -and $r.Out.Contains('全部就绪')) }
-        if ($g.Parse -eq 'replicate') { $ok = ($r.Rc -eq 0 -and $r.Out.Contains('本地 CI 复刻：全部通过')) }
-        if ($g.Parse -eq 'fixes') { $ok = ($r.Rc -eq 0 -and $r.Failed -eq 0) }
-        if ($g.Parse -eq 'passed' -or $g.Parse -eq 'matrix') { $ok = ($r.Rc -eq 0 -and ($r.Failed -eq 0) -and ($r.Passed -ge $g.Min)) }
-        if ($g.Parse -eq 'node-tap') { $ok = ($r.Rc -eq 0 -and $r.Failed -eq 0 -and $r.Passed -ge $g.Min) }
-        if ($g.Parse -eq 'switchover') { $ok = $ok -and ($r.Passed -ge $g.Min) }
+        $gateOk = ($r.Rc -eq $g.Expect -and $r.Failed -eq 0)
+        if ($g.Parse -eq 'build') { $gateOk = ($r.Rc -eq 0 -and $r.Failed -eq 0 -and $r.Passed -eq 0) }
+        if ($g.Parse -eq 'switchover') { $gateOk = ($r.Rc -eq 0 -and $r.Out.Contains('全部就绪')) }
+        if ($g.Parse -eq 'replicate') { $gateOk = ($r.Rc -eq 0 -and $r.Out.Contains('本地 CI 复刻：全部通过')) }
+        if ($g.Parse -eq 'fixes') { $gateOk = ($r.Rc -eq 0 -and $r.Failed -eq 0) }
+        if ($g.Parse -eq 'passed' -or $g.Parse -eq 'matrix') { $gateOk = ($r.Rc -eq 0 -and ($r.Failed -eq 0) -and ($r.Passed -ge $g.Min)) }
+        if ($g.Parse -eq 'node-tap') { $gateOk = ($r.Rc -eq 0 -and $r.Failed -eq 0 -and $r.Passed -ge $g.Min) }
+        if ($g.Parse -eq 'switchover') { $gateOk = $gateOk -and ($r.Passed -ge $g.Min) }
 
         $detail = ("rc=" + $r.Rc + " · " + $r.Summary + " · 用时 " + $r.Elapsed + "s")
         if ($g.Min -gt 0) { $detail = $detail + " · 下限 " + $g.Min }
-        if ($ok) { Ok $g.Name $detail } else { Fail $g.Name $detail }
+        if ($gateOk) { Ok $g.Name $detail } else { Fail $g.Name $detail }
         Show-Evidence $r.Out 3 200
-        if (-not $ok) {
+        if (-not $gateOk) {
             Write-Host ""
             Write-Host ("== 中止：门槛「" + $g.Name + "」未通过 → 不打 tag、不 push（政策 P8） ==")
             exit 1
