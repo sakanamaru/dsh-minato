@@ -16,13 +16,13 @@ update page, and five user-visible lines that still read like a build log were r
 plain statements.
 
 ```
-commit=<待补 —— 由 Lead 在打 tag 时填入 40 位全长 SHA>
+commit=d8284f8fc0fcc3eababe0ad8cba41972719b9a3c
 tag=v3.1.0
-tag-ci-run=<待补 —— 由 Lead 填入 tag 的 CI run id>
+tag-ci-run=38354333374
 ```
 
-> 上面三行是**来源块**：`commit` 与 `tag-ci-run` 由 Lead 在本版 gate 全绿、打 tag 之后回填（`v3/tools/release.ps1` 会自动注入）。
-> **本文件写下时还没有 tag** —— 所以这里刻意留占位，不预填一个可能作废的值。
+> 上面三行是**来源块**：`commit` 是产出本版产物的提交（全长 SHA），`tag-ci-run` 是该 tag 的 CI 构建 run id（本版：success）。
+
 
 ## 用户需要采取行动吗？
 

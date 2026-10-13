@@ -6,6 +6,34 @@ All notable changes to **dsh-minato** (unofficial). Full release notes, assets a
 
 ---
 
+## v3.1.0 — 2026-10-13（更新中心与看板一轮 / update centre and dashboard round）
+
+### Added / 新增
+
+- **更新中心**：本体（minato）自查 GitHub 最新**正式**版（`/releases/latest`，天然排除预发布；离线如实报原因，不编「已是最新」）·
+  桥接插件以「工具箱自带那一份」为基准做**版本 + 内容哈希双比对**（离线可判，半旧单独成态）·
+  同一插件多 profile 合并成一张卡、按 profile 分行成表，机制说明移至「说明」页
+- **看板**：口径三档（全局 / 仅父会话 / 父会话+子代理；血缘只解首帧 header；fork 排除在「含子代理」外）·
+  耗时分解 / Token 分类 / 本地日归日 / 热力图 / 自定义日期区间 · fork 口径说明改内联展开（弃用会吞字的弹层）·
+  页脚显示工具箱与桥接插件的实读版本
+- 桥接插件 **0.2.1**（血缘首帧桥 + 启动提示）· `v3/tools/sync-gui-dev.ps1` 开发运行时一键同步（陷阱 19 固化）·
+  插件 README 兼容性声明（只写已验证事实 + 可复跑验证记录）
+
+### Fixed / 修复
+
+- 更新页在插件 `repository` 为**对象**时把第一把键 `type` 当仓库地址显示 → 改取 `.url`（对象 / 字符串 / 缺失三态均有断言）
+- 同一已装版本在联网与离线两种显示形态不一致 → 统一走单一取数函数、带 `v` 前缀
+- 一百余处用户可见文案去掉施工语气（`✓/✗`、`不猜/不假装` 之类旁白），语义与可执行指引一字未变
+- 发版脚本 `release.ps1` 自身两处缺陷：`$ok` 局部变量因 PowerShell 大小写不敏感覆盖 `$script:Ok` 计数器（正式跑才暴露）·
+  正文注入改**轮询等待** tag CI 建出 draft release（原实现 tag 一推就注入，必然 "release not found"）
+
+### Known / 已知
+
+- `content-mismatch` 态仅单测 + fixture 覆盖（真机无样本）· 「有新版本」分支未真机触发（本机 tag = 已装）·
+  英文界面未逐条审校 · CI 只覆盖 Windows / Ubuntu · 观感类改动无自动化测试
+
+---
+
 ## v3.0.7 — 2026-10-07（外部审查修复 + 审查回应 / external-review fixes and our response）
 
 ### Fixed / 修复

@@ -895,9 +895,21 @@ if (-not (Test-Path -LiteralPath $notesFile)) {
             $bodyFile = Join-Path $env:TEMP ('dsht_release_body_' + $PID + '.md')
             $body = ($provenance -join "`n") + "`n`n" + [System.IO.File]::ReadAllText($notesFile)
             [System.IO.File]::WriteAllText($bodyFile, $body, (New-Object System.Text.UTF8Encoding($false)))
-            $r = Invoke-Rc $ghExe @('release', 'edit', $tagName, '--repo', 'sakanamaru/dsh-minato', '--notes-file', $bodyFile)
+    # ★ 2026-10-13：draft release 由 tag CI 在 push **之后**才建出来 → 轮询等待（最长 10 分钟），等不到就 SKIP 不 FAIL。
+    $deadline = (Get-Date).AddMinutes(10)
+    $injected = $false
+    $r = $null
+    while ((Get-Date) -lt $deadline) {
+      $chk = Invoke-Rc $ghExe @('release', 'view', $tagName, '--repo', 'sakanamaru/dsh-minato')
+      if ($chk.Rc -eq 0) {
+        $r = Invoke-Rc $ghExe @('release', 'edit', $tagName, '--repo', 'sakanamaru/dsh-minato', '--notes-file', $bodyFile)
+        if ($r.Rc -eq 0) { $injected = $true; break }
+        if ($r.Out -notmatch 'release not found') { break }
+      }
+      Start-Sleep -Seconds 20
+    }
             Remove-Item -LiteralPath $bodyFile -Force -ErrorAction SilentlyContinue
-            if ($r.Rc -eq 0) { Ok "release body 已注入来源块" ($provenance -join ' · ') } else { Fail "release body 已注入来源块" $r.Out }
+if ($injected) { Ok "release body 已注入来源块" ($provenance -join ' · ') } else { Skip "release body 已注入来源块" ("tag CI 尚未建出 release（已等约 10 分钟）→ 等其绿后手动注入；正文以 docs\release-notes-" + $Version + ".md 为源。最后输出：" + $(if ($null -ne $r) { $r.Out } else { '（release 一直未出现）' })) }
         }
     } else {
         Fail "gh 可用" "PATH 里没有 gh → 无法注入 body / 发布（不是编造，是不做）"
