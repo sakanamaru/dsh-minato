@@ -374,6 +374,30 @@ namespace Dsht.Gui.LogicTests
                 VersionMarkers.JsonStringField("{\"dshVersion\":\"9.9.9\",\"version\":\"0.2.0\"}", "version") == "0.2.0"
                 && VersionMarkers.JsonStringField("{\"versions\":{\"a\":1}}", "version") == ""
                 && VersionMarkers.JsonStringField("{}", "version") == "" && VersionMarkers.JsonStringField(null, "version") == "");
+            // ★★★ 2026-10-13 尾①**URL 取值三态**（真机 bug：`repository` 是对象时更新页打出字面值 `type` ✗）：
+            //   ① 对象（真实 `plugin/dsh-minato-bridge/package.json` 就是这一形态 ✓）→ 取**对象内**的 url ✓
+            //      ✗ 绝不许把对象的第一把**键**（`type`）当成地址 ✗ —— 这一条就是那个 bug 的回归守卫 ✓
+            //   ② 字符串（npm 也允许 ✓）→ **原样** ✓（不补 .git、不改写 ✓）
+            //   ③ 缺失 / 形态不对 / 对象里没有 url → **空串** ✓（上层写 `unknown` ✓ ✗ 不编 ✗）
+            //   判定住在 Domain 层（`Dsht.Domain.Services.PackageJsonFields` ✓）—— CLI 与 GUI 单测**同一份** ✓
+            Check("URL·① repository 是**对象** → 取 `.url`（✗ 不许拿 `type` 顶 ✗ —— 真机 bug 就是它 ✓）",
+                Dsht.Domain.Services.PackageJsonFields.RepoUrl(
+                    "{\"name\":\"dsh-minato-bridge\",\"version\":\"0.2.0\",\"repository\":{\"type\":\"git\",\"url\":\"https://github.com/sakanamaru/dsh-minato.git\",\"directory\":\"plugin/dsh-minato-bridge\"}}")
+                    == "https://github.com/sakanamaru/dsh-minato.git"
+                && Dsht.Domain.Services.PackageJsonFields.RepoUrl(
+                    "{\"repository\":{\"type\":\"git\",\"url\":\"https://example.invalid/x\"}}") == "https://example.invalid/x"
+                && Dsht.Domain.Services.PackageJsonFields.RepoUrl("{\"repository\":{\"type\":\"git\"}}") == "");
+            Check("URL·② repository 是**字符串** → 原样（不改写 ✓ 不补后缀 ✓ 空串不造 ✓）",
+                Dsht.Domain.Services.PackageJsonFields.RepoUrl("{\"repository\":\"https://github.com/a/b\"}") == "https://github.com/a/b"
+                && Dsht.Domain.Services.PackageJsonFields.RepoUrl("{\"repository\":\"a/b\"}") == "a/b"
+                && Dsht.Domain.Services.PackageJsonFields.RepoUrl("{\"repository\":\"\"}") == "");
+            Check("URL·③ repository **缺失 / 形态不对** → 空串（上层写 unknown ✓ ✗ 不猜 ✗ 不崩 ✗）",
+                Dsht.Domain.Services.PackageJsonFields.RepoUrl("{\"name\":\"x\",\"version\":\"1.0.0\"}") == ""
+                && Dsht.Domain.Services.PackageJsonFields.RepoUrl("{\"repository\":123}") == ""
+                && Dsht.Domain.Services.PackageJsonFields.RepoUrl("{\"repository\":[\"a\"]}") == ""
+                && Dsht.Domain.Services.PackageJsonFields.RepoUrl("") == ""
+                && Dsht.Domain.Services.PackageJsonFields.RepoUrl(null) == ""
+                && Dsht.Domain.Services.PackageJsonFields.RepoUrl("{\"repositoryUrl\":\"https://example.invalid/wrong\"}") == "");
             Check("版本·桥接：候选路径**按序**（desktop → web → 数据根 plugin\\ ✓ 找到第一个即可 ✓）",
                 VersionMarkers.BridgeCandidates("C:\\h").Count >= 3
                 && VersionMarkers.BridgeCandidates("C:\\h")[0] == System.IO.Path.Combine("C:\\h", "profiles", "desktop", "node_modules", "dsh-minato-bridge", "package.json")
@@ -398,10 +422,29 @@ namespace Dsht.Gui.LogicTests
             Check("版本·桥接：多 profile 版本不同 → 分别报；同版本 → 合并（诚实 ✓ 不取第一个就完事 ✓）",
                 VersionMarkers.DescribeBridge(new List<VersionMarkers.BridgeHit> {
                     new VersionMarkers.BridgeHit { Version = "0.1.0", Profile = "desktop" },
-                    new VersionMarkers.BridgeHit { Version = "0.2.0", Profile = "web" } }) == "0.1.0（desktop） / 0.2.0（web）"
+                    new VersionMarkers.BridgeHit { Version = "0.2.0", Profile = "web" } }) == "v0.1.0（desktop） / v0.2.0（web）"
                 && VersionMarkers.DescribeBridge(new List<VersionMarkers.BridgeHit> {
                     new VersionMarkers.BridgeHit { Version = "0.2.0", Profile = "desktop" },
-                    new VersionMarkers.BridgeHit { Version = "0.2.0", Profile = "web" } }) == "0.2.0（desktop、web）");
+                    new VersionMarkers.BridgeHit { Version = "0.2.0", Profile = "web" } }) == "v0.2.0（desktop、web）");
+            // ★★★ 2026-10-13 尾②**前缀统一**（用户实测：同一个已装插件，页脚写 `0.2.0`、更新页写 `v0.2.0` ✗）：
+            //   纪律 = 一个版本号的**显示形态只有一个出口** ✓（`VersionMarkers.TagOf` ✓）；
+            //   而且**在线/离线两条取值路径**（页脚 `DescribeBridge` ✓ 更新页 `UpdateDiagnosis.VersionText` ✓）
+            //   在同一个输入上必须给出**同一个形态** ✓ —— 这条断言就是钉这个不变式 ✓。
+            Check("版本·★同一个版本号在**页脚**与**更新页**显示成**同一个形态**（都是 vX.Y.Z ✓ 不再一个带 v 一个不带 ✗）",
+                VersionMarkers.DescribeBridge(new List<VersionMarkers.BridgeHit> {
+                    new VersionMarkers.BridgeHit { Version = "0.2.0", Profile = "web" } }) == "v0.2.0（web）"
+                && UpdateDiagnosis.VersionText("plugin", "up-to-date", "0.2.0", "0.2.0").StartsWith("已装 v0.2.0")
+                && VersionMarkers.DescribeBridge(new List<VersionMarkers.BridgeHit> {
+                    new VersionMarkers.BridgeHit { Version = "v0.2.0", Profile = "web" } }) == "v0.2.0（web）"
+                && VersionMarkers.DisplayVersion("v0.2.0") == "v0.2.0"
+                && VersionMarkers.DisplayVersion("") == "" && VersionMarkers.DisplayVersion(null) == null);
+            Check("版本·★页脚要显示的版本号走**同一个取数函数**（空/读不到 = 不显示 ✓ ✗ 不凭空造一个 v ✗）",
+                VersionMarkers.DisplayVersion("0.2.0") == VersionMarkers.TagOf("0.2.0")
+                && VersionMarkers.DisplayVersion("0.2.0") == "v0.2.0"
+                // 一个 package.json 都没实读到 → 页脚说「未安装」✓（✗ 不走到"给版本号加 v"那一步 ✗
+                // 所以 `unknown` 这种占位串**永远不会**被当成版本号显示出来 ✓）
+                && VersionMarkers.DescribeBridge(new List<VersionMarkers.BridgeHit>()) == "未安装"
+                && VersionMarkers.DescribeBridge(null) == "未安装");
 
             Check("诊断·四态照译：已是最新 / 有更新 / 比最新还新 / 在官方页更新",
                 UpdateDiagnosis.StateText("webui", "up-to-date", "1.0.0", "1.0.0") == "已是最新"

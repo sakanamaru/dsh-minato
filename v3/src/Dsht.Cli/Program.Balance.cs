@@ -34,8 +34,8 @@ namespace Dsht.Cli
                 Dsht.Domain.Services.BalanceInfo bi = Dsht.Domain.Services.BalanceJson.Parse(body);
                 if (!bi.Parsed)
                 {
-                    Console.WriteLine("BALANCE_UNAVAILABLE " + T("响应不认（key 可能无效，或平台改了返回格式）—— 不猜数字 ✗",
-                        "unrecognized response (invalid key, or the format changed) - refusing to invent numbers"));
+                    Console.WriteLine("BALANCE_UNAVAILABLE " + T("响应不认（key 可能无效，或平台改了返回格式），因此不给出数字",
+                        "unrecognized response (invalid key, or the format changed) - no numbers reported"));
                     return 0;
                 }
                 if (bi.Currency.Length > 0) Console.WriteLine("BALANCE_CURRENCY " + bi.Currency);

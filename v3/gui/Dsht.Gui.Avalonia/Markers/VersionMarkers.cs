@@ -26,13 +26,22 @@ namespace Dsht.Gui.Avalonia.Markers
             return null;
         }
 
-        /// <summary>显示用的 tag ✓：`3.0.7` → `v3.0.7` ✓（CLI 的标记行里是**归一化**的 `3.0.7` ✓ 显示才加 v ✓）。
+        /// <summary>版本号**显示形态的唯一出口** ✓：`3.0.7` → `v3.0.7` ✓（CLI 的标记行里是**归一化**的 `3.0.7` ✓ 显示才加 v ✓）。
         /// **只加前缀** ✓ —— 不补零、不切段、不排序、不比较 ✓（版本比较是 CLI 的事 ✓ GUI 只显示 ✗不重算 ✓）；
-        /// 已经带 v 的原样返回 ✓；空串原样返回 ✓（✗ 不凭空造一个 v ✗）。</summary>
-        public static string TagOf(string v)
+        /// 已经带 v 的原样返回 ✓；空串原样返回 ✓（✗ 不凭空造一个 v ✗）。
+        /// ★ 2026-10-13：`TagOf` 保留为同义名（既有断言与调用方不动 ✓），新代码请用本名 ✓ ——
+        ///   页脚（`DescribeBridge` ✓）与更新页（`CellInstalled` / `CellBundled` / `VersionText` ✓）都走它 ✓
+        ///   于是**同一个版本号在所有位置显示成同一个样子** ✓（这正是尾②修掉的那条不一致 ✓）。</summary>
+        public static string DisplayVersion(string v)
         {
             if (string.IsNullOrEmpty(v)) return v;
             return (v[0] == 'v' || v[0] == 'V') ? v : ("v" + v);
+        }
+
+        /// <summary>同 `DisplayVersion` ✓（历史名 ✓ 保留以免动既有断言 ✓）。</summary>
+        public static string TagOf(string v)
+        {
+            return DisplayVersion(v);
         }
 
         /// <summary>一个实读到的桥接插件 package.json。</summary>
@@ -164,7 +173,11 @@ namespace Dsht.Gui.Avalonia.Markers
             }
         }
 
-        /// <summary>页脚那一句：多个 profile 分别报 ✓ 同版本合并 ✓ 一个都没实读到 → 「未安装」✓（✗ 绝不编版本号 ✗）。</summary>
+        /// <summary>页脚/插件页那一句：多个 profile 分别报 ✓ 同版本合并 ✓ 一个都没实读到 → 「未安装」✓（✗ 绝不编版本号 ✗）。
+        /// ★★★ 2026-10-13 **前缀统一** ✓✓：每个版本号都过 `TagOf` ✓ —— 于是**页脚**（本方法 ✓）、
+        ///   插件页与**更新页的表格**（`UpdateCenterMarkers.CellInstalled` / `CellBundled` ✓）显示成**同一个形态** `vX.Y.Z` ✓
+        ///   ✗ 改之前：同一个已装插件在页脚是 `0.2.0`、在更新页是 `v0.2.0` ✗（同一个事实两种写法 =
+        ///     读起来像两份数据 ✓ 用户实测报的就是这条 ✓）。**只加前缀** ✓ 数值/合并规则/顺序一字未改 ✗。</summary>
         public static string DescribeBridge(List<BridgeHit> hits)
         {
             if (hits == null || hits.Count == 0) return "未安装";
@@ -182,7 +195,7 @@ namespace Dsht.Gui.Avalonia.Markers
             for (int i = 0; i < vers.Count; i++)
             {
                 if (i > 0) sb.Append(" / ");
-                sb.Append(vers[i]);
+                sb.Append(DisplayVersion(vers[i]));
                 if (who[i].Count > 0) sb.Append("（").Append(string.Join("、", who[i].ToArray())).Append("）");
             }
             return sb.ToString();

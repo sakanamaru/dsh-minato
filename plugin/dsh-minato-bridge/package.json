@@ -1,6 +1,6 @@
 {
   "name": "dsh-minato-bridge",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "description": "Optional READ-ONLY bridge for DeepSeek Harness Toolkit (dsh-minato) - install the toolkit first: this plugin alone does nothing useful. It publishes dsh's in-process session state (which sessions are running, plus token/stat figures) as one small JSON snapshot for the standalone toolkit to read. No model calls, no network, no writes to dsh state.",
   "type": "module",
   "main": "index.js",

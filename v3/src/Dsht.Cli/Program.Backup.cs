@@ -186,7 +186,7 @@ namespace Dsht.Cli
                         for (int k = 0; k < ml.Length; k++) { if (ml[k].StartsWith("failed=", StringComparison.Ordinal)) int.TryParse(ml[k].Substring(7).Trim(), out failedInMarker); }
                     }
                     catch { }
-                    Console.WriteLine("BACKUP_VERIFY " + name + " complete " + have + (failedInMarker > 0 ? T(" ；但源里有 ", " ; but ") + failedInMarker + T(" 项未能备份（不完整 ✓）", " items could not be backed up (incomplete)") : ""));
+                    Console.WriteLine("BACKUP_VERIFY " + name + " complete " + have + (failedInMarker > 0 ? T(" ；但源里有 ", " ; but ") + failedInMarker + T(" 项未能备份（不完整）", " items could not be backed up (incomplete)") : ""));
                 }
             }
             if (notValidPkg > 0) Console.WriteLine("BACKUP_VERIFY_NOTE " + notValidPkg + T(" 项不是有效备份（不会被 backup-list 列出，也不会被 restore 选中）", " entries are not valid backups (not listed by backup-list, not selected by restore)"));
@@ -227,11 +227,11 @@ namespace Dsht.Cli
                     }
                     if (System.IO.File.Exists(sel))
                     {
-                        Console.WriteLine("BACKUP_DIR_FAIL " + T("设置文件删掉后**仍然存在** ✓ 请手动删除：" + sel, "the settings file still exists: " + sel));
+                        Console.WriteLine("BACKUP_DIR_FAIL " + T("设置文件删掉后仍然存在，请手动删除：" + sel, "the settings file still exists: " + sel));
                         return 0;
                     }
                 }
-                Console.WriteLine("BACKUP_DIR_RESET " + bk.BackupsRoot + " " + T("已恢复默认备份位置 ✓", "reset to the default backups folder"));
+                Console.WriteLine("BACKUP_DIR_RESET " + bk.BackupsRoot + " " + T("已恢复默认备份位置", "reset to the default backups folder"));
                 return 0;
             }
 
@@ -248,7 +248,7 @@ namespace Dsht.Cli
             // folder a delete targeted.
             if (!System.IO.Path.IsPathRooted(set))
             {
-                Console.WriteLine("BACKUP_DIR_FAIL " + T("必须是**绝对路径** ✓ 相对路径会随当前目录变化 ✗：" + set, "the path must be absolute: " + set));
+                Console.WriteLine("BACKUP_DIR_FAIL " + T("必须是绝对路径；相对路径会随当前目录变化：" + set, "the path must be absolute: " + set));
                 return 0;
             }
             string full;
@@ -260,19 +260,19 @@ namespace Dsht.Cli
             //   → **必须**再确认它**真的存在** ✓✓（不信任 API 的返回值 ✓ 只看事实 ✓）
             if (!System.IO.Directory.Exists(full))
             {
-                Console.WriteLine("BACKUP_DIR_FAIL " + T("目录创建后**并不存在** ✓ 路径不可用：" + full, "the folder does not exist after creating it: " + full));
+                Console.WriteLine("BACKUP_DIR_FAIL " + T("目录创建后并不存在，路径不可用：" + full, "the folder does not exist after creating it: " + full));
                 return 0;
             }
             try
             {
-                if (string.IsNullOrEmpty(sel)) { Console.WriteLine("BACKUP_DIR_FAIL " + T("取不到状态目录，无法保存设置 ✓", "cannot resolve the state dir")); return 0; }
+                if (string.IsNullOrEmpty(sel)) { Console.WriteLine("BACKUP_DIR_FAIL " + T("取不到状态目录，无法保存设置", "cannot resolve the state dir")); return 0; }
                 // ★ 同一处修复 ✓：**全新安装上 StateDir 可能还不存在** ✗ → 先建目录再写 ✓（见 `--to` 的说明 ✓）
                 try { string sp2 = System.IO.Path.GetDirectoryName(sel); if (!string.IsNullOrEmpty(sp2)) System.IO.Directory.CreateDirectory(sp2); } catch { }
                 System.IO.File.WriteAllText(sel, full, new System.Text.UTF8Encoding(false));
             }
             catch (Exception ex) { Console.WriteLine("BACKUP_DIR_FAIL " + T("无法保存设置：" + ex.Message, "cannot save the setting: " + ex.Message)); return 0; }
 
-            Console.WriteLine("BACKUP_DIR_OK " + full + " " + T("以后的备份都写到这里 ✓（已有备份**不会**被移动 ✓ 仍留在原处 ✓）", "future backups go here; existing ones are not moved"));
+            Console.WriteLine("BACKUP_DIR_OK " + full + " " + T("以后的备份都写到这里（已有备份不会被移动，仍留在原处）", "future backups go here; existing ones are not moved"));
             return 0;
         }
         private static int BackupList(string[] args, ServiceRegistry reg)
@@ -306,7 +306,7 @@ namespace Dsht.Cli
             // 或留下名字像备份但内容不是的目录时 ✓ 静默忽略会让他以为"我的备份还在" ✗）
             // 仅当 >0 时打印 ✓ → 比对夹具（受控 3 个备份 ✓）不受影响 ✓ 契约安全 ✓
             if (notValid > 0)
-                Console.WriteLine("BACKUP_LIST_IGNORED " + notValid + T(" 项在备份根里但不是有效备份（**仍会列出** ✓ 但不能用于恢复 ✓）", " entries are not valid packages (listed, but not restorable)"));
+                Console.WriteLine("BACKUP_LIST_IGNORED " + notValid + T(" 项在备份根里但不是有效备份（仍会列出，但不能用于恢复）", " entries are not valid packages (listed, but not restorable)"));
             foreach (BackupEntry e in all)
             {
                 // ★★★ **N10 修复（复审 MAJOR —— 这个标记**从来没被打印过**）** ✓✓
@@ -408,7 +408,7 @@ namespace Dsht.Cli
             string ct = (Flag(args, "--confirm-time") ?? "").Trim().Trim('"');
             if (string.IsNullOrEmpty(ct))
             {
-                Console.WriteLine("BKDEL_PLAN " + T("删除备份需要输入**当前时间**确认 ✓ 请加 `--confirm-time \"" + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture) + "\"` ✓（照抄上面这个时间 ✓）",
+                Console.WriteLine("BKDEL_PLAN " + T("删除备份需要输入当前时间确认。请加 `--confirm-time \"" + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture) + "\"`（照抄上面这个时间）",
                                                      "deleting a backup needs the current time: add --confirm-time \"" + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture) + "\""));
                 return 0;
             }
@@ -419,7 +419,7 @@ namespace Dsht.Cli
             DateTime ctParsed;
             if (!DateTime.TryParseExact(ct, "yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out ctParsed))
             {
-                Console.WriteLine("BKDEL_FAIL " + T("时间格式不对 ✓ 应为 yyyy-MM-dd HH:mm:ss ✓（现在：" + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture) + " ✓）", "bad time format"));
+                Console.WriteLine("BKDEL_FAIL " + T("时间格式不对，应为 yyyy-MM-dd HH:mm:ss（现在：" + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture) + "）", "bad time format"));
                 return 1;
             }
             // I1 FIX (cont): the window was symmetric, so a time up to two minutes in the FUTURE
@@ -428,7 +428,7 @@ namespace Dsht.Cli
             double ctDiff = (DateTime.Now - ctParsed).TotalSeconds;
             if (ctDiff > 120 || ctDiff < -5)   // N4 FIX: negative diff = future; allow only a tiny clock skew
             {
-                Console.WriteLine("BKDEL_FAIL " + T("输入的时间与当前时间相差 " + (int)ctDiff + " 秒（超过 120 秒 ✓）→ 拒绝删除 ✓ 现在：" + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture) + " ✓",
+                Console.WriteLine("BKDEL_FAIL " + T("输入的时间与当前时间相差 " + (int)ctDiff + " 秒（超过 120 秒），拒绝删除。现在：" + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture),
                                                      "the time you typed is " + (int)ctDiff + "s away from now - refused"));
                 return 1;
             }

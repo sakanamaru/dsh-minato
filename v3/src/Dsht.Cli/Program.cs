@@ -12,8 +12,8 @@ using System.Reflection;
 [assembly: AssemblyDescription("DeepSeek Harness(dsh) 安装/启动/卸载/备份恢复工具箱。v1: SOGR-Momono Dango(QwenPaw/DeepseekAPI-V4-Flash-0731)；v2: DeepSeek DSH(DSH/DeepseekAPI-V4-Flash-0731)；GitHub @sakanamaru")]
 [assembly: AssemblyCompany("SOGR-Momono Dango / DeepSeek DSH / @sakanamaru")]
 [assembly: AssemblyProduct("dsh-minato")]
-[assembly: AssemblyVersion("3.0.7.0")]
-[assembly: AssemblyFileVersion("3.0.7.0")]
+[assembly: AssemblyVersion("3.1.0.0")]
+[assembly: AssemblyFileVersion("3.1.0.0")]
 namespace Dsht.Cli
 {
     /// <summary>V3 CLI 组合根 + 命令面。每个命令的标记行都要与 v2.x 逐字一致（见 v3/tests/compare_markers.ps1）。</summary>
@@ -234,10 +234,10 @@ namespace Dsht.Cli
             Console.WriteLine("  profiles | profilecheck [--dir <d>] [--file <yaml>] [--diag] | profilepatch --profile <name> --id <entry> [--enable] [--yes]");
             Console.WriteLine("  sessions [--days 7|14|30] [--level global] | log [--lines <n>] [--level info|warn|error] [--grep <text>] [--export <file> [--yes]]");
             Console.WriteLine("  update-info | update-center | update [--yes]");
-            Console.WriteLine("  balance（DeepSeek 余额检测 ✓ 只读 ✓ 需先在设置里填 balance_key ✓）");
+            Console.WriteLine("  balance（DeepSeek 余额检测；只读；需先在设置里填 balance_key）");
 Console.WriteLine("  config-get | config-set <key> <value>");
             Console.WriteLine("  install [--install-node] [--version <v>] [--list] [--yes] | update [--version <v>] [--list] [--yes] | uninstall [--yes]");
-            Console.WriteLine("  update-info（只读：当前/最新/来源/状态/回滚候选 ✓）");
+            Console.WriteLine("  update-info（只读：当前/最新/来源/状态/回滚候选）");
             Console.WriteLine("  start [--port <n>] [--profile <name>] [--yes] | stop [--port <n>] [--target web|desktop] [--force] [--yes]");
             Console.WriteLine("  backup | backup-list [--detail] [--verify] | backup-export --path <备份> --to <目标> [--yes] | backup-delete --path <备份> [--yes] [--yes]");
             Console.WriteLine("  restore --path <备份> [--dry-run] [--apply] [--yes]");
@@ -529,7 +529,7 @@ Console.WriteLine("  config-get | config-set <key> <value>");
 
 
         /// <summary>工具箱版本（源码常量：保证 csc 与 dotnet 两种构建报告一致）。</summary>
-        internal const string ToolkitVersion = "3.0.7";
+        internal const string ToolkitVersion = "3.1.0";
 
         private const string NpmOfficial = "https://registry.npmjs.org";
 
@@ -610,7 +610,7 @@ Console.WriteLine("  config-get | config-set <key> <value>");
                 //   ✓ 现在：**缩成一句** ✓✓（安装器侧已加保险：卸载显式跳过 backup/ ✓
                 //     所以这句只是**提示** ✓ 不是告警 ✓ 也不再吓人 ✓）
                 Console.WriteLine("BACKUP_WARN " + T(
-                    "备份在安装目录内 ✓ 建议用 --to <目录> 或环境变量 DSH_MINATO_BACKUP_DIR 放到外面 ✓",
+                    "备份在安装目录内；建议用 --to <目录> 或环境变量 DSH_MINATO_BACKUP_DIR 放到外面",
                     "backups live inside the install folder; use --to <dir> or DSH_MINATO_BACKUP_DIR to move them out"));
             }
             catch { }
@@ -650,14 +650,14 @@ Console.WriteLine("  config-get | config-set <key> <value>");
                         try { string parent = System.IO.Path.GetDirectoryName(selDir); if (!string.IsNullOrEmpty(parent)) System.IO.Directory.CreateDirectory(parent); } catch { }
                         System.IO.File.WriteAllText(selDir, full, new System.Text.UTF8Encoding(false));
                     }
-                    catch (Exception wex) { Console.WriteLine("BACKUP_WARN " + T("记不住这个位置（设置文件写不进去 ✓）：" + wex.Message, "could not remember the location: " + wex.Message)); }
+                    catch (Exception wex) { Console.WriteLine("BACKUP_WARN " + T("记不住这个位置（设置文件写不进去）：" + wex.Message, "could not remember the location: " + wex.Message)); }
                     string effective = reg.Get<IBackupSource>().BackupsRoot;
                     if (!string.Equals((effective ?? "").TrimEnd('\\', '/'), full.TrimEnd('\\', '/'), StringComparison.OrdinalIgnoreCase))
                     {
-                        Console.WriteLine("BACKUP_FAIL " + T("指定的目录**没有生效** ✓ 本次备份会写到：" + effective + " ✗（设置文件可能只读 ✓）", "the --to folder did not take effect; this backup would go to: " + effective));
+                        Console.WriteLine("BACKUP_FAIL " + T("指定的目录没有生效，本次备份会写到：" + effective + "（设置文件可能只读）", "the --to folder did not take effect; this backup would go to: " + effective));
                         return 1;
                     }
-                    Console.WriteLine("BACKUP_TO " + full + " " + T("本次备份写到这个目录 ✓（放在安装目录之外才稳妥 ✓）", "this backup goes here"));
+                    Console.WriteLine("BACKUP_TO " + full + " " + T("本次备份写到这个目录（放在安装目录之外才稳妥）", "this backup goes here"));
                 }
                 catch (Exception ex) { Console.WriteLine("BACKUP_FAIL " + T("无法使用 --to 指定的目录：" + ex.Message, "cannot use --to dir: " + ex.Message)); return 1; }
             }
@@ -715,7 +715,7 @@ Console.WriteLine("  config-get | config-set <key> <value>");
                     catch { }
                     if (explicitlySet && !string.IsNullOrEmpty(br2) && !System.IO.Directory.Exists(br2))
                     {
-                        Console.WriteLine("BACKUP_FAIL " + T("**配置的备份目录不存在** ✗：" + br2 + " ✓（你可能移动或删除了它 ✓）请用 `backup-dir --reset` 恢复默认 ✓ 或用 `--to <目录>` 指定新的 ✓", "the configured backups folder does not exist: " + br2));
+                        Console.WriteLine("BACKUP_FAIL " + T("配置的备份目录不存在：" + br2 + "（你可能移动或删除了它）请用 `backup-dir --reset` 恢复默认，或用 `--to <目录>` 指定新的", "the configured backups folder does not exist: " + br2));
                         return 1;
                     }
                     // ★★★ **N9 修复（复审 MAJOR —— GUI 把**所有** BACKUP_FAIL 都当成"要选目录"）** ✓✓
@@ -725,8 +725,8 @@ Console.WriteLine("  config-get | config-set <key> <value>");
                     //   ✓ 现在：**打一个专用标记** ✓✓ GUI 只认它 ✓ 其余错误照常显示 ✓
                     Console.WriteLine("BACKUP_NEEDS_DIR 第一次备份需要先选一个目录");
                     Console.WriteLine("BACKUP_FAIL " + T(
-                        "**第一次备份必须指定目录** ✓ 请加 `--to <目录>` ✓（建议放在安装目录之外 ✓ 例如 D:\\dsh-backups ✓）"
-                        + "；GUI 里第一次点「立即备份」也会弹窗让你选 ✓✓",
+                        "第一次备份必须指定目录：请加 `--to <目录>`（建议放在安装目录之外，例如 D:\\dsh-backups）"
+                        + "；GUI 里第一次点「立即备份」也会弹窗让你选",
                         "the first backup needs an explicit folder - add --to <dir>, preferably outside the install folder"));
                     return 1;
                 }
@@ -750,7 +750,7 @@ Console.WriteLine("  config-get | config-set <key> <value>");
                 // ★ 架构审计抓到（S7）：原来是"见 launcher.log" ✗ —— 而原因**就在手边** ✓
                 //   → 现在：**把平台层记下的真实原因打印出来** ✓✓（仍同时指路日志 ✓）
                 string why = PlatformIsWindows() ? Dsht.Platform.Windows.WindowsBackupSource.LastError : Dsht.Platform.Linux.LinuxBackupSource.LastError;
-                Console.WriteLine("BACKUP_FAIL " + T("备份失败：" + (string.IsNullOrEmpty(why) ? "（平台层没有给出原因 ✓ 见 launcher.log）" : why),
+                Console.WriteLine("BACKUP_FAIL " + T("备份失败：" + (string.IsNullOrEmpty(why) ? "（平台层没有给出原因，见 launcher.log）" : why),
                                                           "backup failed: " + (string.IsNullOrEmpty(why) ? "(the platform layer gave no reason; see launcher.log)" : why)));
                 return 1;
             }
@@ -761,11 +761,11 @@ Console.WriteLine("  config-get | config-set <key> <value>");
             //   → 一个部分失败的备份同时打印"成功"和"不完整" ✓ 而 GUI 只看 BACKUP_OK ✓ → 报成成功 ✗
             // ✓ 现在：**不完整就不报 OK** ✓✓（GUI 因此如实显示未完成 ✓）
             if (r.FailedCopies > 0)
-                Console.WriteLine("BACKUP_INCOMPLETE " + r.Path + " " + T("有 " + r.FailedCopies + " 项没能备份 ✓ 这个包**不完整** ✓（restore 会要求 --force）", "the package is incomplete: " + r.FailedCopies + " items could not be backed up"));
+                Console.WriteLine("BACKUP_INCOMPLETE " + r.Path + " " + T("有 " + r.FailedCopies + " 项没能备份，这个包不完整（restore 会要求 --force）", "the package is incomplete: " + r.FailedCopies + " items could not be backed up"));
             else
                 Console.WriteLine("BACKUP_OK " + r.Path);
             int _wsDone = PackageAllWorkspaces(r.Path, reg);
-            if (_wsDone > 0) Console.WriteLine("BACKUP_WORKSPACES " + _wsDone + T(" 个工作区已打包（新格式 _workspace/<名称>/.dshws ✓）", " workspaces packaged (new layout _workspace/<name>/.dshws)"));
+            if (_wsDone > 0) Console.WriteLine("BACKUP_WORKSPACES " + _wsDone + T(" 个工作区已打包（新格式 _workspace/<名称>/.dshws）", " workspaces packaged (new layout _workspace/<name>/.dshws)"));
             AddContentHashToMarker(r.Path);   // 标记补内容哈希 ✓（能发现"计数对但内容残" ✗✓）
             // ★★ 审查修复（2026-10-06，C1）：S9 修复把 if 的方法体连同花括号一起删了 ✗
             //   → 裸 `if (r.FailedCopies > 0)` 吞掉了 OpLog ✗✗ 完整备份**不写日志**、不完整反而写 "backup OK"（与事实相反）
@@ -817,6 +817,11 @@ Console.WriteLine("  config-get | config-set <key> <value>");
             string npm = TrimOrNull(tc.NpmVersion());
             Console.WriteLine("  npm        : " + (string.IsNullOrWhiteSpace(npm) ? T("未检测到", "not found") : npm));
             string dsh = tc.WhichDsh();
+            // ★★ 这一行的 ` ✓` **必须留着**（2026-10-13 尾③实测踩到）✗：
+            //   `check` 是 v2.x 的**逐字比对契约**（`compare_markers.ps1` 的 `check` 用例 ✓），
+            //   而这条 `dsh :` 行**不在**那条用例的 ignore 规则里 ✓ → 去掉这个字符立刻 20/21 ✗✗。
+            //   ✓ 结论：这不是"用户可见文案里的施工语气"（那是 NOTE 家族的事 ✓）而是**冻结契约** ✓
+            //     所以它**逐字保留** ✓ —— 要动它得先改契约与 v2.x 侧，属另一件事 ✗。
             Console.WriteLine("  dsh        : " + (dsh == null ? T("未安装", "not installed") : dsh + " ✓"));
             if (dsh != null)
             {
@@ -971,12 +976,12 @@ Console.WriteLine("  config-get | config-set <key> <value>");
                 {
                     RestoreOutcome rb = bk.Restore(preRollbackPath, dstRoot, WorkspaceRoot(reg));
                     if (rb != null && rb.Ok)
-                        Console.WriteLine("RESTORE_ROLLED_BACK " + preRollbackPath + " " + T("已自动回滚到恢复前的状态 ✓", "rolled back to the pre-restore state"));
+                        Console.WriteLine("RESTORE_ROLLED_BACK " + preRollbackPath + " " + T("已自动回滚到恢复前的状态", "rolled back to the pre-restore state"));
                     else
-                        Console.WriteLine("RESTORE_ROLLBACK_FAILED " + preRollbackPath + " " + T("自动回滚也失败了 ✗ 数据根可能是半合并状态 ✓ 请手动用上面那个包恢复 ✓", "automatic rollback ALSO failed; the data root may be half-merged - restore it by hand from the package above"));
+                        Console.WriteLine("RESTORE_ROLLBACK_FAILED " + preRollbackPath + " " + T("自动回滚也失败了；数据根可能是半合并状态，请手动用上面那个包恢复", "automatic rollback ALSO failed; the data root may be half-merged - restore it by hand from the package above"));
                 }
                 else
-                    Console.WriteLine("RESTORE_NO_ROLLBACK " + T("没有可用的回滚锚点（数据根原先不存在 ✓ 所以没建）✓", "no rollback anchor was available (the data root did not exist before)"));
+                    Console.WriteLine("RESTORE_NO_ROLLBACK " + T("没有可用的回滚锚点（数据根原先不存在，所以没建）", "no rollback anchor was available (the data root did not exist before)"));
                 return 1;   // ★ 恢复失败不能返回 0 ✓✓（自动化会以为成功了 ✗）
             }
             Console.WriteLine("RESTORE_OK " + bkDir);

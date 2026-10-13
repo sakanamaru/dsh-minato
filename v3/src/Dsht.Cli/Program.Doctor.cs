@@ -283,7 +283,7 @@ namespace Dsht.Cli
             // path traversal). Names are restricted to what a profile name can actually be.
             if (!string.IsNullOrEmpty(profile) && !System.Text.RegularExpressions.Regex.IsMatch(profile, @"^[A-Za-z0-9._-]+$") || profile == "." || profile == "..")   // N7 FIX: dots alone escaped the profiles dir
             {
-                Console.WriteLine("PROFILEPATCH_FAIL " + T("profile 名字不合法（只允许字母数字与 . _ - ✓）：" + profile, "invalid profile name: " + profile));
+                Console.WriteLine("PROFILEPATCH_FAIL " + T("profile 名字不合法（只允许字母数字与 . _ -）：" + profile, "invalid profile name: " + profile));
                 return 0;
             }
             string text = src.ReadPatch(profile);

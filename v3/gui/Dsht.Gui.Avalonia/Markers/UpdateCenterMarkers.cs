@@ -49,6 +49,13 @@ namespace Dsht.Gui.Avalonia.Markers
             return !string.IsNullOrEmpty(decoded) && decoded != "-";
         }
 
+        // ================================================================ package.json 字段读取
+        // ★ 2026-10-13：这一段原来长在这里 ✗ —— 但 CLI（`Program.Ops.cs`）也要用同一份判定 ✓
+        //   而 **GUI 程序集不是 CLI 的依赖**（CLI 只引用 Domain / 两个 Platform ✓）→ CS0234 ✗。
+        //   ✓ 已搬到 **Domain 层**：`v3/src/Dsht.Domain/Services/PackageJsonFields.cs`（纯逻辑 ✓ 零 IO ✓
+        //     正是"领域逻辑可被任何平台与任何前端复用"的那一层 ✓）。
+        //   ✗ 不在这里保留第二份 ✗（两份就会有两个答案 —— 这次修的 bug 就是这么来的 ✓）。
+
         /// <summary>按 `UPDATECENTER_` 前缀扫全部行 ✓ **按 id 归组** ✓ 返回的 Item 顺序 = ITEM 行出现序 ✓。</summary>
         public static List<Item> Parse(string raw)
         {
@@ -285,22 +292,13 @@ namespace Dsht.Gui.Avalonia.Markers
         /// <summary>某一行"已装 → 基准"的**版本段** ✓（基准 = 工具箱自带那一份 ✓ 不是网上的最新版 ✓）。
         /// ⚠ 2026-10-11（表格化）：**合并卡已经不用它了** ✗（合并卡走五列表格 ✓ 短格 ✓）；
         ///   它还留着是因为**单行的插件卡**（只有一个 profile 的插件 ✓ 走 `RenderUpdCard` ✓）
-        ///   与 LogicTests 仍按它给出完整的版本句 ✓ —— **口径与措辞一字未改** ✓。</summary>
+        ///   与 LogicTests 仍按它给出完整的版本句 ✓ —— **口径与措辞一字未改** ✓。
+        /// ★ 2026-10-13：**勘误** —— 单行插件卡其实走的是 `UpdateDiagnosis.VersionText` ✓，本方法当时没有活的
+        ///   调用方 ✗；它与 `VersionText` 的插件分支**逐字相同**（两处各写一遍 = 漂移风险 ✗）。
+        ///   ✓ 现在**委托**给那一个函数 ✓✓（"离线路径复用同一取数函数" ✓ 只剩一处措辞 ✗ 不许再各写一遍 ✗）。</summary>
         public static string RowVersionText(string installed, string latest, string state)
         {
-            bool baseOk = !string.IsNullOrEmpty(latest) && latest != "unknown";
-            bool instOk = !string.IsNullOrEmpty(installed) && installed != "unknown";
-            if (!baseOk)
-                return instOk
-                    ? ("已装 " + VersionMarkers.TagOf(installed) + "　→　工具箱自带的基准不可用（CLI 报 latest=unknown，原因见诊断行）")
-                    : "未安装（CLI 报 installed=unknown）；工具箱自带的基准也不可用";
-            if (!instOk) return "未安装";
-            string t = "已装 " + VersionMarkers.TagOf(installed) + "　→　工具箱自带 " + VersionMarkers.TagOf(latest);
-            if (state == "content-mismatch")
-                t += "　——　版本号相同，但 snapshot.js / index.js 的内容哈希与工具箱自带的不同（半旧或被改过；只看版本号看不出来）";
-            else if (state == "newer-than-bundled")
-                t += "　——　已装版本高于工具箱自带（不当作「有更新」）";
-            return t;
+            return UpdateDiagnosis.VersionText("plugin", state, latest, installed);
         }
 
         /// <summary>某一行**显示的整句** ✓（版本段 · 状态 · 该行独有的下一步 ✓ 三样都要看得见 ✓）。

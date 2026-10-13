@@ -20,5 +20,9 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="..\..\src\Dsht.Domain\Services\MarkerText.cs" Link="MarkerText.cs" />
+    <!-- ★ 2026-10-13：package.json 的字段判定（`repository` 对象形态取 `.url`）搬到了 Domain 层 ——
+         CLI 与 GUI 单测要**同一份**判定（各写一遍就会出现两个答案）。本工程不引用 GUI 程序集，
+         只编译 Markers/*.cs 加显式列出的 Domain 源文件，所以这里显式加进来（同上一个 MarkerText.cs）。 -->
+    <Compile Include="..\..\src\Dsht.Domain\Services\PackageJsonFields.cs" Link="PackageJsonFields.cs" />
   </ItemGroup>
 </Project>

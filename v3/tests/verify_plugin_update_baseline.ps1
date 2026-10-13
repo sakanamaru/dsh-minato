@@ -200,6 +200,15 @@ Write-Plugin (New-Profile 'web')     $bver   'root'   $bsnap                    
 Write-Plugin (New-Profile 'stale')   $bver   'root'   ($bsnap + "`n// stale extra line`n")   # same version, different hash
 Write-Plugin (New-Profile 'legacy')  $bver   'legacy' $bsnap                                 # identical, old nested layout
 Write-Plugin (New-Profile 'ahead')   '9.9.9' 'root'   $bsnap                                 # newer than the bundled copy
+# 2026-10-13 (tail 1): a NON-bridge plugin whose package.json declares `repository` as an OBJECT
+# (`{"type":"git","url":"…","directory":"…"}` - one of npm's two legal shapes). The update page used
+# to print the literal word `type` as the URL because it took "the first quoted string after the key".
+# This row is the end-to-end witness for the fix, on the device (not just in a pure-function test).
+$objProf = New-Profile 'objrepo'
+$objPkg = Join-Path $objProf 'node_modules\probe-objrepo'
+New-Item -ItemType Directory -Path $objPkg -Force | Out-Null
+$objJson = '{"name":"probe-objrepo","version":"1.0.0","repository":{"type":"git","url":"https://example.invalid/probe-objrepo.git","directory":"plugin/probe-objrepo"}}'
+[System.IO.File]::WriteAllText((Join-Path $objPkg 'package.json'), $objJson, (New-Object System.Text.UTF8Encoding($false)))
 [void](New-Profile 'none')                                                                    # real profile, plugin not installed
 New-Item -ItemType Directory -Path (Join-Path $root 'profiles\junkdir') -Force | Out-Null     # not a profile (no marker files)
 
@@ -231,12 +240,22 @@ Check 'row none: real profile without the plugin -> not-installed with installed
     ((StateOf $rowNone) -eq 'not-installed' -and (FieldOf $rowNone 'installed') -eq 'unknown') $rowNone
 Check 'a junk directory under profiles\ is NOT reported as a profile' `
     ((RowOf $out 'junkdir') -eq '') 'junkdir produced a row'
-Check 'exactly 6 plugin rows (one per real profile); every row keeps the ITEM field names and kind=plugin' `
-    ((ItemLines $out).Count -eq 6 -and (@(ItemLines $out | Where-Object { $_ -notmatch ' kind=plugin( |$)' }).Count -eq 0)) `
+Check 'exactly 7 plugin rows (one per real profile); every row keeps the ITEM field names and kind=plugin' `
+    ((ItemLines $out).Count -eq 7 -and (@(ItemLines $out | Where-Object { $_ -notmatch ' kind=plugin( |$)' }).Count -eq 0)) `
     ('rows=' + (ItemLines $out).Count)
+# ---- tail 1 (2026-10-13): `repository` as an OBJECT must yield its `.url`, never the word `type` ----
+# The generic (non-bridge) plugin row is the one that used to be wrong. Assert the exact URL line here;
+# the other two shapes (string / missing) are covered by the pure-function tests in Dsht.Gui.LogicTests
+# and by the CLI contract tests.
+# NOTE: the `Urls` helper above is deliberately bridge-scoped (it keys on the bridge id), so this probe
+# scans the raw lines for its own id - otherwise the check would silently read the wrong id's URLs.
+$objUrl = @(LinesOf $out | Where-Object { $_.Trim().StartsWith('UPDATECENTER_URL plugin:probe-objrepo ') } | ForEach-Object { $_.Trim() })
+Check 'repository as an OBJECT -> the URL line carries .url (NOT the literal word "type")' `
+    ($objUrl.Count -eq 1 -and $objUrl[0] -eq 'UPDATECENTER_URL plugin:probe-objrepo https://example.invalid/probe-objrepo.git') `
+    (($objUrl -join ' | ') + '  (rows=' + ((@(ItemLines $out) | ForEach-Object { FieldOf $_ 'profile' }) -join ',') + ')')
 Check 'no DIAG when the baseline is available (the row really does have a latest)' `
     (-not (HasDiag $out)) (DiagText $out)
-Check 'ONE shared NOTE and ONE shared URL for the whole id (6 rows, 1 note, 1 url) - the same sentence is no longer repeated per profile' `
+Check 'ONE shared NOTE and ONE shared URL for the whole id (6 bridge rows, 1 note, 1 url) - the same sentence is no longer repeated per profile' `
     ((Notes $out).Count -eq 1 -and (Urls $out).Count -eq 1) `
     ('notes=' + (Notes $out).Count + ' urls=' + (Urls $out).Count)
 Check 'every row carries its own next= guidance (one per row, so a row can never pick up another row''s guidance)' `

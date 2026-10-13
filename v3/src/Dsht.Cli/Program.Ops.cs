@@ -197,7 +197,15 @@ namespace Dsht.Cli
                             if (string.IsNullOrEmpty(txt)) continue;
                             string name = JsonStr(txt, "name");
                             string ver = JsonStr(txt, "version");
-                            string repo = JsonStr(txt, "repository");
+                            // ★★★ 2026-10-13 URL 取值修复：`repository` 是**对象**（npm 官方写法之一 ✓
+                            //   `{"type":"git","url":"https://…","directory":"…"}` ✓）时，原来直接调
+                            //   `JsonStr(txt, "repository")` → 它取「键后第一个引号串」→ 拿到的是对象里的
+                            //   第一把**键**（`type` ✗✗）→ 更新页把字面值 `type` 当仓库地址显示 ✗。
+                            //   ✓ 现在：**同一份判定同时服务三种形态**（对象取 `.url` ✓ 字符串原样 ✓ 取不到空串 ✓）
+                            //     —— 实现在 `Dsht.Domain\Services\PackageJsonFields.cs` 的纯函数里 ✓
+                            //     单测（GUI LogicTests ✓ 契约测试）与设备端到端（verify_plugin_update_baseline ✓）各钉一遍 ✓
+                            //     ✗ 不在这里再写第二份解析 ✗（两份就会有两个答案 —— 这个 bug 正是这么来的 ✓）
+                            string repo = Dsht.Domain.Services.PackageJsonFields.RepoUrl(txt);
                             if (string.IsNullOrEmpty(name)) name = System.IO.Path.GetFileName(pkgs[k]);
                             if (string.IsNullOrEmpty(ver)) ver = "unknown";
                             string pid = "plugin:" + name;
@@ -234,8 +242,8 @@ namespace Dsht.Cli
                             // 只在缺字段时才问 ✓（npm view 每次要 1~2 秒 ✗ 不能对每个插件都问 ✓）
                             if (string.IsNullOrEmpty(repo)) repo = NpmRepoOf(name);
                             plugPart.Add("UPDATECENTER_URL " + pid + " " + (string.IsNullOrEmpty(repo) ? "unknown" : repo));
-                            plugPart.Add("UPDATECENTER_NOTE " + pid + " " + T("没有独立的版本渠道：插件随工具箱发布，它的版本号（package.json 的 version）与工具箱 tag（如 v3.0.7）不在一个序列上，因此没有可比的 latest —— 这里 `latest=unknown` 是事实，不是「还没查」；本工具也不会拿工具箱 tag 当插件的 latest。插件更新先描述风险再确认（版本变化可能改行为）；更新前自动备份。插件由各自作者维护，本工具不替它担保。",
-                                "no independent release channel: this plugin ships with the toolkit, so its version (package.json) and the toolkit tag (e.g. v3.0.7) are not the same series - there is no comparable latest, so latest=unknown is a FACT, not a pending lookup, and this tool will not pass the toolkit tag off as the plugin's latest. plugin updates describe the risk and ask first; the data root is backed up"));
+                            plugPart.Add("UPDATECENTER_NOTE " + pid + " " + T("没有独立的版本渠道：插件随工具箱发布，它的版本号（package.json 的 version）与工具箱 tag（如 v3.1.0）不在一个序列上，因此没有可比的 latest —— 这里 `latest=unknown` 是事实，不是「还没查」；本工具也不会拿工具箱 tag 当插件的 latest。插件更新先描述风险再确认（版本变化可能改行为）；更新前自动备份。插件由各自作者维护，本工具不替它担保。",
+                                "no independent release channel: this plugin ships with the toolkit, so its version (package.json) and the toolkit tag (e.g. v3.1.0) are not the same series - there is no comparable latest, so latest=unknown is a FACT, not a pending lookup, and this tool will not pass the toolkit tag off as the plugin's latest. plugin updates describe the risk and ask first; the data root is backed up"));
                             AddPart(lines, emit, plugPart);
                         }
                         // ★ 该 profile **是真 profile** 但没装桥接插件 → 也**如实报一行「未安装」** ✓
@@ -799,7 +807,7 @@ namespace Dsht.Cli
             if (!Has(args, "--enable") && !Has(args, "--disable"))
             {
                 Console.WriteLine("AUTOSTART_PATH " + path);
-                Console.WriteLine("AUTOSTART_WOULD " + T("将启动：", "would start: ") + label + (effective == "desktop" && !win ? T("（注意：Linux 上官方桌面端暂未发行 ✓ 请把 auto_start_target 改成 web ✓）", " (note: no Linux desktop app yet; set auto_start_target=web)") : ""));
+                Console.WriteLine("AUTOSTART_WOULD " + T("将启动：", "would start: ") + label + (effective == "desktop" && !win ? T("（注意：Linux 上官方桌面端暂未发行，请把 auto_start_target 改成 web）", " (note: no Linux desktop app yet; set auto_start_target=web)") : ""));
                 return 0;
             }
 
@@ -862,7 +870,7 @@ namespace Dsht.Cli
                 wrote = System.IO.File.Exists(path);
             }
             catch { }
-            if (!wrote) { Console.WriteLine("AUTOSTART_FAIL " + T("写入后**没有找到自启文件** ✓ 请检查权限 ✓", "no autostart file was found after writing")); return 0; }
+            if (!wrote) { Console.WriteLine("AUTOSTART_FAIL " + T("写入后没有找到自启文件，请检查权限", "no autostart file was found after writing")); return 0; }
             Console.WriteLine("AUTOSTART_OK enable");
                 Console.WriteLine("AUTOSTART_PATH " + path);
                 OpLog(reg, "INFO", "autostart enabled target=" + effective);
@@ -901,9 +909,9 @@ namespace Dsht.Cli
             Console.WriteLine("CONFIG sessions_price_cache_write_per_mtok " + _cfg.SessionsPriceCacheWritePerMTok.ToString(System.Globalization.CultureInfo.InvariantCulture));
             Console.WriteLine("CONFIG sessions_price_out_per_mtok " + _cfg.SessionsPriceOutPerMTok.ToString(System.Globalization.CultureInfo.InvariantCulture));
             // 备注行 ✓✓：GUI 原样显示在对应设置项下面 ✓（"出现什么问题时试哪个" ✓）
-            Console.WriteLine("CONFIGNOTE browser_mode " + T("【浏览器打不开时改这个】auto=自动（先 snap run firefox → 再直开 → 最后 xdg-open）/ snap=只走 snap（Ubuntu 的 snap 版 firefox 必须这样 ✓）/ direct=只直开 firefox / xdg=只交给系统默认", "when the browser will not open"));
-            Console.WriteLine("CONFIGNOTE ui_parallel " + T("【切页卡顿时改这个】on=概览页一次聚合调用 overview（快 ✓ 默认）/ off=四个命令分开跑（老行为，排障用）", "when switching pages feels slow"));
-            Console.WriteLine("CONFIGNOTE scan_children " + T("【会话页想更快时关掉】on=扫描会话文件得出主/子代理归类（默认 ✓ 197 个会话约 200ms）/ off=不扫（会话页更快，但子代理统计会为空）", "to make the sessions page faster"));
+            Console.WriteLine("CONFIGNOTE browser_mode " + T("【浏览器打不开时改这个】auto=自动（先 snap run firefox → 再直开 → 最后 xdg-open）/ snap=只走 snap（Ubuntu 的 snap 版 firefox 必须这样）/ direct=只直开 firefox / xdg=只交给系统默认", "when the browser will not open"));
+            Console.WriteLine("CONFIGNOTE ui_parallel " + T("【切页卡顿时改这个】on=概览页一次聚合调用 overview（快，默认）/ off=四个命令分开跑（老行为，排障用）", "when switching pages feels slow"));
+            Console.WriteLine("CONFIGNOTE scan_children " + T("【会话页想更快时关掉】on=扫描会话文件得出主/子代理归类（默认；197 个会话约 200ms）/ off=不扫（会话页更快，但子代理统计会为空）", "to make the sessions page faster"));
             Console.WriteLine("CONFIGNOTE auto_start " + T("【不想让 GUI 自动起 dsh 时关掉】on=GUI 启动时自动启动（默认）/ off=不自动", "if you do not want the GUI to auto-start dsh"));
             Console.WriteLine("CONFIGNOTE auto_start_target " + T("【开机自启启动什么】auto=按平台（Windows/macOS 启动官方桌面端，Linux 启动 dsh web）/ desktop=官方桌面端 / web=dsh web", "what to start at login"));
             Console.WriteLine("CONFIGNOTE gui_start_page " + T("【GUI 启动先开哪页】0=概览 1=看板 2=会话与Token 3=形态与插件 4=备份 5=体检 6=设置 7=说明 8=更新 9=日志（默认 1）", "which page the GUI opens first"));
@@ -911,8 +919,8 @@ namespace Dsht.Cli
             Console.WriteLine("CONFIGNOTE gui_shell " + T("【侧栏布局】0=侧栏式 1=顶部标签 2=卡片网格 3=主从式 4=混合式（默认 4）——顶栏切换器会记住你的选择", "sidebar layout 0-4; the top-bar switcher remembers your choice"));
             Console.WriteLine("CONFIGNOTE gui_style " + T("【视觉风格】0=A 浅色卡片 1=B 深色卡片 2=C 深色紧凑 3=D 浅色仪表盘（默认 0）——顶栏 A-D 会记住你的选择", "visual style A-D; the top-bar switcher remembers your choice"));
             Console.WriteLine("CONFIGNOTE balance_key " + T("【DeepSeek 平台 API key，用于余额检测】留空=未绑定（概览页不显示余额卡）。⚠ key 以明文保存在本机配置文件里，只在你自己的机器上，不上传", "DeepSeek platform API key for the balance card; empty = unbound; stored in plain text in the local config only"));
-            Console.WriteLine("CONFIGNOTE sessions_default_level " + T("【看板口径默认】global=全局 / parents=仅父会话 / parents_sub=父会话+子代理（第三批起三档全生效 ✓）——后两档需要桥插件血缘段（dsh-minato-bridge 只解原始日志首帧 header，正文帧一帧不解）；缺血缘时看板会如实提示降级", "default sessions scope; all three tiers live since batch 3 (parents/parents_sub need the bridge lineage section)"));
-            Console.WriteLine("CONFIGNOTE sessions_price_in_per_mtok " + T("【输入单价】美元/百万 token；0=未填 → 不显示费用（费用显示前置=D2b 多帧解码 ✓ 当前只存不算）", "input price per million tokens; 0 = unset"));
+            Console.WriteLine("CONFIGNOTE sessions_default_level " + T("【看板口径默认】global=全局 / parents=仅父会话 / parents_sub=父会话+子代理（三档都可用）——后两档需要桥插件血缘段（dsh-minato-bridge 只解原始日志首帧 header，正文帧一帧不解）；缺血缘时看板会如实提示降级", "default sessions scope; all three tiers live (parents/parents_sub need the bridge lineage section)"));
+            Console.WriteLine("CONFIGNOTE sessions_price_in_per_mtok " + T("【输入单价】美元/百万 token；0=未填 → 不显示费用（费用显示的前置是多帧解码；当前只存不算）", "input price per million tokens; 0 = unset"));
             Console.WriteLine("CONFIGNOTE sessions_price_cache_read_per_mtok " + T("【缓存读单价】美元/百万 token；0=未填", "cache-read price per million tokens; 0 = unset"));
             Console.WriteLine("CONFIGNOTE sessions_price_cache_write_per_mtok " + T("【缓存写单价】美元/百万 token；0=未填", "cache-write price per million tokens; 0 = unset"));
             Console.WriteLine("CONFIGNOTE sessions_price_out_per_mtok " + T("【输出单价】美元/百万 token；0=未填", "output price per million tokens; 0 = unset"));

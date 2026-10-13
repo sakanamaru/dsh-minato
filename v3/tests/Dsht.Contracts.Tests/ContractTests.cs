@@ -1261,6 +1261,22 @@ static class ContractTests
                 try { System.IO.Directory.Delete(d13bRoot, true); } catch { }
             }
         }
+        // ================================================================ package.json 的 repository 取值（2026-10-13 尾①）
+        // 真机 bug：`repository` 是**对象**（npm 官方写法之一）时，更新中心把对象里的第一把**键**（`type`）
+        // 当成仓库地址打印出来。下面三态钉住"同一个判定"的三种输入 —— 判定住在 Domain 层
+        // （Dsht.Domain.Services.PackageJsonFields），CLI 与 GUI 单测走的是**同一份**代码。
+        Check("package.json repository=对象 → 取 .url（✗ 不许把键 type 当值 ✗）",
+            Dsht.Domain.Services.PackageJsonFields.RepoUrl(
+                "{\"name\":\"dsh-minato-bridge\",\"version\":\"0.2.1\",\"repository\":{\"type\":\"git\",\"url\":\"https://github.com/sakanamaru/dsh-minato.git\",\"directory\":\"plugin/dsh-minato-bridge\"}}")
+                == "https://github.com/sakanamaru/dsh-minato.git");
+        Check("package.json repository=字符串 → 原样返回（不补 .git ✓ 不加工 ✓）",
+            Dsht.Domain.Services.PackageJsonFields.RepoUrl("{\"repository\":\"https://github.com/a/b\"}") == "https://github.com/a/b"
+            && Dsht.Domain.Services.PackageJsonFields.RepoUrl("{\"repository\":\"a/b\"}") == "a/b");
+        Check("package.json repository 缺失 / 形态不对 → 空串（调用方写 unknown ✓ ✗ 不猜 ✗）",
+            Dsht.Domain.Services.PackageJsonFields.RepoUrl("{\"name\":\"x\"}") == ""
+            && Dsht.Domain.Services.PackageJsonFields.RepoUrl("{\"repository\":{\"type\":\"git\"}}") == ""
+            && Dsht.Domain.Services.PackageJsonFields.RepoUrl("{\"repository\":123}") == ""
+            && Dsht.Domain.Services.PackageJsonFields.RepoUrl(null) == "");
         Console.WriteLine("== " + _pass + "/" + (_pass + _fail) + " passed, " + _fail + " failed ==");
         return _fail == 0 ? 0 : 1;
     }

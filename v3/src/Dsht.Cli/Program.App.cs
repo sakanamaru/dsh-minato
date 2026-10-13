@@ -91,7 +91,7 @@ namespace Dsht.Cli
             if (!string.IsNullOrEmpty(profile) && (profile == "." || profile == ".."
                 || !System.Text.RegularExpressions.Regex.IsMatch(profile, @"^[A-Za-z0-9._-]+$")))
             {
-                Console.WriteLine("BRIDGE_FAIL " + T("profile 名字不合法（只允许字母数字与 . _ - ✓）：" + profile, "invalid profile name: " + profile));
+                Console.WriteLine("BRIDGE_FAIL " + T("profile 名字不合法（只允许字母数字与 . _ -）：" + profile, "invalid profile name: " + profile));
                 return 0;
             }
             if (string.IsNullOrEmpty(profile)) profile = "web";
@@ -101,16 +101,16 @@ namespace Dsht.Cli
             string plugin = System.IO.Path.Combine(System.IO.Path.Combine(selfDir, "plugin"), "dsh-minato-bridge");
 
             Console.WriteLine("BRIDGE_PLAN " + T(
-                "把可选的桥接插件装进 dsh 的 profile「" + profile + "」✓ 它只读 ✓ 不联网 ✓ 不发模型请求 ✓ 不改 dsh 状态 ✓",
+                "把可选的桥接插件装进 dsh 的 profile「" + profile + "」：只读、不联网、不发模型请求、不改 dsh 状态",
                 "install the optional bridge plugin into dsh profile '" + profile + "' - read-only, no network, no model calls, no writes to dsh state"));
             Console.WriteLine("BRIDGE_NOTE " + T(
-                "装了它，工具箱才能显示「运行中」（运行态是进程内事实，磁盘投影给不了 ✗）；不装也能用 ✓ 只是那一位显示 unknown ✓",
+                "装了它，工具箱才能显示「运行中」（运行态是进程内事实，磁盘投影给不了）；不装也能用，只是那一位显示 unknown",
                 "with it, the toolkit can show which sessions are running; without it, that one field is unknown"));
 
             if (!System.IO.Directory.Exists(plugin))
             {
                 Console.WriteLine("BRIDGE_NO_PLUGIN " + T(
-                    "随包分发的插件目录不存在：" + plugin + " ✓（官方发布包会带 plugin/dsh-minato-bridge ✓ 源码编译请从仓库的 plugin/ 目录取 ✓）",
+                    "随包分发的插件目录不存在：" + plugin + "（官方发布包会带 plugin/dsh-minato-bridge；源码编译请从仓库的 plugin/ 目录取）",
                     "bundled plugin folder not found: " + plugin));
                 return 0;
             }
@@ -118,7 +118,7 @@ namespace Dsht.Cli
             string dsh = ResolveDsh(reg);
             if (string.IsNullOrEmpty(dsh))
             {
-                Console.WriteLine("BRIDGE_NO_DSH " + T("没有找到 dsh ✓ 请先装 dsh 再装插件 ✓", "dsh not found; install dsh first"));
+                Console.WriteLine("BRIDGE_NO_DSH " + T("没有找到 dsh，请先装 dsh 再装插件", "dsh not found; install dsh first"));
                 return 0;
             }
 
@@ -126,17 +126,17 @@ namespace Dsht.Cli
             if (string.IsNullOrEmpty(pnpm))
             {
                 Console.WriteLine("BRIDGE_NO_PNPM " + T(
-                    "没有找到 pnpm ✗ —— 而 `dsh plugin add` **依赖它** ✓ 请先装：npm i -g pnpm ✓ 然后重跑本命令 ✓"
-                    + "（dsh 自己**不会**替你装 pnpm ✓ 这一步不能省 ✓）",
+                    "没有找到 pnpm；而 `dsh plugin add` 依赖它。请先装：npm i -g pnpm，然后重跑本命令"
+                    + "（dsh 自己不会替你装 pnpm，这一步不能省）",
                     "pnpm not found - dsh's plugin command needs it. Install it with: npm i -g pnpm, then run this again."));
                 return 0;
             }
-            Console.WriteLine("BRIDGE_NOTE " + T("pnpm: " + pnpm + " ✓ · dsh: " + dsh + " ✓ · 插件: " + plugin + " ✓",
+            Console.WriteLine("BRIDGE_NOTE " + T("pnpm: " + pnpm + " · dsh: " + dsh + " · 插件: " + plugin,
                                                 "pnpm: " + pnpm + " / dsh: " + dsh + " / plugin: " + plugin));
 
             if (!yes)
             {
-                Console.WriteLine("BRIDGE_PLAN " + T("这是写操作（会改 profile 的 package.json 与 cordis.patch.yml ✓ 装前 dsh 自己会保留原状 ✓）—— 确认请加 --yes ✓",
+                Console.WriteLine("BRIDGE_PLAN " + T("这是写操作（会改 profile 的 package.json 与 cordis.patch.yml；装前 dsh 自己会保留原状）—— 确认请加 --yes",
                                                      "this writes to the profile - add --yes to proceed"));
                 return 0;
             }
@@ -160,12 +160,12 @@ namespace Dsht.Cli
             if (outp != null && outp.IndexOf("managed exclusively by the Electron application", StringComparison.Ordinal) >= 0)
             {
                 Console.WriteLine("BRIDGE_MANAGED " + T(
-                    "profile「" + profile + "」由 dsh 的**桌面端（Electron 应用）独占管理** ✗ → 命令行装不进去 ✓"
-                    + "请到桌面端的「添加插件」对话框里，把下面那行**本地目录路径**粘进去 ✓"
-                    + "（它接受 npm 包名 / GitHub 地址 / 本地目录路径 ✓）或者改装到 web：`bridge-install --profile web --yes` ✓",
+                    "profile「" + profile + "」由 dsh 的桌面端（Electron 应用）独占管理，命令行装不进去。"
+                    + "请到桌面端的「添加插件」对话框里，把下面那行本地目录路径粘进去"
+                    + "（它接受 npm 包名 / GitHub 地址 / 本地目录路径）或者改装到 web：`bridge-install --profile web --yes`",
                     "profile '" + profile + "' is managed by dsh's desktop application; paste the local folder path below into its add-plugin dialog, or use --profile web"));
-                Console.WriteLine("BRIDGE_MANAGED_PATH " + (string.IsNullOrEmpty(profileDir) ? "(拿不到路径 ✓)" : profileDir));
-                Console.WriteLine("BRIDGE_MANAGED_PLUGIN " + plugin + T("   ← **把这一行粘进桌面端的「添加插件」对话框** ✓", "   <- paste this into the desktop add-plugin dialog"));
+                Console.WriteLine("BRIDGE_MANAGED_PATH " + (string.IsNullOrEmpty(profileDir) ? "(拿不到路径)" : profileDir));
+                Console.WriteLine("BRIDGE_MANAGED_PLUGIN " + plugin + T("   ← 把这一行粘进桌面端的「添加插件」对话框", "   <- paste this into the desktop add-plugin dialog"));
                 return 0;
             }
 
@@ -201,7 +201,7 @@ namespace Dsht.Cli
             if (linked && patched)
             {
                 Console.WriteLine("BRIDGE_OK " + T(
-                    "插件已装好并**已注册进加载树** ✓✓ 重启 dsh 后生效 ✓ 届时工具箱的「运行中」会变成真实值 ✓",
+                    "插件已装好并已注册进加载树；重启 dsh 后生效，届时工具箱的「运行中」会变成真实值",
                     "plugin installed and registered in the load tree; restart dsh to take effect"));
             }
             else if (linked && !patched)
@@ -210,7 +210,7 @@ namespace Dsht.Cli
                 //   → 门槛太高 ✓ 而且**漏了 dsh 不会报错** ✗✗（插件静默不加载 ✓）
                 // ✓ 现在：**自动合并** ✓✓ —— 备份 → 插入已有 insert 列表 → 结构校验 → 失败则逐字节还原 ✓
                 Console.WriteLine("BRIDGE_PATCHING " + T(
-                    "包里已 link ✓ 但 profile 的 cordis.patch.yml 缺 shio-bridge 行 → **正在自动补上** ✓（会先备份 ✓）",
+                    "包里已 link，但 profile 的 cordis.patch.yml 缺 shio-bridge 行 → 正在自动补上（会先备份）",
                     "linked, but the profile patch file lacks the entry; adding it now (a backup is kept)"));
                 string pdetail;
                 bool merged = MergePatchEntry(profileDir, plugin, out pdetail);
@@ -218,21 +218,21 @@ namespace Dsht.Cli
                 {
                     Console.WriteLine("BRIDGE_PATCHED " + pdetail);
                     Console.WriteLine("BRIDGE_OK " + T(
-                        "插件已装好并**已注册进加载树** ✓✓ 重启 dsh 后生效 ✓ 届时工具箱的「运行中」会变成真实值 ✓",
+                        "插件已装好并已注册进加载树；重启 dsh 后生效，届时工具箱的「运行中」会变成真实值",
                         "plugin installed and registered in the load tree; restart dsh to take effect"));
                 }
                 else
                 {
                     Console.WriteLine("BRIDGE_FAIL " + T(
-                        "自动补 patch 行**没成功**：" + pdetail + " ✓ 原文件**未被改动** ✓（备份也在 ✓）"
-                        + "请手动把插件自带的 cordis.patch.yml 追加到该 profile 的 cordis.patch.yml ✓ 然后重启 dsh ✓",
+                        "自动补 patch 行没成功：" + pdetail + " 原文件未被改动（备份也在）"
+                        + "请手动把插件自带的 cordis.patch.yml 追加到该 profile 的 cordis.patch.yml，然后重启 dsh",
                         "could not add the patch entry automatically: " + pdetail + "; the file was left unchanged"));
                 }
             }
             else
             {
                 Console.WriteLine("BRIDGE_FAIL " + T(
-                    "安装没有成功 ✓ 退出码 " + rc + " ✓ 上面 BRIDGE_FAIL_RAW 是原始输出 ✓（最常见原因：pnpm 不在 PATH ✓ 或 dsh 的 profile 名不对 ✓）",
+                    "安装没有成功；退出码 " + rc + "；上面 BRIDGE_FAIL_RAW 是原始输出（最常见原因：pnpm 不在 PATH，或 dsh 的 profile 名不对）",
                     "install did not succeed; exit code " + rc + "; see BRIDGE_FAIL_RAW above"));
             }
             return 0;
@@ -483,7 +483,7 @@ namespace Dsht.Cli
             //   → 只输出：① 数据根里有多少东西（信息 ✓）② **手动删除的确切路径** ✓
             //   → 保留 `WIPE_PLAN` / `WIPE_PLAN_NOTE` 标记 ✓（门槛与 GUI 的解析不用改 ✓）
             Console.WriteLine("WIPE_PLAN " + T("数据根内有 ", "the data root holds ") + (counted ? files.ToString() : T("unknown", "unknown")) + T(" 个文件、", " files and ") + (counted ? dirs.ToString() : T("unknown", "unknown")) + T(" 个目录", " folders") + " — " + dataFull);
-            Console.WriteLine("WIPE_PLAN_NOTE " + T("**本工具不再执行清除** ✓ 请**手动**删除上面那个目录 ✓ 删前请先备份 ✓（备份目录：" + backups + " ✓）", "this tool no longer wipes data - delete the folder above yourself, after backing up"));
+            Console.WriteLine("WIPE_PLAN_NOTE " + T("本工具不再执行清除。请手动删除上面那个目录；删前请先备份（备份目录：" + backups + "）", "this tool no longer wipes data - delete the folder above yourself, after backing up"));
             Console.WriteLine("WIPE_MANUAL " + dataFull);
             return 0;
             // ↓↓↓ 以下是**旧实现**（保留在源码里但**不可达** ✗ 因为上面已经 return ✓）
@@ -492,14 +492,14 @@ namespace Dsht.Cli
             if (!Has(args, "--yes"))
             {
                 Console.WriteLine("WIPE_PLAN " + T("将删除数据根内的 ", "will delete ") + files + T(" 个文件、", " files and ") + dirs + T(" 个子目录：", " subdirectories in ") + dataFull);
-                Console.WriteLine("WIPE_PLAN_NOTE " + T("执行前**必须**先成功做出 -pre-wipe 备份（做不出就不清 ✗）；备份目录本身不动 ✓。确认请加 --yes", "a -pre-wipe backup MUST succeed first (no backup, no wipe); the backups root itself is untouched. Add --yes to confirm"));
+                Console.WriteLine("WIPE_PLAN_NOTE " + T("执行前必须先成功做出 -pre-wipe 备份（做不出就不清）；备份目录本身不动。确认请加 --yes", "a -pre-wipe backup MUST succeed first (no backup, no wipe); the backups root itself is untouched. Add --yes to confirm"));
                 return 0;
             }
             // 闸门 ③：先备份，且**必须成功** ✓✓
             try
             {
                 Dsht.Domain.Model.BackupResult pb = reg.Get<IBackupSource>().Create(dataFull, Dsht.Domain.Model.BackupKind.PreWipe, _cfg == null ? 3 : _cfg.KeepBackups, WorkspaceRoot(reg));
-                if (pb == null || string.IsNullOrEmpty(pb.Path)) { Console.WriteLine("WIPE_REFUSED " + T("清除前的安全备份未能创建，已拒绝执行（没备份就不清 ✗）", "the pre-wipe backup could not be created; refusing to wipe (no backup, no wipe)")); return 0; }
+                if (pb == null || string.IsNullOrEmpty(pb.Path)) { Console.WriteLine("WIPE_REFUSED " + T("清除前的安全备份未能创建，已拒绝执行（没备份就不清）", "the pre-wipe backup could not be created; refusing to wipe (no backup, no wipe)")); return 0; }
                 AddContentHashToMarker(pb.Path);   // 回滚锚点也要能自证完整 ✓✓
             Console.WriteLine("WIPE_PRE_BACKUP " + pb.Path);   // 打印行必须保留 ✗（我第 53 轮把它替换成了哈希调用 ✗✗ → 用户看不到安全备份在哪 ✓）
             }
@@ -514,7 +514,7 @@ namespace Dsht.Cli
                 for (int i = 0; i < ds.Length; i++) { System.IO.Directory.Delete(ds[i], true); removed++; }
                 OpLog(reg, "WARN", "wipe OK " + dataFull + " (" + removed + " entries removed, backup " + files + " files)");
                 Console.WriteLine("WIPE_OK " + removed);
-                Console.WriteLine("WIPE_NOTE " + T("备份未被删除，可随时用 restore 恢复 ✓", "backups were kept; restore can bring the data back at any time"));
+                Console.WriteLine("WIPE_NOTE " + T("备份未被删除，可随时用 restore 恢复", "backups were kept; restore can bring the data back at any time"));
             }
             catch (Exception wex) { OpLog(reg, "ERROR", "wipe failed: " + wex.Message); Console.WriteLine("WIPE_FAIL " + wex.Message); }
             return 0;
@@ -592,7 +592,7 @@ namespace Dsht.Cli
             //      而 GUI 自己也写着"进这一页会自动跑一次 doctor（会检查网络…）" ✓ 项目里 compare_markers 还专门忽略它的 Network 行 ✓）
             //   ② 把 `wipe` 列进"会先备份" ✗ —— 而 wipe **现在根本不删任何东西** ✓（它只打印手动删除路径 ✓ 也从不备份 ✓）
             // ✓ 现在：**逐条对齐代码** ✓✓
-            Console.WriteLine(T("本程序只读写本机。会联网的只有：check / update-info / update-center / doctor / install / update / verify-install --url / balance（仅当你在设置里填了 balance_key ✓）；其余命令不联网。",
+            Console.WriteLine(T("本程序只读写本机。会联网的只有：check / update-info / update-center / doctor / install / update / verify-install --url / balance（仅当你在设置里填了 balance_key）；其余命令不联网。",
                                 "Works locally only. The only commands that use the network are: check, update-info, update-center, doctor, install, update, verify-install --url, and balance (only when you have set balance_key in settings). Everything else stays offline."));
             Console.WriteLine(T("restore 之前会先自动备份并打印位置（可回滚）；update / import 会尝试先备份，失败时仍继续。wipe 现在只打印手动删除路径、不删也不备份。改设置、改 profile、改快捷方式不备份。",
                                 "restore always backs up first and prints where; update and import try to and continue if that fails. wipe only prints the path to delete by hand - it neither deletes nor backs up. Settings, profile and shortcut edits are not backed up."));
@@ -662,7 +662,7 @@ namespace Dsht.Cli
                 Console.WriteLine(verb + "_NEED_NODE " + (nodeMissing
                     ? T("未检测到 Node.js（dsh 通过 npm 安装，需要它）", "Node.js not found (dsh installs through npm and needs it)")
                     : T("Node.js 版本过旧（", "Node.js is too old (") + nodeNow + T("）—— dsh 要求 >= 22.19.0", ") - dsh requires >= 22.19.0")));
-                Console.WriteLine(verb + "_NODE_HINT " + T("Windows 上可用 winget 自动装：加 --install-node --yes；或手动装（官网安装包 / winget install OpenJS.NodeJS.LTS）后**重开一个终端**再试 ✓",
+                Console.WriteLine(verb + "_NODE_HINT " + T("Windows 上可用 winget 自动装：加 --install-node --yes；或手动装（官网安装包 / winget install OpenJS.NodeJS.LTS），装完重开一个终端再试",
                                                                     "on Windows: add --install-node --yes to install with winget, or install it yourself (official installer / winget install OpenJS.NodeJS.LTS) and reopen the terminal"));
                 if (!Has(args, "--install-node") || !Has(args, "--yes"))
                 {
@@ -676,11 +676,11 @@ namespace Dsht.Cli
                 if (string.IsNullOrEmpty(nvW))
                 {
                     Console.WriteLine(verb + "_FAIL " + T("Node 引导失败（退出码 ", "Node bootstrap failed (exit code ") + ncW + T("）：", "): ") + Dsht.Platform.Windows.WindowsToolchainQuery.LastError);
-                    Console.WriteLine(verb + "_NODE_HINT " + T("可手动安装：winget install OpenJS.NodeJS.LTS（或官网安装包），装完重开一个终端 ✓", "install by hand: winget install OpenJS.NodeJS.LTS (or the official installer), then reopen the terminal"));
+                    Console.WriteLine(verb + "_NODE_HINT " + T("可手动安装：winget install OpenJS.NodeJS.LTS（或官网安装包），装完重开一个终端", "install by hand: winget install OpenJS.NodeJS.LTS (or the official installer), then reopen the terminal"));
                     Console.WriteLine(verb + "_OBSERVED not-installed");
                     return 0;
                 }
-                Console.WriteLine(verb + "_NODE_OK " + nvW + T("（由 winget 安装 ✓ 可能需要重开终端才能用）", " (installed by winget; a new terminal may be needed)"));
+                Console.WriteLine(verb + "_NODE_OK " + nvW + T("（由 winget 安装，可能需要重开终端才能用）", " (installed by winget; a new terminal may be needed)"));
             }
 
             if (!PlatformIsWindows() && (nodeMissing || nodeOld))
