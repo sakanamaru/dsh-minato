@@ -129,6 +129,7 @@ dsh-minato start | stop           启动或停止 dsh Web UI
 dsh-minato install | update       安装或更新 dsh（以及本工具）
 dsh-minato uninstall              卸载本工具（绝不动你的数据）
 dsh-minato sessions               逐条会话的 token 与缓存数字
+dsh-minato cost [--days 7|14|30]  窗口与今日的 token 与**估算**金额（需自填单价；未填则不显示金额）
 dsh-minato backup [--to <目录>]   创建一个备份包
 dsh-minato backup-list [--verify] 列出备份包，并校验内容
 dsh-minato backup-dir [--set <d>] 备份写到哪里

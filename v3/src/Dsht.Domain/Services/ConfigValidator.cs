@@ -77,6 +77,12 @@ namespace Dsht.Domain.Services
                 decimal pd;
                 return (decimal.TryParse(v, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out pd) && pd >= 0m) ? null : "bad-value";
             }
+            // ★ 每日预算上限（成本面板 v3.2 · 2026-10-16 ✓）：与单价键**同一条规则**（≥0 的十进制 ✓ 0 = 未设 ✓）
+            if (k == "sessions_budget_usd_per_day")
+            {
+                decimal bd;
+                return (decimal.TryParse(v, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out bd) && bd >= 0m) ? null : "bad-value";
+            }
             return "unknown-key";
         }
 
@@ -126,6 +132,12 @@ namespace Dsht.Domain.Services
                     else if (k == "sessions_price_cache_write_per_mtok") c.SessionsPriceCacheWritePerMTok = pd;
                     else c.SessionsPriceOutPerMTok = pd;
                 }   // 越界/畸形保持原值 ✓（Validate 已拦 ✓ 双保险 ✓）
+            }
+            else if (k == "sessions_budget_usd_per_day")
+            {
+                decimal bd;
+                if (decimal.TryParse(v, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out bd) && bd >= 0m)
+                    c.SessionsBudgetUsdPerDay = bd;   // 0 = 未设 ✓（与四个单价同语义 ✓）
             }
             else if (k == "gui_shell") { int n; if (int.TryParse(v, out n) && n >= 0 && n <= 4) c.GuiShell = n; }   // 越界保持原值 ✓（Validate 已拦 ✓ 双保险 ✓）
             else if (k == "gui_style") { int n; if (int.TryParse(v, out n) && n >= 0 && n <= 3) c.GuiStyle = n; }

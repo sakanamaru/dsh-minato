@@ -14,6 +14,13 @@ namespace Dsht.Domain.Model
         public long LastPromptEpochMs;      // 原值（epoch 毫秒；0 = 未知）
         public bool Blank;                  // 空会话（dsh 自己标的）
 
+        /// <summary>**最后使用**的模型 id（`modelSelection.val.lastUsed.model` ✓ 成本面板 v3.2 · 2026-10-16）。
+        /// ★ 语义边界（规格 §2 / 勘察 §1.3）：dsh 每个会话**只留最后一次请求的模型**（`request/header` 覆盖 `pending` ✓），
+        ///   会话内换过模型 ⇒ 整体失真 ⇒ 面板必须标「**近似**」并给 unknown 计数 ✓ 不假装精确 ✗。
+        /// ★ 空串 = 该来源没有这个事实（旧投影无 `modelSelection` / 桥快照没有该段）⇒ 标记行写 `unknown` ✗ 不猜 ✓。
+        /// ★ 只在投影行（磁盘）里有；token 四桶**没有** model 维度 ⇒ ✗ 不做按模型分摊（数据不存在 ✓ 规格 §1 不做项）。</summary>
+        public string LastUsedModel = "";
+
         /// <summary>是否**正在运行**（来自桥接插件的快照：dsh `listSessions()` 的 `live` 标记）。
         /// 磁盘投影拿不到这个事实，所以插件缺失时恒为 false —— 这是"面板少了实时部分"的诚实体现。
         /// ★ 语义边界（2026-10-02 实测定稿 ✓）：`live` 只表示"**dsh 进程内还挂着这个会话**"

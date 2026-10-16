@@ -76,6 +76,7 @@ namespace Dsht.Cli
             if (cmd == "start") return StartCmd(args, reg);
             if (cmd == "stop") return StopCmd(args, reg);
             if (cmd == "sessions") return Sessions(reg, args);   // --days 7|14|30 / --level global（看板第一批 ✓）
+            if (cmd == "cost") return Cost(reg, args);   // ★ 成本面板 v3.2（2026-10-16 ✓ 只读 ✓ 与 sessions 同一窗口口径 ✓ --days/--from/--to/--level 同一套 ✓）
             if (cmd == "backup-list") return BackupList(args, reg);
             if (cmd == "backup-dir") return BackupDirCmd(args, reg);   // ✓ 备份位置查看/设置 ✓（用户要求"备份路径在备份页面里设置并且显示" ✓）
             if (cmd == "doctor") return Doctor(args, reg);
@@ -221,7 +222,12 @@ namespace Dsht.Cli
         private static int Overview(ServiceRegistry reg, string[] args)
         {
             Status(reg, true);
-            Sessions(reg, args);   // ★ --days 透传（看板第一批 ✓ 窗口过滤 ✓）；overview 不认的其它参数 sessions 侧自行忽略 ✓
+            // ★ 成本面板 v3.2（2026-10-16 ✓ 规格 §3.1-①）：sessions 与 cost **共用同一次扫描** ✓ 只读一遍盘 ✓
+            //   （✗ 不为成本再起进程 ✗ ✗ 也不读两遍 store ✗ —— 看板一拍仍是"一次进程 + 一次扫描" ✓）
+            //   sessions 的输出**逐字不变** ✓（Lead 裁定：绝不动 sessions 输出 ✗）
+            SessionScan scan = ScanSessions(reg, args);   // ★ --days/--from/--to/--level 原样透传（看板第一批 ✓）
+            EmitSessions(scan);
+            EmitCost(scan);
             BackupList(new string[] { "backup-list" }, reg);
             Profiles(reg);
             return 0;
@@ -233,6 +239,8 @@ namespace Dsht.Cli
             Console.WriteLine("  status [--detail] | overview | describe | doctor | bootdiag | check | selftest | version | about");
             Console.WriteLine("  profiles | profilecheck [--dir <d>] [--file <yaml>] [--diag] | profilepatch --profile <name> --id <entry> [--enable] [--yes]");
             Console.WriteLine("  sessions [--days 7|14|30] [--level global] | log [--lines <n>] [--level info|warn|error] [--grep <text>] [--export <file> [--yes]]");
+            Console.WriteLine(T("  cost [--days 7|14|30 | --from <yyyy-MM-dd> --to <yyyy-MM-dd>] [--level global|parents|parents_sub]（只读：窗口与今日的 token 与**估算**金额；未填单价则不显示金额）",
+                                "  cost [--days 7|14|30 | --from <yyyy-MM-dd> --to <yyyy-MM-dd>] [--level global|parents|parents_sub] (read-only: window and today tokens with an estimated amount; no amount until prices are set)"));
             Console.WriteLine("  update-info | update-center | update [--yes]");
             Console.WriteLine("  balance（DeepSeek 余额检测；只读；需先在设置里填 balance_key）");
 Console.WriteLine("  config-get | config-set <key> <value>");

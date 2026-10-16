@@ -908,6 +908,7 @@ namespace Dsht.Cli
             Console.WriteLine("CONFIG sessions_price_cache_read_per_mtok " + _cfg.SessionsPriceCacheReadPerMTok.ToString(System.Globalization.CultureInfo.InvariantCulture));
             Console.WriteLine("CONFIG sessions_price_cache_write_per_mtok " + _cfg.SessionsPriceCacheWritePerMTok.ToString(System.Globalization.CultureInfo.InvariantCulture));
             Console.WriteLine("CONFIG sessions_price_out_per_mtok " + _cfg.SessionsPriceOutPerMTok.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            Console.WriteLine("CONFIG sessions_budget_usd_per_day " + _cfg.SessionsBudgetUsdPerDay.ToString(System.Globalization.CultureInfo.InvariantCulture));   // ★ 成本面板 v3.2（2026-10-16 ✓ 维护者已确认键名 ✓）0 = 未设 → 不作超限判定 ✓
             // 备注行 ✓✓：GUI 原样显示在对应设置项下面 ✓（"出现什么问题时试哪个" ✓）
             Console.WriteLine("CONFIGNOTE browser_mode " + T("【浏览器打不开时改这个】auto=自动（先 snap run firefox → 再直开 → 最后 xdg-open）/ snap=只走 snap（Ubuntu 的 snap 版 firefox 必须这样）/ direct=只直开 firefox / xdg=只交给系统默认", "when the browser will not open"));
             Console.WriteLine("CONFIGNOTE ui_parallel " + T("【切页卡顿时改这个】on=概览页一次聚合调用 overview（快，默认）/ off=四个命令分开跑（老行为，排障用）", "when switching pages feels slow"));
@@ -924,6 +925,8 @@ namespace Dsht.Cli
             Console.WriteLine("CONFIGNOTE sessions_price_cache_read_per_mtok " + T("【缓存读单价】美元/百万 token；0=未填", "cache-read price per million tokens; 0 = unset"));
             Console.WriteLine("CONFIGNOTE sessions_price_cache_write_per_mtok " + T("【缓存写单价】美元/百万 token；0=未填", "cache-write price per million tokens; 0 = unset"));
             Console.WriteLine("CONFIGNOTE sessions_price_out_per_mtok " + T("【输出单价】美元/百万 token；0=未填", "output price per million tokens; 0 = unset"));
+            // ★ 成本面板 v3.2：预算说明（说清口径与"不是收费系统" ✓ 用户可见文案 ✗ 不带施工语气 ✓）
+            Console.WriteLine("CONFIGNOTE sessions_budget_usd_per_day " + T("【每日预算上限】美元/天；0=未设 → 不作超限提示。只跟**今日**（按最后一次提问归属本地日）的估算金额比较；超限只提示，不阻止任何操作", "daily budget ceiling in USD; 0 = unset (no over-budget notice). Compared with today's estimated spend (sessions attributed by their last prompt's local day); the notice never blocks anything"));
             Console.WriteLine("CONFIGNOTE close_action " + T("【关闭窗口时】exit=直接退出（默认）/ ask=先弹确认 / tray=最小化到系统托盘（托盘图标右键可显示或退出）", "close behavior: exit / ask / tray (system tray)"));
             Console.WriteLine("CONFIGNOTE host " + T("【dsh 监听地址】127.0.0.1 或 localhost（探测与显示用的回环名，功能等价）", "loopback name used for probing/display: 127.0.0.1 or localhost"));
             return 0;

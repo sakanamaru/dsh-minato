@@ -399,6 +399,11 @@ namespace Dsht.Domain.Services
             JNode title = row.Path("title", "val");
             if (RowMismatch(row, "title", RowVerTitle)) { if (rep != null) rep.Title++; title = null; }
             if (title != null && title.IsString) s.Title = title.StringValue;
+            // —— 成本面板 v3.2（2026-10-16）：最后使用模型 = modelSelection.val.lastUsed.model ——
+            //   ★ 不加行版本门（R5）✓：这个键**没有版本语义**（它只是名字 ✓ 不认识就当没有 ⇒ unknown ✓），
+            //     也不进任何求和 ⇒ 门只会让「有模型却报 unknown」✗ 与诚实原则相悖 ✓
+            //   ★ 形状实测（勘察 §1.2）：val = { lastUsed: { provider, model, reasoningEffort }, pending } ✓
+            s.LastUsedModel = Str(row.Path("modelSelection", "val", "lastUsed"), "model");
             return s;
         }
 

@@ -132,6 +132,7 @@ dsh-minato start | stop           start or stop the dsh Web UI
 dsh-minato install | update       install or update dsh (and this tool)
 dsh-minato uninstall              remove the tool (never touches your data)
 dsh-minato sessions               per-session token and cache figures
+dsh-minato cost [--days 7|14|30]  tokens and an **estimated** USD amount (needs your own unit prices; no prices = no amount)
 dsh-minato backup [--to <dir>]    create a backup package
 dsh-minato backup-list [--verify] list packages, and verify their contents
 dsh-minato backup-dir [--set <d>] where backups are written

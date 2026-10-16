@@ -391,6 +391,126 @@ try {
     Check "1c --from 坏格式 ⇒ FAIL（只认 yyyy-MM-dd ✓）" ($sBad2.rc -eq 0 -and (HasMarker $sBad2.out '^SESSIONS_FAIL '))
 
     # ------------------------------------------------------------------
+    # 1d) 成本面板 v3.2（2026-10-16 ✓✓ 规格 §3 + §3.1 ✓ 契约：scope=today|window 两块）
+    #   夹具：aaaa0001（今日 · 100/200/30/40 · decodeTokens=50 ≠ output=40 · model=test-model）
+    #         bbbb0002（40 天前 · 500/600/70/80）
+    #         cccc0003（无 lastPromptAt ⇒ unknown_last=1 ✓ 不进任何窗口）
+    #         dddd0004（今日 · tokenUsage ver=1 ⇒ 行门拒 ⇒ 四桶 unknown ⇒ cost=none 的第三种来源 ✓）
+    #   手算期望（价 in=1 / cacheRead=2 / cacheWrite=3 / out=4）：100×1+200×2+30×3+40×4 = 750 → 0.000750 ✓
+    #     · 按 decode 算则是 50×4 = 200 → 0.000200 ✗ 验收④：断言必须等于前者、且不等于后者 ✓
+    #   ★ config-set 写的是**exe 同级 launcher.config**（StateDir ✓ 不随 DSH_HOME 隔离 ✗）
+    #     ⇒ 本节的 5 个键**用完立刻复位 0** ✓（开头也先复位一次：把上次跑崩留下的值清掉 ✓）
+    # ------------------------------------------------------------------
+    Section "1d. 成本面板：cost（未配价 / 配价 / 窗口集合一致 / 零写入 / 预算）"
+    $f1d = New-Fixture "cost"; $script:isoList.Add($f1d.iso)
+    $env:DSH_HOME = $f1d.home
+    $costKeys = @('sessions_price_in_per_mtok', 'sessions_price_cache_read_per_mtok', 'sessions_price_cache_write_per_mtok', 'sessions_price_out_per_mtok', 'sessions_budget_usd_per_day')
+    foreach ($k in $costKeys) { Run-Cli $Cli @("config-set", $k, "0") | Out-Null }   # 先复位（自愈上次跑崩 ✓）
+    function Write-CostProj([string]$root, [string]$id, [long]$created, [string]$meta, [int]$un, [int]$cr, [int]$cw, [int]$ou, [long]$decode, [string]$model) {
+        $dir = Join-Path (Join-Path (Join-Path $root "storages") "session_projcache") "sessions"
+        New-Item -ItemType Directory -Path $dir -Force | Out-Null
+        $json = '{"version":7,"record":{"identity":{"createdAt":' + $created + ',"cwd":"D:\\w"},' +
+            '"rows":{"sessionStats":{"ver":1,"seq":1,"val":{"turns":3,"steps":9,"llmMs":100,"toolMs":0,"ttftMs":10,"decodeMs":100,"decodeTokens":' + $decode + '}},' +
+            '"tokenUsage":{"ver":2,"val":{"totals":{"uncachedInputTokens":' + $un + ',"outputTokens":' + $ou + ',"cacheReadTokens":' + $cr + ',"cacheWriteTokens":' + $cw + '}}},' +
+            $meta + $model + '"title":{"ver":1,"val":"t-' + $id + '"}}}}'
+        [System.IO.File]::WriteAllText((Join-Path $dir ($id + ".json")), $json, [System.Text.Encoding]::UTF8)
+    }
+    $cMetaNear = '"sessionListMetadata":{"ver":1,"val":{"blank":false,"lastPromptAt":' + $msNear + '}},'
+    $cMetaFar  = '"sessionListMetadata":{"ver":1,"val":{"blank":false,"lastPromptAt":' + $msFar + '}},'
+    $cMetaNone = '"sessionListMetadata":{"ver":1,"val":{"blank":false}},'
+    $cModelA = '"modelSelection":{"ver":2,"seq":52,"val":{"lastUsed":{"provider":"p","model":"test-model","reasoningEffort":"max"},"pending":null}},'
+    $cModelNo = '"modelSelection":{"ver":2,"seq":52,"val":{"lastUsed":null,"pending":null}},'
+    Write-CostProj $f1d.home "aaaa0001" $msNear $cMetaNear 100 200 30 40 50 $cModelA
+    Write-CostProj $f1d.home "bbbb0002" $msFar  $cMetaFar  500 600 70 80 50 $cModelNo   # 远：不进 7 天窗口（但进总计档 ✓）
+    Write-CostProj $f1d.home "cccc0003" $msNear $cMetaNone 7 0 0 0 50 $cModelNo          # 无锚点 ⇒ 只计 unknown_last ✓
+    # dddd0004：tokenUsage ver=1（旧行 ✓ 与真实库 51 条同款）→ R5 行门拒 → 四桶 literal unknown
+    [System.IO.File]::WriteAllText((Join-Path (Join-Path (Join-Path (Join-Path $f1d.home "storages") "session_projcache") "sessions") "dddd0004.json"),
+        ('{"version":7,"record":{"identity":{"createdAt":' + $msNear + ',"cwd":"D:\\w"},' +
+         '"rows":{"sessionStats":{"ver":1,"seq":1,"val":{"turns":2,"steps":3,"decodeTokens":9}},' +
+         '"tokenUsage":{"ver":1,"val":{"totals":{"uncachedInputTokens":9,"outputTokens":9,"cacheReadTokens":9,"cacheWriteTokens":9}}},' +
+         $cMetaNear + $cModelNo + '"title":{"ver":1,"val":"t-dddd0004"}}}}'), [System.Text.Encoding]::UTF8)
+    # 血缘段（快照 sessions 空 ✓ 只为让非 global 档可用 ⇒ 验 budget-scope-global ✓）
+    # ★ 快照路径是 <根>\shio-bridge\sessions.json（WindowsSessionStatsSource.SnapshotPath ✓ ✗ 不是 storages ✗）
+    $snapDir1d = Join-Path $f1d.home "shio-bridge"
+    New-Item -ItemType Directory -Path $snapDir1d -Force | Out-Null
+    $snapNow = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ')
+    [System.IO.File]::WriteAllText((Join-Path $snapDir1d "sessions.json"),
+        ('{ "formatVersion": 2, "generatedAt": "' + $snapNow + '", "intervalMs": 3000, "sessions": [], "lineage": { "errors": 0, "sessions": { "aaaa0001": {}, "dddd0004": {} } } }'),
+        [System.Text.Encoding]::UTF8)
+
+    # -- ① 未配价：不出现任何金额 + COST_NOTE price-missing + 两个 scope 的 META --
+    $snapBefore1d = @(Get-ChildItem -Recurse -File -Force $f1d.iso | Sort-Object FullName | ForEach-Object { $_.FullName + ':' + $_.Length })
+    $cUn = Run-Cli $Cli @("cost", "--days", "7", "--level", "global")
+    $snapAfter1d = @(Get-ChildItem -Recurse -File -Force $f1d.iso | Sort-Object FullName | ForEach-Object { $_.FullName + ':' + $_.Length })
+    Write-Host ("  -- cost --days 7（未配价）   rc=" + $cUn.rc)
+    foreach ($l in (MarkLines $cUn.out '^COST_' | Select-Object -First 4)) { Write-Host ("       " + $l) }
+    Check "1d 未配价 cost 退出码 = 0（只读命令 ✓）" ($cUn.rc -eq 0)
+    Check "1d 未配价 COST_META scope=window 精确整行（priced=0 · unknown_last=1 · model_unknown=1 ✓）" `
+        (HasMarker $cUn.out ('^COST_META scope=window days=7 from=' + $from7 + ' to=' + $toDay + ' level=global priced=0 currency=USD tz=.+ truth=0 unknown_last=1 model_unknown=1$'))
+    Check "1d 未配价 COST_META scope=today 精确整行（from=to=今天 · level=global ✓）" `
+        (HasMarker $cUn.out ('^COST_META scope=today days=unknown from=' + $toDay + ' to=' + $toDay + ' level=global priced=0 currency=USD tz=.+ truth=0 unknown_last=1 model_unknown=1$'))
+    Check "1d 未配价 COST_TOTAL scope=window 精确整行（只有 aaaa0001 的已知 token ✓ cost=none ✓）" `
+        (HasMarker $cUn.out '^COST_TOTAL scope=window uncached=100 cacheRead=200 cacheWrite=30 output=40 tokens=370 cost=none$')
+    Check "1d 未配价 COST_TOTAL scope=today 与 window 同值（今日=窗口=aaaa0001 ✓）" `
+        (HasMarker $cUn.out '^COST_TOTAL scope=today uncached=100 cacheRead=200 cacheWrite=30 output=40 tokens=370 cost=none$')
+    Check "1d 未配价：COST_SESSION 里 model= 打出来（test-model ✓ / 无模型 ⇒ unknown ✓）" `
+        ((HasMarker $cUn.out '^COST_SESSION scope=window aaaa0001 model=test-model uncached=100 cacheRead=200 cacheWrite=30 output=40 cost=none$') `
+        -and (HasMarker $cUn.out '^COST_SESSION scope=window dddd0004 model=unknown uncached=unknown cacheRead=unknown cacheWrite=unknown output=unknown cost=none$'))
+    Check "1d 未配价：**任何金额都不出现**（✗ 断言全输出无 cost=<数字> ✓ 验收① ✓）" `
+        (-not (HasMarker $cUn.out 'cost=[0-9]'))
+    Check "1d 未配价：COST_NOTE price-missing 出现（验收① ✓）" (HasMarker $cUn.out '^COST_NOTE price-missing$')
+    Check "1d 未配价：COST_BUDGET limit=none spent=none over=0（未设上限 + 未配价 ⇒ 不判定 ✓）" `
+        (HasMarker $cUn.out '^COST_BUDGET limit=none spent=none over=0$')
+    Check "1d 零写入：隔离根前后逐字一致（验收⑤ ✓ 只读 ✓）" (($snapBefore1d -join '|') -eq ($snapAfter1d -join '|'))
+    # 验收③：窗口集合与 sessions 的 SESSAGG_SESSION bucket=own **逐 id 一致**
+    $sWin1d = Run-Cli $Cli @("sessions", "--days", "7", "--level", "global")
+    $ownIds1d = @(MarkLines $sWin1d.out '^SESSAGG_SESSION ' | Where-Object { $_ -match ' bucket=own ' } | ForEach-Object { ($_ -split ' ')[1] } | Sort-Object)
+    $costIds1d = @(MarkLines $cUn.out '^COST_SESSION scope=window ' | ForEach-Object { ($_ -split ' ')[2] } | Sort-Object)
+    Check "1d 验收③ 窗口集合逐 id 一致（cost scope=window ↔ SESSAGG_SESSION bucket=own ✓ 2 个）" `
+        ($ownIds1d.Count -eq 2 -and (($ownIds1d -join ',') -eq ($costIds1d -join ',')))
+
+    # -- ② 配价：金额逐笔相等（手算 0.000750）+ decode 反例 + 预算超限 + 第三种 none 来源 --
+    foreach ($kv in @(@('sessions_price_in_per_mtok', '1'), @('sessions_price_cache_read_per_mtok', '2'), @('sessions_price_cache_write_per_mtok', '3'), @('sessions_price_out_per_mtok', '4'), @('sessions_budget_usd_per_day', '0.0005'))) {
+        Run-Cli $Cli @("config-set", $kv[0], $kv[1]) | Out-Null
+    }
+    $cPr = Run-Cli $Cli @("cost", "--days", "7", "--level", "global")
+    Write-Host ("  -- cost --days 7（已配价 in=1/cr=2/cw=3/out=4）   rc=" + $cPr.rc)
+    foreach ($l in (MarkLines $cPr.out '^COST_(TOTAL|BUDGET|NOTE)' | Select-Object -First 5)) { Write-Host ("       " + $l) }
+    Check "1d 配价 COST_META priced=1" (HasMarker $cPr.out '^COST_META scope=window days=7 .+ priced=1 currency=USD tz=.+ truth=0 unknown_last=1 model_unknown=1$')
+    Check "1d 配价 COST_TOTAL scope=window 金额手算相等（750/1e6 = 0.000750 ✓ 验收②）" `
+        (HasMarker $cPr.out '^COST_TOTAL scope=window uncached=100 cacheRead=200 cacheWrite=30 output=40 tokens=370 cost=0.000750$')
+    Check "1d 验收④ 算钱只用 output：0.000750（**不是** 按 decodeTokens=50 的 0.000200 ✗）" `
+        ((HasMarker $cPr.out 'cost=0.000750$') -and (-not (HasMarker $cPr.out 'cost=0.000200$')))
+    Check "1d 配价 COST_SESSION 逐笔金额（aaaa0001 = 0.000750 · dddd0004 token 未知 ⇒ cost=none ✗ 不假装 0 ✓）" `
+        ((HasMarker $cPr.out '^COST_SESSION scope=window aaaa0001 model=test-model uncached=100 cacheRead=200 cacheWrite=30 output=40 cost=0.000750$') `
+        -and (HasMarker $cPr.out '^COST_SESSION scope=window dddd0004 model=unknown uncached=unknown cacheRead=unknown cacheWrite=unknown output=unknown cost=none$'))
+    Check "1d 第三种 none 来源可见：COST_NOTE session-cost-unavailable n=1（配了价但有 1 笔算不了 ✓）" `
+        (HasMarker $cPr.out '^COST_NOTE session-cost-unavailable n=1$')
+    Check "1d 预算超限：limit=0.000500 spent=0.000750 over=1（0.000750 > 0.0005 ✓）" `
+        (HasMarker $cPr.out '^COST_BUDGET limit=0.000500 spent=0.000750 over=1$')
+    Check "1d 配价：price-missing **消失**（已配价 ✓）" (-not (HasMarker $cPr.out '^COST_NOTE price-missing$'))
+    Check "1d 恒有两条如实说明（不对官方账单 / 模型是近似 ✓）" `
+        ((HasMarker $cPr.out '^COST_NOTE official-billing-not-compared$') -and (HasMarker $cPr.out '^COST_NOTE model-approximate$'))
+    # 非 global 档：预算行恒全局 ⇒ 必须自报 COST_NOTE budget-scope-global（规格 §3.1-③ ✓）
+    $cPar = Run-Cli $Cli @("cost", "--days", "7", "--level", "parents")
+    Check "1d 非 global 档：COST_NOTE budget-scope-global 出现 + 预算行仍是全局今日（spent 不变 ✓）" `
+        ((HasMarker $cPar.out '^COST_NOTE budget-scope-global$') -and (HasMarker $cPar.out '^COST_BUDGET limit=0.000500 spent=0.000750 over=1$') `
+        -and (HasMarker $cPar.out '^COST_META scope=window days=7 .+ level=parents .+$'))
+    # 参数面与 sessions 同形（成对/互斥/格式 ✓ 失败只打 COST_FAIL ✗ 不打半截数字 ✓）
+    $cBad = Run-Cli $Cli @("cost", "--days", "99")
+    $cMx = Run-Cli $Cli @("cost", "--days", "7", "--from", $from7, "--to", $toDay)
+    $cOne = Run-Cli $Cli @("cost", "--from", $from7)
+    Check "1d 参数：坏 --days / 互斥 / 单端 ⇒ COST_FAIL（✗ 不打半截 COST_TOTAL ✓）" `
+        ($cBad.rc -eq 0 -and (HasMarker $cBad.out '^COST_FAIL ') -and (-not (HasMarker $cBad.out '^COST_TOTAL ')) `
+        -and (HasMarker $cMx.out '^COST_FAIL ') -and (HasMarker $cOne.out '^COST_FAIL '))
+    # -- 复位 5 个键（✗ 别把测试价留在**共享的** exe 同级配置里 ✗）--
+    foreach ($k in $costKeys) { Run-Cli $Cli @("config-set", $k, "0") | Out-Null }
+    $cReset = Run-Cli $Cli @("config-get")
+    $cResetLines = @(MarkLines $cReset.out '^CONFIG (sessions_price_|sessions_budget_usd_per_day)')
+    Check "1d 复位：5 个键全部回 0（共享配置不残留测试价 ✓）" `
+        ($cResetLines.Count -eq 5 -and -not (HasMarker $cReset.out '^CONFIG (sessions_price_|sessions_budget_usd_per_day) [1-9]'))
+
+    # ------------------------------------------------------------------
     # 2) 写路径：backup / backup-list --verify / backup-export / restore --dry-run
     # ------------------------------------------------------------------
     Section "2. 写路径（隔离数据根 + 隔离备份根）"

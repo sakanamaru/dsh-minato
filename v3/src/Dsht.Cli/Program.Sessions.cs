@@ -46,16 +46,25 @@ namespace Dsht.Cli
         /// ★ 时区纪律：本地日 00:00 边界的换算**在这里**做（TimeZoneInfo 逐日取偏移 = 夏令时正确 ✓）——Domain 只做毫秒区间比较 ✓（领域层不碰时钟/时区 ✓✓）</summary>
         private static int Sessions(ServiceRegistry reg, string[] args)
         {
-            // —— 参数（先于任何 IO ✓；无效参数 = SESSWIN_META(source=unknown 计数全 0) + SESSIONS_FAIL + stderr，rc=0 ✓ 规格 §11.1 ✓）——
+            return EmitSessions(ScanSessions(reg, args));
+        }
+        /// <summary>会话扫描的**唯一入口**（成本面板 v3.2 · 2026-10-16 ✓✓）：参数解析 → 加载（快照+磁盘+总表）→ 血缘图 → 窗口/层级判定。
+        /// ★ 动机（规格 §4 性能铁律 ✓）：`sessions` 与 `cost` **必须共用同一次扫描** ✗ —— 否则 overview 一拍要读两遍盘
+        ///   （实测全量 1.9 s / `--days 7` 2.7 s ⇒ 翻倍 ✗）。本方法**不打印任何标记行**：打印留给
+        ///   <see cref="EmitSessions"/> 与 <see cref="EmitCost"/>（各自的标记行族 ✓ 失败面也各说各的 ✓）。
+        /// ★ 纪律：**逻辑一行没改**（纯机械外提 ✓）—— 输出逐字不变由 verify_command_matrix 的精确整行断言把守 ✓。</summary>
+        private static SessionScan ScanSessions(ServiceRegistry reg, string[] args)
+        {
+            SessionScan sc = new SessionScan();
+            // —— 参数（先于任何 IO ✓；无效参数 = FAIL 标记 + stderr，rc=0 ✓ 规格 §11.1 ✓）——
             int days = 0;   // 0 = 总计（marker 里写 unknown ✓ 窗口不过滤 → 窗口卡 == 总计卡 ✓ 硬要求 ✓）
             string daysRaw = FlagOf(args, "--days");
             if (daysRaw.Length > 0 && daysRaw != "7" && daysRaw != "14" && daysRaw != "30")
             {
-                PrintWinMeta(0, "-", "-", "unknown", 0, 0, 0, "unknown", false, -1);
-                Console.Error.WriteLine("SESSAGG_ARG --days 只认 7 / 14 / 30（收到：" + daysRaw + "）");
-                Console.WriteLine("SESSIONS_FAIL " + T("--days 只认 7 / 14 / 30（收到：" + daysRaw + "）",
-                    "--days accepts only 7 / 14 / 30 (got: " + daysRaw + ")"));
-                return 0;
+                sc.FailKind = "arg"; sc.FailStage = "days"; sc.ArgTag = "SESSAGG_ARG";
+                sc.FailZh = "--days 只认 7 / 14 / 30（收到：" + daysRaw + "）";
+                sc.FailEn = "--days accepts only 7 / 14 / 30 (got: " + daysRaw + ")";
+                return sc;
             }
             if (daysRaw.Length > 0) days = int.Parse(daysRaw, System.Globalization.CultureInfo.InvariantCulture);
             // —— D4 自定义日期范围（第三批 · 规格 §11.7-D ✓✓）：--from/--to 成对 · yyyy-MM-dd · from<=to · 与 --days 互斥 ——
@@ -83,10 +92,9 @@ namespace Dsht.Cli
                 }
                 if (customErr != null)
                 {
-                    PrintWinMeta(0, "-", "-", "unknown", 0, 0, 0, "unknown", false, -1);
-                    Console.Error.WriteLine("SESSAGG_ARG " + customErr);
-                    Console.WriteLine("SESSIONS_FAIL " + T(customErr, "bad custom range: " + customErr));
-                    return 0;
+                    sc.FailKind = "arg"; sc.FailStage = "range"; sc.ArgTag = "SESSAGG_ARG";
+                    sc.FailZh = customErr; sc.FailEn = "bad custom range: " + customErr;
+                    return sc;
                 }
             }
             // —— 窗口阈值：本地日 00:00 → 次日 00:00，**左闭右开** ✓（夏令时逐日正确 ✓）；days=0 且无自定义 → 不过滤 ✓ ——
@@ -118,11 +126,11 @@ namespace Dsht.Cli
             level = level.Trim().ToLowerInvariant();
             if (level != "global" && level != "parents" && level != "parents_sub")
             {
-                PrintWinMeta(days, fromText, toText, "unknown", 0, 0, 0, "unknown", false, -1);
-                Console.Error.WriteLine("SESSAGG_LEVEL --level 只认 global / parents / parents_sub（收到：" + level + "）");
-                Console.WriteLine("SESSIONS_FAIL " + T("--level 只认 global / parents / parents_sub（收到：" + level + "）",
-                    "--level accepts only global / parents / parents_sub (got: " + level + ")"));
-                return 0;
+                sc.Days = days; sc.FromText = fromText; sc.ToText = toText; sc.Level = "unknown";
+                sc.FailKind = "arg"; sc.FailStage = "level"; sc.ArgTag = "SESSAGG_LEVEL";
+                sc.FailZh = "--level 只认 global / parents / parents_sub（收到：" + level + "）";
+                sc.FailEn = "--level accepts only global / parents / parents_sub (got: " + level + ")";
+                return sc;
             }
             ISessionStatsSource src = reg.Get<ISessionStatsSource>();
             List<SessionStat> list = new List<SessionStat>();
@@ -213,13 +221,88 @@ namespace Dsht.Cli
             }
             if (list.Count == 0)
             {
-                // ★ 规格 §11.1：FAIL 路径也照打 SESSWIN_META（source=unknown、计数全 0 ✓ 在 SESSIONS_FAIL **之前** ✓）但不打 SESSAGG_TOTAL ✓
-                PrintWinMeta(days, fromText, toText, "unknown", 0, 0, 0, level, false, -1);
-                Console.WriteLine("SESSIONS_FAIL " + T("没有可读的会话投影（dsh 未初始化，或该 dsh 版本的投影格式不认）",
-                    "no readable session projection (dsh not initialized, or an unrecognized projection format)"));
+                // ★ 规格 §11.1：FAIL 路径也照打 META（source=unknown、计数全 0 ✓ 在 FAIL **之前** ✓）但不打 AGG_TOTAL ✓
+                sc.Days = days; sc.FromText = fromText; sc.ToText = toText; sc.Level = level; sc.Source = "unknown";
+                sc.FailKind = "noproj"; sc.FailStage = "noproj";
+                sc.FailZh = "没有可读的会话投影（dsh 未初始化，或该 dsh 版本的投影格式不认）";
+                sc.FailEn = "no readable session projection (dsh not initialized, or an unrecognized projection format)";
+                return sc;
+            }
+            // 父子关系（SESSION_CHILD 扫描）**不在这里**：它是 sessions 的输出 ✗（成本命令不该打它 ✓）
+            //   → 挪到 EmitSessions，位置与重构前**逐字一致**（在血缘降级判定之前 ✓ 输出顺序不变 ✓）；
+            //     加载时读到的文本走 sc.TextCache 复用 ⇒ 仍然**只读一遍盘** ✓✓
+            // —— 看板第三批（2026-10-09 ✓✓ 规格 §11.7 ✓ 决策 D2a 路线①）：血缘来自桥插件快照的 lineage 段 ——
+            //   ★ 桥插件进程内解原始日志**首帧** header（正文帧一帧不解 ✓ 三条红线不动 ✓）；CLI 自己不碰 zstd ✓
+            //   ★ 快照陈旧（dsh 已退出）**不影响**血缘可用性：历史会话首帧不会变 ✓；快照死后新建的会话 → 无血缘 → NOHEADER 如实计数 ✓
+            //   ★ lineage=none（旧插件/段缺失）⇒ 非 global 口径如实拒绝（降级文案 ✓）✗ 不拿不全的投影血缘冒充（§11.2 实测否决 ✓）
+            SnapshotLineage lin = (snap != null) ? SessionStats.ParseSnapshotLineage(snap) : null;
+            bool lineageOk = lin != null && lin.Present;
+            // ★ 血缘降级判定（非 global 且血缘不可用 ⇒ 相应 FAIL）**不在这里**：它必须排在 SESSION_CHILD 扫描**之后**
+            //   （输出逐字不变 ✓），所以由两个发射端各自检查 ✓ 判定依据 sc.Level / sc.LineageOk ✓ 口径只有一处 ✓。
+            // 建图（纯函数 ✓ 领域层 ✓ 零 IO/零时钟 ✓✓）；knownIds = 面板会话 ∪ lineage 键（孤儿判定边界 ✓ §11.7-B ✓）
+            LineageGraph graph = null;
+            int noHeader = 0;   // 面板会话中无血缘边（无原始日志/解码失败/快照陈旧期新建）⇒ 全局照常 ✓ 血缘档排除 ✓ children/depth=unknown ✓
+            if (lineageOk)
+            {
+                List<LineageEdge> edges = new List<LineageEdge>(lin.Edges.Values);
+                System.Collections.Generic.HashSet<string> knownIds = new System.Collections.Generic.HashSet<string>(StringComparer.Ordinal);
+                for (int i = 0; i < edges.Count; i++) knownIds.Add(edges[i].Id);
+                for (int i = 0; i < list.Count; i++) if (list[i].Id != null) knownIds.Add(list[i].Id);
+                graph = SessionLineage.Build(edges, knownIds);
+                for (int i = 0; i < list.Count; i++) if (list[i].Id == null || !lin.Edges.ContainsKey(list[i].Id)) noHeader++;
+            }
+            // —— 窗口/层级的**计数**（纯函数 ✓ 不打印 ✓；原来在发射段里算 ⇒ 现在提前算，两个发射端共用 ✓ 数值逐字不变 ✓）——
+            int unknownLast = 0;
+            int eligibleCount = 0;
+            for (int i = 0; i < list.Count; i++)
+            {
+                long lp = SessionWindow.EffectiveLastPromptMs(list[i]);
+                if (lp <= 0) unknownLast++;
+                if (windowed && !SessionWindow.Accept(lp, fromMs, toMsEx)) continue;
+                if (!LevelOf(graph, lin, level, list[i].Id)) continue;   // 第三批：血缘档过滤（global ⇒ 恒过 ✓）
+                eligibleCount++;
+            }
+            // —— 交给发射端（✗ 本方法一个字节都不打印 ✗）——
+            sc.Ok = true;
+            sc.Days = days; sc.FromText = fromText; sc.ToText = toText; sc.Level = level; sc.Source = source;
+            sc.Scanned = list.Count; sc.EligibleCount = eligibleCount; sc.UnknownLast = unknownLast;
+            sc.Windowed = windowed; sc.FromMs = fromMs; sc.ToMsEx = toMsEx;
+            sc.LineageOk = lineageOk; sc.ForkSessions = graph != null ? graph.ForkCount : -1; sc.NoHeader = noHeader;
+            sc.List = list; sc.Lin = lin; sc.Graph = graph; sc.Src = src; sc.TextCache = textCache; sc.RowReport = rep;
+            return sc;
+        }
+        /// <summary>sessions 的**发射端**（成本面板 v3.2 外提 ✓）：标记行一个字节都没改 ✓ —— 只把"从哪拿数据"从局部变量改成
+        /// 从 <see cref="SessionScan"/> 取 ✓。纪律（规格 §3.1-① ✓）：**绝不动 sessions 输出** ✗
+        /// → 逐字不变由 verify_command_matrix 的精确整行断言 + 真机输出前后比对把守 ✓。</summary>
+        private static int EmitSessions(SessionScan sc)
+        {
+            // —— 失败面（与重构前逐字一致 ✓）——
+            if (!sc.Ok)
+            {
+                if (sc.FailKind == "arg") PrintWinMeta(0, "-", "-", "unknown", 0, 0, 0, "unknown", false, -1);
+                else PrintWinMeta(sc.Days, sc.FromText, sc.ToText, "unknown", 0, 0, 0, sc.Level, false, -1);
+                Console.Error.WriteLine(sc.ArgTag + " " + sc.FailZh);
+                Console.WriteLine("SESSIONS_FAIL " + T(sc.FailZh, sc.FailEn));
                 return 0;
             }
-            // 父子关系：dsh 把**子会话 id** 记在父会话文件的 "childId" 字段里 ✓✓
+            List<SessionStat> list = sc.List;
+            ISessionStatsSource src = sc.Src;
+            RowGateReport rep = sc.RowReport;
+            string source = sc.Source;
+            int days = sc.Days;
+            string fromText = sc.FromText;
+            string toText = sc.ToText;
+            string level = sc.Level;
+            bool windowed = sc.Windowed;
+            long fromMs = sc.FromMs;
+            long toMsEx = sc.ToMsEx;
+            SnapshotLineage lin = sc.Lin;
+            bool lineageOk = sc.LineageOk;
+            LineageGraph graph = sc.Graph;
+            int noHeader = sc.NoHeader;
+            int unknownLast = sc.UnknownLast;
+            int eligibleCount = sc.EligibleCount;
+            // —— 父子关系：dsh 把**子会话 id** 记在父会话文件的 "childId" 字段里 ✓✓
             // （2026-09-30 实测：取样 8 个会话，**7 个 id 出现在别的会话文件的 childId 里** ✓）
             // 快照里**没有**这个信息 ✗ → 所以必须扫盘 ✓；用**流式字符串扫描**（不解析 JSON ✓ 快 ✓）
             try
@@ -231,7 +314,7 @@ namespace Dsht.Cli
                     string pid2 = System.IO.Path.GetFileNameWithoutExtension(cfiles[ci]);
                     if (pid2 != null && pid2.StartsWith("session-", StringComparison.Ordinal)) pid2 = pid2.Substring("session-".Length);
                     string t2;
-                    if (!textCache.TryGetValue(cfiles[ci], out t2)) t2 = src.ReadText(cfiles[ci]);   // ★ 第二遍复用第一遍读到的 ✓✓
+                    if (!sc.TextCache.TryGetValue(cfiles[ci], out t2)) t2 = src.ReadText(cfiles[ci]);   // ★ 第二遍复用第一遍读到的 ✓✓
                     if (string.IsNullOrEmpty(t2)) continue;
                     int at = 0;
                     while (true)
@@ -249,31 +332,14 @@ namespace Dsht.Cli
                 }
             }
             catch { }
-            // —— 看板第三批（2026-10-09 ✓✓ 规格 §11.7 ✓ 决策 D2a 路线①）：血缘来自桥插件快照的 lineage 段 ——
-            //   ★ 桥插件进程内解原始日志**首帧** header（正文帧一帧不解 ✓ 三条红线不动 ✓）；CLI 自己不碰 zstd ✓
-            //   ★ 快照陈旧（dsh 已退出）**不影响**血缘可用性：历史会话首帧不会变 ✓；快照死后新建的会话 → 无血缘 → NOHEADER 如实计数 ✓
-            //   ★ lineage=none（旧插件/段缺失）⇒ 非 global 口径如实拒绝（降级文案 ✓）✗ 不拿不全的投影血缘冒充（§11.2 实测否决 ✓）
-            SnapshotLineage lin = (snap != null) ? SessionStats.ParseSnapshotLineage(snap) : null;
-            bool lineageOk = lin != null && lin.Present;
+            // —— 血缘降级（非 global 且血缘不可用 ⇒ SESSIONS_FAIL ✓ 位置与重构前一致：在 SESSION_CHILD 之后 ✓）——
             if (level != "global" && !lineageOk)
             {
                 PrintWinMeta(days, fromText, toText, source, list.Count, 0, 0, level, false, -1);
-                Console.Error.WriteLine("SESSAGG_LINEAGE 血缘不可用：未检测到桥插件快照的 lineage 段（第三批 · 路线①/D2a：dsh-minato-bridge 只解原始日志首帧 header，正文帧一帧不解）；口径 " + level + " 需要血缘 ⇒ 请安装/升级桥插件后重试");
+                EmitLineageDegrade("SESSAGG_LINEAGE", level);
                 Console.WriteLine("SESSIONS_FAIL " + T("血缘不可用：口径 " + level + " 需要桥插件血缘段（第三批 · dsh-minato-bridge 直读原始日志首帧 header，正文帧一帧不解）；未检测到 ⇒ 请安装/升级桥插件后重试",
                     "lineage unavailable: scope " + level + " needs the bridge plugin lineage section (first-frame headers only); install/upgrade dsh-minato-bridge and retry"));
                 return 0;
-            }
-            // 建图（纯函数 ✓ 领域层 ✓ 零 IO/零时钟 ✓✓）；knownIds = 面板会话 ∪ lineage 键（孤儿判定边界 ✓ §11.7-B ✓）
-            LineageGraph graph = null;
-            int noHeader = 0;   // 面板会话中无血缘边（无原始日志/解码失败/快照陈旧期新建）⇒ 全局照常 ✓ 血缘档排除 ✓ children/depth=unknown ✓
-            if (lineageOk)
-            {
-                List<LineageEdge> edges = new List<LineageEdge>(lin.Edges.Values);
-                System.Collections.Generic.HashSet<string> knownIds = new System.Collections.Generic.HashSet<string>(StringComparer.Ordinal);
-                for (int i = 0; i < edges.Count; i++) knownIds.Add(edges[i].Id);
-                for (int i = 0; i < list.Count; i++) if (list[i].Id != null) knownIds.Add(list[i].Id);
-                graph = SessionLineage.Build(edges, knownIds);
-                for (int i = 0; i < list.Count; i++) if (list[i].Id == null || !lin.Edges.ContainsKey(list[i].Id)) noHeader++;
             }
             SessionTotals tot = SessionStats.Aggregate(list);
             int liveCount = 0;
@@ -283,18 +349,6 @@ namespace Dsht.Cli
             Console.WriteLine("SESSIONS_LIVE " + liveCount);   // 只在有插件快照时可能 > 0（磁盘投影没有"在跑"这个事实）
             Console.WriteLine("SESSIONS_SOURCE " + source);
             Console.WriteLine("SESSIONS_ROOT " + src.SessionsDir);
-            // —— 看板第一批（2026-10-08 ✓✓）：窗口元信息 + 固定总计卡 + 窗口内逐会话聚合（规格 §11.1 ✓ truth=0 ✓✓）——
-            // eligible/unknown_last：days=0（总计）→ eligible = 全部 scanned ✓✓（窗口卡 == 总计卡 ✓ 硬要求 ✓）；unknown_last 只**报告**不排除 ✓
-            int unknownLast = 0;
-            int eligibleCount = 0;
-            for (int i = 0; i < list.Count; i++)
-            {
-                long lp = SessionWindow.EffectiveLastPromptMs(list[i]);
-                if (lp <= 0) unknownLast++;
-                if (windowed && !SessionWindow.Accept(lp, fromMs, toMsEx)) continue;
-                if (!LevelOf(graph, lin, level, list[i].Id)) continue;   // 第三批：血缘档过滤（global ⇒ 恒过 ✓）
-                eligibleCount++;
-            }
             PrintWinMeta(days, fromText, toText, source, list.Count, eligibleCount, unknownLast,
                 level, lineageOk, graph != null ? graph.ForkCount : -1);
             // 固定总计卡：**无视窗口过滤** ✓（scope=store ✓）；first_day = min(createdAt) 本地日，last_day = max(lastPromptAt) 本地日（全无 → unknown ✗ 不猜 ✓）
@@ -487,6 +541,43 @@ namespace Dsht.Cli
                     + " message=" + (s.HasBreakdown ? s.MessageTokens.ToString(i0c) : "unknown"));
             }
             return 0;
+        }
+        /// <summary>血缘降级原因 → stderr 诚实行（SESSIONS 与 COST 各自的标签 ✓ 事实就这一句 ✓ ✗ 不拿不全的投影血缘冒充 ✓）。</summary>
+        private static void EmitLineageDegrade(string tag, string level)
+        {
+            Console.Error.WriteLine(tag + " 血缘不可用：未检测到桥插件快照的 lineage 段（第三批 · 路线①/D2a：dsh-minato-bridge 只解原始日志首帧 header，正文帧一帧不解）；口径 " + level + " 需要血缘 ⇒ 请安装/升级桥插件后重试");
+        }
+        /// <summary>一次会话扫描的全部输入（成本面板 v3.2 · 2026-10-16 ✓）：口径解析 + 加载（快照+磁盘+总表）+ 血缘图 + 窗口/层级计数。
+        /// ★ 一个进程内 `sessions` 与 `cost` **共用同一实例** ⇒ store 只读一遍 ✓（规格 §4 性能铁律 ✓）；
+        /// ★ 本对象**不含任何打印**：失败用 <see cref="FailKind"/> 表达，由各发射端按自己的标记行族说出来 ✓
+        ///   （成功 ⇒ FailKind=null；"arg" = 参数非法（days/range/level）；"noproj" = 没有可读投影 ✗）。
+        /// ★ 血缘不可用**不算加载失败**：它只在非 global 口径下才失败 ⇒ 由发射端判定 ✓（这样 SESSION_CHILD 的输出位置才逐字不变 ✓）。</summary>
+        private sealed class SessionScan
+        {
+            public bool Ok;
+            public string FailKind;
+            public string FailStage;
+            public string ArgTag;
+            public string FailZh, FailEn;
+            public int Days;
+            public string FromText = "-";
+            public string ToText = "-";
+            public string Level = "global";
+            public string Source = "unknown";
+            public int Scanned;
+            public int EligibleCount;
+            public int UnknownLast;
+            public bool Windowed;
+            public long FromMs, ToMsEx;
+            public bool LineageOk;
+            public long ForkSessions = -1;
+            public int NoHeader;
+            public List<SessionStat> List;
+            public SnapshotLineage Lin;
+            public LineageGraph Graph;
+            public ISessionStatsSource Src;
+            public Dictionary<string, string> TextCache;
+            public RowGateReport RowReport;
         }
         /// <summary>SESSWIN_META 发射（OK 与 FAIL 路径共用 ✓ 规格 §11.1 ✓）。
         /// days=0 → days=unknown ✓（总计与**自定义区间**都是 ✓ —— 自定义时 from/to=实际区间 ✓ §4.2 原文允许 ✓）。

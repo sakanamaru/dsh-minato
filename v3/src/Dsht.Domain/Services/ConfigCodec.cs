@@ -113,6 +113,8 @@ namespace Dsht.Domain.Services
             else if (t.StartsWith("sessions_price_cache_read_per_mtok=", StringComparison.Ordinal)) c.SessionsPriceCacheReadPerMTok = ParsePrice(t.Substring("sessions_price_cache_read_per_mtok=".Length));
             else if (t.StartsWith("sessions_price_cache_write_per_mtok=", StringComparison.Ordinal)) c.SessionsPriceCacheWritePerMTok = ParsePrice(t.Substring("sessions_price_cache_write_per_mtok=".Length));
             else if (t.StartsWith("sessions_price_out_per_mtok=", StringComparison.Ordinal)) c.SessionsPriceOutPerMTok = ParsePrice(t.Substring("sessions_price_out_per_mtok=".Length));
+            // ★ 成本面板 v3.2（2026-10-16 ✓ 维护者已确认键名 ✓）：每日预算上限，同样 ≥0 的十进制、同样的 0 = 未设语义 ✓
+            else if (t.StartsWith("sessions_budget_usd_per_day=", StringComparison.Ordinal)) c.SessionsBudgetUsdPerDay = ParsePrice(t.Substring("sessions_budget_usd_per_day=".Length));
             }
             return c;
         }
@@ -153,6 +155,7 @@ namespace Dsht.Domain.Services
             sb.Append("sessions_price_cache_read_per_mtok=").Append(c.SessionsPriceCacheReadPerMTok.ToString(System.Globalization.CultureInfo.InvariantCulture)).Append("\r\n");
             sb.Append("sessions_price_cache_write_per_mtok=").Append(c.SessionsPriceCacheWritePerMTok.ToString(System.Globalization.CultureInfo.InvariantCulture)).Append("\r\n");
             sb.Append("sessions_price_out_per_mtok=").Append(c.SessionsPriceOutPerMTok.ToString(System.Globalization.CultureInfo.InvariantCulture)).Append("\r\n");
+            sb.Append("sessions_budget_usd_per_day=").Append(c.SessionsBudgetUsdPerDay.ToString(System.Globalization.CultureInfo.InvariantCulture)).Append("\r\n");
             return sb.ToString();
         }
 

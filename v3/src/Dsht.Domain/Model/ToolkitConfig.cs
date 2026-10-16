@@ -60,6 +60,11 @@ namespace Dsht.Domain.Model
         public decimal SessionsPriceCacheWritePerMTok = 0m;
         /// <summary>输出单价（美元/百万 token）。0 = 未填。</summary>
         public decimal SessionsPriceOutPerMTok = 0m;
+        /// <summary>每日预算上限（**美元/天** ✓ 与四个单价同币种 ✓ 2026-10-16 成本面板 v3.2 · 维护者已确认键名 ✓）。
+        /// 0 = 未设 → **不作超限判定**（`COST_BUDGET limit=none` ✓ 绝不猜默认额度 ✗✓）。
+        /// ★ 口径：只跟**今日**（本地日）窗口的估算金额比较 ✓ —— 键名是 per_day ✓ 拿多日窗口总额比单日上限没有意义 ✗。
+        /// ★ **零写入**：每次由会话重算 ✓ 不记累计 ✓ 不写任何运行时状态 ✓（勘察 §7.2 ✓）。</summary>
+        public decimal SessionsBudgetUsdPerDay = 0m;
 
         public ToolkitConfig Copy()
         {
@@ -67,7 +72,7 @@ namespace Dsht.Domain.Model
             c.Lang = Lang; c.Host = Host; c.Workspace = Workspace; c.KeepBackups = KeepBackups;
             c.CheckUpdate = CheckUpdate; c.CheckDshUpdate = CheckDshUpdate; c.DshVersions = DshVersions;
             c.UpdateChannel = UpdateChannel; c.CloseAction = CloseAction; c.AutoStart = AutoStart; c.AutoStartTarget = AutoStartTarget; c.BrowserMode = BrowserMode; c.UiParallel = UiParallel; c.ScanChildren = ScanChildren; c.GuiStartPage = GuiStartPage; c.GuiAutoRefresh = GuiAutoRefresh; c.GuiShell = GuiShell; c.GuiStyle = GuiStyle; c.BalanceKey = BalanceKey;
-            c.SessionsDefaultLevel = SessionsDefaultLevel; c.SessionsPriceInPerMTok = SessionsPriceInPerMTok; c.SessionsPriceCacheReadPerMTok = SessionsPriceCacheReadPerMTok; c.SessionsPriceCacheWritePerMTok = SessionsPriceCacheWritePerMTok; c.SessionsPriceOutPerMTok = SessionsPriceOutPerMTok;
+            c.SessionsDefaultLevel = SessionsDefaultLevel; c.SessionsPriceInPerMTok = SessionsPriceInPerMTok; c.SessionsPriceCacheReadPerMTok = SessionsPriceCacheReadPerMTok; c.SessionsPriceCacheWritePerMTok = SessionsPriceCacheWritePerMTok; c.SessionsPriceOutPerMTok = SessionsPriceOutPerMTok; c.SessionsBudgetUsdPerDay = SessionsBudgetUsdPerDay;
             return c;
         }
     }

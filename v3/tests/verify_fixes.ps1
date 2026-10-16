@@ -71,6 +71,7 @@ $checks = @(
   @('命令 check',                'cmd == "check"', 1),
   @('命令 config-get',           'cmd == "config-get"', 1),
   @('命令 config-set',           'cmd == "config-set"', 1),
+  @('命令 cost',                 'cmd == "cost"', 1),   # ★ 成本面板 v3.2（2026-10-16 ✓ 只读成本命令 ✓ 命令面 37 → 38 ✓）
   @('命令 describe',             'cmd == "describe"', 1),
   @('命令 doctor',               'cmd == "doctor"', 1),
   @('命令 import',               'cmd == "import"', 1),
@@ -153,7 +154,7 @@ if ($onlyCode.Count -eq 0 -and $onlyTable.Count -eq 0) { Write-Host "  [OK]   �
 # （命令面有"一一对应"自检 ✓ 但总项数一直没有断言 ✗ —— 本轮补上 ✓）
 # 审计发现（门槛完整性审计 §5.3）：原来是 67，而表里有 **71** 项 → **最多 4 项可被静默删掉** ✗
 # → 现在**必须正好等于表长** ✓（任何一项被删都会红 ✓）
-$EXPECTED_MIN_CHECKS = 71   # ★ T2 新增一条（config-set 建状态目录）→ 71 ✓（删掉任何一条仍会红 ✓）
+$EXPECTED_MIN_CHECKS = 72   # ★ 成本面板 v3.2 新增一条（命令 cost）→ 72 ✓（删掉任何一条仍会红 ✓）
 if ($checks.Count -lt $EXPECTED_MIN_CHECKS) {
     $miss += ("检查表项数不足：" + $checks.Count + " < " + $EXPECTED_MIN_CHECKS)
     Write-Host ("  [MISS] 检查表项数不足：只有 " + $checks.Count + " 项（需 >= " + $EXPECTED_MIN_CHECKS + "）")

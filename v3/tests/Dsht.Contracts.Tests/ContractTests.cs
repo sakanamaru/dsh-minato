@@ -1277,6 +1277,77 @@ static class ContractTests
             && Dsht.Domain.Services.PackageJsonFields.RepoUrl("{\"repository\":{\"type\":\"git\"}}") == ""
             && Dsht.Domain.Services.PackageJsonFields.RepoUrl("{\"repository\":123}") == ""
             && Dsht.Domain.Services.PackageJsonFields.RepoUrl(null) == "");
+        // ================================================================ [37] 成本面板 v3.2（2026-10-16）
+        // 施工规格 §2 冻结口径：金额 = Σ(四桶 × 对应单价) ÷ 1e6（USD）· **只用 output** ✗ 不用 decodeTokens ·
+        // 四键全 0 = 未填 ⇒ 不显示任何金额（✗ 不假装 0）· 预算 0 = 未设 ⇒ 不判定。
+        Console.WriteLine("[37] 成本：四桶分价 / 只用 output / 未配价 / 预算（纯函数）");
+        {
+            ToolkitConfig np = new ToolkitConfig();
+            Check("成本：四键全 0 → 未配价（不显示任何金额）", !SessionCost.IsPriced(np));
+            Check("成本：未配价 → Amount 为 null（✗ 不假装 0 ✓）", !SessionCost.Amount(np, 100, 200, 30, 40).HasValue);
+            Check("成本：未配价 → 格式 none（契约只有 数字|none，✗ 没有 unknown ✓）", SessionCost.Format(SessionCost.Amount(np, 1, 1, 1, 1)) == "none");
+            Check("成本：Format(null) → none", SessionCost.Format(null) == "none");
+
+            ToolkitConfig c = new ToolkitConfig();
+            c.SessionsPriceInPerMTok = 1m; c.SessionsPriceCacheReadPerMTok = 2m; c.SessionsPriceCacheWritePerMTok = 3m; c.SessionsPriceOutPerMTok = 4m;
+            Check("成本：任一键非 0 ⇒ 已配价", SessionCost.IsPriced(c));
+            // 手算期望值：100×1 + 200×2 + 30×3 + 40×4 = 750 → ÷1,000,000 = 0.000750 USD
+            Check("成本：四桶分别计价 · 手算逐笔相等（750/1e6 = 0.000750）", SessionCost.Amount(c, 100, 200, 30, 40) == 0.000750m);
+            Check("成本：格式固定 6 位小数（机器可读 ✓ InvariantCulture ✓）", SessionCost.Format(0.000750m) == "0.000750");
+            // ★ 规格验收 4 的反例：这一行的 decodeTokens=50 ≠ outputTokens=40 → 按 decode 算得 0.000200 ✗ 必须不等
+            Check("成本：算钱只用 output（decode 反例 0.000160 ≠ 0.000200 必须成立）",
+                SessionCost.Amount(c, 0, 0, 0, 40) == 0.000160m && SessionCost.Amount(c, 0, 0, 0, 40) != SessionCost.Amount(c, 0, 0, 0, 50));
+            Check("成本：桶↔价不串位（uncached → 输入价）", SessionCost.Amount(c, 1000000, 0, 0, 0) == 1m);
+            Check("成本：桶↔价不串位（cacheRead → 缓存读价）", SessionCost.Amount(c, 0, 1000000, 0, 0) == 2m);
+            Check("成本：桶↔价不串位（cacheWrite → 缓存写价）", SessionCost.Amount(c, 0, 0, 1000000, 0) == 3m);
+            Check("成本：桶↔价不串位（output → 输出价）", SessionCost.Amount(c, 0, 0, 0, 1000000) == 4m);
+            ToolkitConfig onlyOut = new ToolkitConfig(); onlyOut.SessionsPriceOutPerMTok = 4m;
+            Check("成本：只填输出价 → 其余桶按 0 计（估算偏低但如实 ✓ 文档写明 ✓）", SessionCost.Amount(onlyOut, 100, 200, 30, 40) == 0.000160m);
+            Check("成本：负数 token 不可能来自解析（Num 只会给 ≥0）—— 只钉住 0 桶不产生金额", SessionCost.Amount(c, 0, 0, 0, 0) == 0m);
+
+            SessionStat sTok = new SessionStat();
+            sTok.HasTokens = true; sTok.UncachedInputTokens = 100; sTok.CacheReadTokens = 200; sTok.CacheWriteTokens = 30; sTok.OutputTokens = 40;
+            sTok.DecodeTokens = 50;   // ★ 与 output 不同（反例就位）
+            SessionStat sNoTok = new SessionStat(); sNoTok.OutputTokens = 40;
+            Check("成本：会话有 token + 有价 → 金额（且与合计同式 ✓）", SessionCost.AmountFor(c, sTok) == 0.000750m);
+            Check("成本：会话 token 未知 + 有价 → null（三来源可区分 ✓ 界面不许显示成 0 ✓）", !SessionCost.AmountFor(c, sNoTok).HasValue);
+            Check("成本：会话 token 未知 + 未配价 → 仍 null", !SessionCost.AmountFor(np, sNoTok).HasValue);
+            Check("成本：0 桶 ≠ 未知（有 token 且全 0 ⇒ 0.000000 真数字 ✓）", SessionCost.AmountFor(c, new SessionStat { HasTokens = true }) == 0m);
+
+            ToolkitConfig b = new ToolkitConfig(); b.SessionsBudgetUsdPerDay = 1m;
+            Check("预算：未设上限（0）→ 永不超限", !SessionCost.IsOverBudget(new ToolkitConfig(), 99m));
+            Check("预算：未配价（spent=null）→ 不判定（✗ 不猜 ✓）", !SessionCost.IsOverBudget(b, null));
+            Check("预算：spent == limit → 不超（严格大于才算 ✓）", !SessionCost.IsOverBudget(b, 1m));
+            Check("预算：spent > limit → 超限", SessionCost.IsOverBudget(b, 1.000001m));
+        }
+        Console.WriteLine("[38] 成本：预算键四处同步 + 最后使用模型解析（配置键 2026-10-16）");
+        {
+            System.Func<string,string> canon2 = delegate(string wsPath) { return wsPath; };
+            ToolkitConfig pbud = ConfigCodec.Parse("sessions_budget_usd_per_day=12.5\n", canon2);
+            Check("预算键：ConfigCodec 解析（≥0 十进制 ✓）", pbud.SessionsBudgetUsdPerDay == 12.5m);
+            Check("预算键：序列化含该键（落盘 ✓）", ConfigCodec.Serialize(pbud).IndexOf("sessions_budget_usd_per_day=12.5", StringComparison.Ordinal) >= 0);
+            Check("预算键：畸形 → 0 = 未设（✗ 不猜 ✗）", ConfigCodec.Parse("sessions_budget_usd_per_day=abc\n", canon2).SessionsBudgetUsdPerDay == 0m);
+            Check("预算键：校验白名单（0.5 ✓ / -1 ✗ / abc ✗）",
+                ConfigValidator.Validate("sessions_budget_usd_per_day", "0.5", canon2) == null
+                && ConfigValidator.Validate("sessions_budget_usd_per_day", "-1", canon2) == "bad-value"
+                && ConfigValidator.Validate("sessions_budget_usd_per_day", "abc", canon2) == "bad-value");
+            Check("预算键：Copy() 带上（✗ 漏拷 = 活配置与落盘分叉 ✗）", pbud.Copy().SessionsBudgetUsdPerDay == 12.5m);
+            Check("预算键：ApplyTo 落值", ConfigValidator.ApplyTo(new ToolkitConfig(), "sessions_budget_usd_per_day", "3", canon2).SessionsBudgetUsdPerDay == 3m);
+            Check("预算键：SameValue 回读判定（写入真的生效 ✓）", ConfigValidator.SameValue(new ToolkitConfig(), "sessions_budget_usd_per_day", "3", canon2));
+
+            string projCost = "{\"version\":7,\"record\":{\"identity\":{\"createdAt\":1,\"cwd\":\"D:\\\\w\"},\"rows\":{"
+                + "\"tokenUsage\":{\"ver\":2,\"val\":{\"totals\":{\"uncachedInputTokens\":1,\"outputTokens\":2,\"cacheReadTokens\":3,\"cacheWriteTokens\":4}}},"
+                + "\"modelSelection\":{\"ver\":2,\"seq\":52,\"val\":{\"lastUsed\":{\"provider\":\"r4-coder\",\"model\":\"deepseek-v4.1-flash\",\"reasoningEffort\":\"max\"},\"pending\":null}}}}}";
+            SessionStat psCost = SessionStats.ParseSessionProjection(projCost, "x");
+            Check("模型：modelSelection.val.lastUsed.model 被解析出来（勘察 §1.2 实测形状）", psCost != null && psCost.LastUsedModel == "deepseek-v4.1-flash");
+            string projNoModel = "{\"version\":7,\"record\":{\"identity\":{\"createdAt\":1},\"rows\":{\"tokenUsage\":{\"ver\":2,\"val\":{\"totals\":{\"uncachedInputTokens\":1,\"outputTokens\":2,\"cacheReadTokens\":3,\"cacheWriteTokens\":4}}}}}}";
+            SessionStat psNoModel = SessionStats.ParseSessionProjection(projNoModel, "y");
+            Check("模型：没有 modelSelection → 空串（标记行写 unknown ✗ 不猜 ✓）", psNoModel != null && psNoModel.LastUsedModel == "");
+            Check("模型：解析模型不碰四桶（同一行 ✓ 无耦合 ✓）", psNoModel.HasTokens && psNoModel.OutputTokens == 2 && psNoModel.UncachedInputTokens == 1);
+            SessionStat psNull = SessionStats.ParseSessionProjection(
+                "{\"version\":7,\"record\":{\"identity\":{\"createdAt\":1},\"rows\":{\"modelSelection\":{\"ver\":2,\"seq\":1,\"val\":{\"lastUsed\":null,\"pending\":null}}}}}", "z");
+            Check("模型：lastUsed=null → 空串（✗ 不打 null 字面量 ✗）", psNull != null && psNull.LastUsedModel == "");
+        }
         Console.WriteLine("== " + _pass + "/" + (_pass + _fail) + " passed, " + _fail + " failed ==");
         return _fail == 0 ? 0 : 1;
     }
