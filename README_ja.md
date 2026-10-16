@@ -131,6 +131,7 @@ dsh-minato start | stop           dsh Web UI の起動・停止
 dsh-minato install | update       dsh（と本ツール）の導入・更新
 dsh-minato uninstall              本ツールの削除（データには触れません）
 dsh-minato sessions               セッションごとの token とキャッシュの数字
+dsh-minato cost [--days 7|14|30]  期間内と今日の token と**概算**金額（単価は自分で入力。未入力なら金額は表示しません）
 dsh-minato backup [--to <dir>]    バックアップパッケージを作成
 dsh-minato backup-list [--verify] パッケージ一覧と内容の検証
 dsh-minato backup-dir [--set <d>] バックアップの書き出し先
@@ -157,7 +158,7 @@ dsh-minato version | about | selftest
 - **ローカルのみ。** ツールは自分のマシンを読み書きするだけです。ネットワークに接続するのは
   `check`、`update-info`、`update-center`、`doctor`、`install`、`update`、`verify-install --url`、
   および `balance`（**`balance_key` を設定している場合のみ**）です。
-  それ以外（status、sessions、backup、restore、ログ）は**接続しません**。
+  それ以外（status、sessions、cost、backup、restore、ログ）は**接続しません**。
 - **テレメトリなし、アカウントなし、アップロードなし。**
 - **アンインストールでデータは消えません。** 削除するのはツール自身のファイルだけです。データの削除は別の明示的な操作です。
 - **バックアップの完全性は検証されるもので、仮定されるものではありません。** パッケージには最後に書かれる完了マーカーと

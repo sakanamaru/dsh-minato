@@ -155,7 +155,7 @@ dsh-minato version | about | selftest
 
 - **只在本机。** 工具只读写你自己的机器。**只有**这些命令会联网：`check`、`update-info`、`update-center`、
   `doctor`、`install`、`update`、`verify-install --url` 和 `balance`（**只在你填了 `balance_key` 之后**才联网）。
-  其余（status、sessions、backup、restore、日志）**绝不联网**。
+  其余（status、sessions、cost、backup、restore、日志）**绝不联网**。
 - **无遥测、无账号、不上传。**
 - **卸载不会删你的数据。** 卸载只移除工具自己的文件；删数据是另一个显式动作。
 - **备份的完整性是校验出来的，不是假设的。** 包里最后写入一个完成标记，并带逐文件哈希；中途中断或内容被改过的包会被拒收。

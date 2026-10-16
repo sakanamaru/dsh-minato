@@ -159,7 +159,7 @@ This section states only what the code does. If a claim here is not backed by th
 - **Local only.** The tool reads and writes your own machine. It contacts the network **only** in these commands:
   `check`, `update-info`, `update-center`, `doctor`, `install`, `update`, `verify-install --url`, and `balance` (only
   when you have set `balance_key` in settings; without it the command is fully offline). Everything else — status,
-  sessions, backup, restore, logs — never opens a connection.
+  sessions, cost, backup, restore, logs — never opens a connection.
 - **No telemetry, no accounts, no uploads.**
 - **Your data is not deleted by uninstall.** Uninstall removes the tool's own files. Data removal is a separate,
   explicit action.
