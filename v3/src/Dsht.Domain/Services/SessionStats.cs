@@ -106,6 +106,26 @@ namespace Dsht.Domain.Services
             return s;
         }
 
+        /// <summary>会话 id 的**唯一归一入口**（数据正确性修复 2026-10-16 · task-4 ✓）：
+        /// 剥掉**一个**前导 `session-`（`StringComparison.Ordinal` ✓ 大小写敏感 ✓ 与既有口径逐字一致 ✓），得到**裸 UUID**。
+        ///
+        /// ★ 为什么必须归一 ✗（勘察实测 ✓ 唯一不归一源头就是本文件 <see cref="ParseSnapshot"/> 的 `s.Id`）：
+        ///   · 磁盘投影文件名（220/308 无前缀、88/308 带前缀）、投影总表键（39/65 带前缀）、
+        ///     `childId` 值（194 个里 0 个带前缀）、血缘边 id/parent —— **本来就都是裸 UUID** ✓
+        ///   · 桥快照只是**转述** dsh 给的 `header.id`/`item.id`（10 个里 8 个带前缀 ✓ 不是插件 bug ✓）
+        ///   ⇒ 不归一 ⇒ 同一会话两种形态 ⇒ **去重失败**（真实库 `SESSION` 行 317 vs 归一后 309 ✓、
+        ///     `COST_SESSION` 36 vs 30 ✓）× 两个方向的伤害：
+        ///       · global 档：同一会话两条都进账 ⇒ **高估**
+        ///       · 非 global 档：带前缀那份在聚合层（`SESSAGG_*` / `COST_*` 走 LevelAccept）**整条被排除** ⇒ **低估**
+        ///   ⇒ 所以归一既是去重、也是口径修正 ✓ ✗ 不做"只归一去重键、对外两套表示" ✗（那样 SESSION_CHILD 联表
+        ///     与血缘查表依旧对不上 ✓ 证据：勘察两条只读实验 ✓）
+        /// ★ 空 id → 空串（调用方各自判空 ✓ 不猜 ✓）；多次前缀（`session-session-x`）只剥**一个** ✓（与历史口径一致 ✓）。</summary>
+        public static string NormalizeSessionId(string id)
+        {
+            if (string.IsNullOrEmpty(id)) return id == null ? "" : id;
+            return id.StartsWith("session-", StringComparison.Ordinal) ? id.Substring("session-".Length) : id;
+        }
+
         /// <summary>解析投影总表 → 全部会话（表键即 id，去掉 `session-` 前缀）。格式不认 → 空数组。</summary>
         public static SessionStat[] ParseAggregate(string json)
         {
@@ -129,7 +149,7 @@ namespace Dsht.Domain.Services
                 JNode row = RowOf(entry.Get("rows"));
                 if (row == null) continue;
                 string id = kv.Key == null ? "" : kv.Key;
-                if (id.StartsWith("session-", StringComparison.Ordinal)) id = id.Substring("session-".Length);
+                id = NormalizeSessionId(id);
                 SessionStat s = FromRow(row, id, rep);
                 if (s == null) continue;
                 FillIdentity(s, entry.Get("identity"));
@@ -157,7 +177,7 @@ namespace Dsht.Domain.Services
                 JNode n = arr.Items[i];
                 if (n == null || !n.IsObject) continue;
                 SessionStat s = new SessionStat();
-                s.Id = Str(n, "id");
+                s.Id = NormalizeSessionId(Str(n, "id"));   // ★ 唯一不归一源头（2026-10-16 修复 ✓）：快照 id 与磁盘/聚合/血缘同口径 ⇒ 去重与联表才成立 ✓
                 s.Title = Str(n, "title");
                 s.Cwd = Str(n, "cwd");
                 s.CreatedAt = Str(n, "createdAt");
@@ -215,7 +235,7 @@ namespace Dsht.Domain.Services
                 JNode n = kv.Value;
                 if (n == null || !n.IsObject) continue;
                 string id = kv.Key == null ? "" : kv.Key;
-                if (id.StartsWith("session-", StringComparison.Ordinal)) id = id.Substring("session-".Length);
+                id = NormalizeSessionId(id);
                 if (id.Length == 0) continue;
                 LineageEdge e = new LineageEdge();
                 e.Id = id;
@@ -231,7 +251,7 @@ namespace Dsht.Domain.Services
                         {
                             string one = p.Items[i] == null ? null : p.Items[i].AsString(null);
                             if (one == null) continue;
-                            if (one.StartsWith("session-", StringComparison.Ordinal)) one = one.Substring("session-".Length);
+                            one = NormalizeSessionId(one);
                             if (one.Length > 0 && !ids.Contains(one)) ids.Add(one);
                         }
                         if (ids.Count > 1) { e.Multiparent = true; e.Parent = ids[0]; }
@@ -242,7 +262,7 @@ namespace Dsht.Domain.Services
                         string one = p.AsString(null);
                         if (one != null)
                         {
-                            if (one.StartsWith("session-", StringComparison.Ordinal)) one = one.Substring("session-".Length);
+                            one = NormalizeSessionId(one);
                             e.Parent = one;
                         }
                     }

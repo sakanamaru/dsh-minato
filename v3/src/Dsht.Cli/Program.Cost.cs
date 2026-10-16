@@ -143,7 +143,8 @@ namespace Dsht.Cli
 
         /// <summary>COST_TOTAL：**已知 token 的会话求和**（与 `SESSAGG_TOTAL` 同一欠账纪律 ✓ —— 未知的既不假装 0 也不静默漏：
         /// `COST_NOTE session-cost-unavailable n=N` 把"算不了"的笔数说出来 ✓）。
-        /// 返回该 scope 的金额（未配价 → null ✓ 恒与各 `COST_SESSION` 金额之和逐位相等 ✓ SessionCost.Decimals ✓）。</summary>
+        /// 返回该 scope 的金额（未配价 → null ✓ **恒等于**各 `COST_SESSION` 金额之和 ✓ —— 同一份**未舍入**的十进制值逐笔相加 ✓
+        /// ⇒ 数值完全相等 ✗ 不因显示写法（`0.00075` / `1.18E-07`）而对不上 ✓）。</summary>
         private static decimal? EmitCostTotal(string scope, ToolkitConfig cfg, List<SessionStat> set)
         {
             System.Globalization.CultureInfo i0c = System.Globalization.CultureInfo.InvariantCulture;

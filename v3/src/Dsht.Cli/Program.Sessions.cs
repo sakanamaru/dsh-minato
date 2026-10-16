@@ -201,8 +201,7 @@ namespace Dsht.Cli
             var textCache = new System.Collections.Generic.Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             for (int i = 0; i < files.Length; i++)
             {
-                string id = System.IO.Path.GetFileNameWithoutExtension(files[i]);
-                if (id != null && id.StartsWith("session-", StringComparison.Ordinal)) id = id.Substring("session-".Length);
+                string id = SessionStats.NormalizeSessionId(System.IO.Path.GetFileNameWithoutExtension(files[i]));   // ★ 与快照/聚合/血缘同一归一入口（2026-10-16 数据正确性修复 ✓ 否则快照那条与磁盘这条去重不上 ⇒ 重复计入 ✗）
                 if (id != null && have.Contains(id)) continue;
                 string txt1 = src.ReadText(files[i]);
                 if (!string.IsNullOrEmpty(txt1)) textCache[files[i]] = txt1;
@@ -311,8 +310,7 @@ namespace Dsht.Cli
                 string[] cfiles = src.ListSessionFiles();
                 for (int ci = 0; ci < cfiles.Length; ci++)
                 {
-                    string pid2 = System.IO.Path.GetFileNameWithoutExtension(cfiles[ci]);
-                    if (pid2 != null && pid2.StartsWith("session-", StringComparison.Ordinal)) pid2 = pid2.Substring("session-".Length);
+                    string pid2 = SessionStats.NormalizeSessionId(System.IO.Path.GetFileNameWithoutExtension(cfiles[ci]));   // 同一归一 ✓ 否则 SESSION_CHILD 的父 id 与 SESSION 行 id 对不上（联表失败 ✓）
                     string t2;
                     if (!sc.TextCache.TryGetValue(cfiles[ci], out t2)) t2 = src.ReadText(cfiles[ci]);   // ★ 第二遍复用第一遍读到的 ✓✓
                     if (string.IsNullOrEmpty(t2)) continue;

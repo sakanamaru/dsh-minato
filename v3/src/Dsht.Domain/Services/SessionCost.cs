@@ -17,9 +17,12 @@ namespace Dsht.Domain.Services
     /// 领域层纯度（架构红线 ✓）：纯算术 ✓ 零 IO ✓ **零时钟** ✓（本地日换算在 CLI 侧 ✓ 与 SessionWindow 同一纪律）。</summary>
     public static class SessionCost
     {
-        /// <summary>金额显示精度（小数位）。**逐会话金额按此四舍五入** ⇒ 合计 = **各会话显示值之和** ✓
-        /// （GUI 把 `COST_SESSION` 的数字相加一定等于 `COST_TOTAL cost=` ✓ ✗ 不留最后一位对不上的缝 ✗）。</summary>
-        public const int Decimals = 6;
+        // ★ 精度纪律（2026-10-16 修正 ✓ Lead 裁定）：**不做任何四舍五入** ✗
+        //   ✗ 原来把金额 `Round(…, 6)` ⇒ 真值 1.18e-7 被写成 `0.000000` ⇒ 界面只能说"金额为 0" ✗ 但那不是 0 ✓
+        //   ✓ 现在：保留 `sum / 1_000_000` 的**完整十进制值**，只在**输出**时用往返精度格式化（见 <see cref="Format"/>）：
+        //     非零值**永远**不会渲染成 `0` / `0.000000` ✓ 大额仍给足精度（`24755.699751` ✓）✓
+        //     小额给科学计数（`1.18E-07` ✓）—— GUI 侧用 `decimal.TryParse(NumberStyles.Float)` 解析 ⇒ 两种形态都认 ✓
+        //   ★ 合计仍**恒等于**各会话金额之和（同一份未舍入值 ✓ 逐笔相加得出 ✓）✗ 不留对不上的缝 ✗
 
         /// <summary>四键是否**至少有一个**非 0（= 已配价 ✓）。全 0 = 未填 ⇒ 不显示任何金额 ✓（规格 §2 ✓）。</summary>
         public static bool IsPriced(ToolkitConfig c)
@@ -31,7 +34,7 @@ namespace Dsht.Domain.Services
                 || c.SessionsPriceOutPerMTok > 0m;
         }
 
-        /// <summary>四桶 → 金额（USD，四舍五入到 <see cref="Decimals"/> 位）。**未配价 → null**（✗ 不假装 0 ✓）。
+        /// <summary>四桶 → 金额（USD，**不舍入** ✓ 完整十进制值）。**未配价 → null**（✗ 不假装 0 ✓）。
         /// 参数顺序与标记行一致：uncached / cacheRead / cacheWrite / output ✓。</summary>
         public static decimal? Amount(ToolkitConfig c, long uncached, long cacheRead, long cacheWrite, long output)
         {
@@ -40,7 +43,7 @@ namespace Dsht.Domain.Services
                         + cacheRead * c.SessionsPriceCacheReadPerMTok
                         + cacheWrite * c.SessionsPriceCacheWritePerMTok
                         + output * c.SessionsPriceOutPerMTok;
-            return decimal.Round(sum / 1000000m, Decimals, MidpointRounding.AwayFromZero);
+            return sum / 1000000m;   // ✗ 不 Round ✗（舍入会把极小非零值变成 0 ⇒ 界面会说"没有金额" ✗）
         }
 
         /// <summary>某会话的金额：
@@ -53,11 +56,18 @@ namespace Dsht.Domain.Services
             return Amount(c, s.UncachedInputTokens, s.CacheReadTokens, s.CacheWriteTokens, s.OutputTokens);
         }
 
-        /// <summary>金额 → 标记行文本：固定小数点后 6 位、**InvariantCulture**（机器可读 ✓ 不受区域设置影响 ✓）；
-        /// null → `none` ✗ 绝不是 `unknown` ✓（契约只有这两个取值之二：数字 | none）。</summary>
+        /// <summary>金额 → 标记行文本：**往返精度**（`G29` = 29 位有效数字，decimal 的完整精度 ✓
+        /// **InvariantCulture** ✓ 机器可读 ✓ 不受区域设置影响 ✓）；null → `none` ✗ 绝不是 `unknown` ✓
+        /// （契约只有两个取值：数字 | `none` ✓ —— `none` **只**表示"不可算/未配价" ✗ 绝不用 0 代替 ✓）。
+        ///
+        /// ★ 硬规则（2026-10-16 ✓ Lead 裁定）：**非零金额永远不许渲染成 `0` / `0.000000`** ✗
+        ///   —— 把"很小"写成"没有"就是不诚实 ✓（GUI 侧另有一条同样的显示守卫 ✓ 两侧各守一道 ✓）。
+        ///   实测形态（`.NET` decimal）：`0.00075m → "0.00075"` · `0.000000118m → "1.18E-07"` ·
+        ///   `0m → "0"`（真零照实说 0 ✓）· `24755.699751m → "24755.699751"`（大额精度不减 ✓）
+        ///   · `1m/3000000 → "3.333333333333333333333E-07"`（除不尽的循环小数保留 29 位有效数字 ✓ 仍非零 ✓）。</summary>
         public static string Format(decimal? v)
         {
-            return v.HasValue ? v.Value.ToString("0." + new string('0', Decimals), System.Globalization.CultureInfo.InvariantCulture) : "none";
+            return v.HasValue ? v.Value.ToString("G29", System.Globalization.CultureInfo.InvariantCulture) : "none";
         }
 
         /// <summary>每日预算是否被**今日估算金额**超过。未设上限（0）或未配价（spent=null）⇒ false（不作判定 ✗ 不猜 ✓）。

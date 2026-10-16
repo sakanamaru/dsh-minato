@@ -1292,8 +1292,17 @@ static class ContractTests
             c.SessionsPriceInPerMTok = 1m; c.SessionsPriceCacheReadPerMTok = 2m; c.SessionsPriceCacheWritePerMTok = 3m; c.SessionsPriceOutPerMTok = 4m;
             Check("成本：任一键非 0 ⇒ 已配价", SessionCost.IsPriced(c));
             // 手算期望值：100×1 + 200×2 + 30×3 + 40×4 = 750 → ÷1,000,000 = 0.000750 USD
-            Check("成本：四桶分别计价 · 手算逐笔相等（750/1e6 = 0.000750）", SessionCost.Amount(c, 100, 200, 30, 40) == 0.000750m);
-            Check("成本：格式固定 6 位小数（机器可读 ✓ InvariantCulture ✓）", SessionCost.Format(0.000750m) == "0.000750");
+            Check("成本：四桶分别计价 · 手算逐笔相等（750/1e6 = 0.00075）", SessionCost.Amount(c, 100, 200, 30, 40) == 0.00075m);
+            // ★ 精度（2026-10-16 修正）：**往返精度** —— 非零永不渲染成 0 / 0.000000 ✓（原为固定 6 位，会把 1.18e-7 写成 0.000000 ✗）
+            Check("成本：格式为往返精度（0.00075 → `0.00075`，不分位补齐 ✓）", SessionCost.Format(0.00075m) == "0.00075");
+            Check("成本：极小非零给科学计数（1.18e-7 → `1.18E-07`，✗ 绝不是 0/0.000000 ✓）",
+                SessionCost.Format(0.000000118m) == "1.18E-07" && SessionCost.Format(0.000000118m) != "0" && SessionCost.Format(0.000000118m) != "0.000000");
+            Check("成本：真零照实说 `0`（不给假精度 ✓）", SessionCost.Format(0m) == "0");
+            Check("成本：大额精度不减（24755.699751 原样 ✓）", SessionCost.Format(24755.699751m) == "24755.699751");
+            Check("成本：极小非零值本身也不被舍入（Amount 不舍入 ✓ 1 token × 0.001/Mtok = 1e-9 ≠ 0 ✓）",
+                SessionCost.Amount(new ToolkitConfig { SessionsPriceInPerMTok = 0.001m }, 1, 0, 0, 0) == 0.000000001m
+                && SessionCost.Amount(new ToolkitConfig { SessionsPriceInPerMTok = 0.001m }, 1, 0, 0, 0) != 0m
+                && SessionCost.Format(SessionCost.Amount(new ToolkitConfig { SessionsPriceInPerMTok = 0.001m }, 1, 0, 0, 0)) == "1E-09");
             // ★ 规格验收 4 的反例：这一行的 decodeTokens=50 ≠ outputTokens=40 → 按 decode 算得 0.000200 ✗ 必须不等
             Check("成本：算钱只用 output（decode 反例 0.000160 ≠ 0.000200 必须成立）",
                 SessionCost.Amount(c, 0, 0, 0, 40) == 0.000160m && SessionCost.Amount(c, 0, 0, 0, 40) != SessionCost.Amount(c, 0, 0, 0, 50));
@@ -1312,7 +1321,13 @@ static class ContractTests
             Check("成本：会话有 token + 有价 → 金额（且与合计同式 ✓）", SessionCost.AmountFor(c, sTok) == 0.000750m);
             Check("成本：会话 token 未知 + 有价 → null（三来源可区分 ✓ 界面不许显示成 0 ✓）", !SessionCost.AmountFor(c, sNoTok).HasValue);
             Check("成本：会话 token 未知 + 未配价 → 仍 null", !SessionCost.AmountFor(np, sNoTok).HasValue);
-            Check("成本：0 桶 ≠ 未知（有 token 且全 0 ⇒ 0.000000 真数字 ✓）", SessionCost.AmountFor(c, new SessionStat { HasTokens = true }) == 0m);
+            Check("成本：0 桶 ≠ 未知（有 token 且全 0 ⇒ 真零 `0` ✓ 未知才是 none ✓）", SessionCost.AmountFor(c, new SessionStat { HasTokens = true }) == 0m);
+            SessionStat sTok2 = new SessionStat();
+            sTok2.HasTokens = true; sTok2.UncachedInputTokens = 7; sTok2.CacheReadTokens = 0; sTok2.CacheWriteTokens = 1; sTok2.OutputTokens = 3;
+            Check("成本：合计恒等于各会话金额之和（同一份未舍入值 ✓ ✗ 无末位缝 ✗）",
+                SessionCost.AmountFor(c, sTok).Value + SessionCost.AmountFor(c, sTok2).Value
+                == SessionCost.Amount(c, sTok.UncachedInputTokens + sTok2.UncachedInputTokens, sTok.CacheReadTokens + sTok2.CacheReadTokens,
+                                      sTok.CacheWriteTokens + sTok2.CacheWriteTokens, sTok.OutputTokens + sTok2.OutputTokens).Value);
 
             ToolkitConfig b = new ToolkitConfig(); b.SessionsBudgetUsdPerDay = 1m;
             Check("预算：未设上限（0）→ 永不超限", !SessionCost.IsOverBudget(new ToolkitConfig(), 99m));
@@ -1347,6 +1362,32 @@ static class ContractTests
             SessionStat psNull = SessionStats.ParseSessionProjection(
                 "{\"version\":7,\"record\":{\"identity\":{\"createdAt\":1},\"rows\":{\"modelSelection\":{\"ver\":2,\"seq\":1,\"val\":{\"lastUsed\":null,\"pending\":null}}}}}", "z");
             Check("模型：lastUsed=null → 空串（✗ 不打 null 字面量 ✗）", psNull != null && psNull.LastUsedModel == "");
+        }
+        Console.WriteLine("[39] 会话 id 归一（数据正确性修复 2026-10-16：快照 id 剥前导 session- ⇒ 去重与联表才成立）");
+        {
+            Check("归一：带前缀 → 裸 UUID", SessionStats.NormalizeSessionId("session-abc") == "abc");
+            Check("归一：裸 → 原样", SessionStats.NormalizeSessionId("abc-def") == "abc-def");
+            Check("归一：大小写敏感（Session- 不剥，与既有 Ordinal 口径一致）", SessionStats.NormalizeSessionId("Session-abc") == "Session-abc");
+            Check("归一：只剥一个（session-session-x → session-x）", SessionStats.NormalizeSessionId("session-session-x") == "session-x");
+            Check("归一：空/null → 空串（调用方各自判空 ✓ 不猜 ✓）", SessionStats.NormalizeSessionId("") == "" && SessionStats.NormalizeSessionId(null) == "");
+            Check("归一：只有前缀 → 空串", SessionStats.NormalizeSessionId("session-") == "");
+            // ★ 唯一不归一源头就是这个解析入口（勘察证据：磁盘名/聚合表键/childId/血缘边本就裸 UUID ✓）
+            string snapNorm = "{\"formatVersion\":2,\"generatedAt\":\"2026-01-01T00:00:00.000Z\",\"sessions\":[{\"id\":\"session-aaaa0001\",\"live\":true,\"turns\":1,\"outputTokens\":9},{\"id\":\"bbbb0002\",\"turns\":2,\"outputTokens\":8}]}";
+            SessionStat[] ssNorm = SessionStats.ParseSnapshot(snapNorm);
+            Check("快照：带前缀 id 被归一（否则与磁盘那条去重失败 ⇒ 重复计入 ✓）",
+                ssNorm.Length == 2 && ssNorm[0].Id == "aaaa0001" && ssNorm[1].Id == "bbbb0002");
+            Check("快照：归一不影响其余字段（turns/token 照读 ✓）", ssNorm[0].Turns == 1 && ssNorm[0].OutputTokens == 9);
+            // 三方（快照 / 聚合表 / 血缘边）必须同一形态 ⇒ 联表与查表才可能成功
+            string aggNorm = "{\"tables\":{\"sessions\":{\"session-cccc0003\":{\"rows\":{\"tokenUsage\":{\"ver\":2,\"val\":{\"totals\":{\"uncachedInputTokens\":1,\"outputTokens\":1,\"cacheReadTokens\":1,\"cacheWriteTokens\":1}}}}}}}}";
+            SessionStat[] asNorm = SessionStats.ParseAggregate(aggNorm);
+            Check("聚合表：键归一（与快照同形态 ✓）", asNorm.Length == 1 && asNorm[0].Id == "cccc0003");
+            string linNorm = "{\"formatVersion\":2,\"generatedAt\":\"2026-01-01T00:00:00.000Z\",\"sessions\":[],\"lineage\":{\"errors\":0,\"sessions\":{\"session-aaaa0001\":{},\"bbbb0002\":{\"parent\":\"session-aaaa0001\"}}}}";
+            SnapshotLineage slNorm = SessionStats.ParseSnapshotLineage(linNorm);
+            Check("血缘：id 与 parent 都归一（父指向能对上 ⇒ children/depth 不再 unknown ✓）",
+                slNorm.Present && slNorm.Edges.ContainsKey("aaaa0001") && slNorm.Edges.ContainsKey("bbbb0002")
+                && slNorm.Edges["bbbb0002"].Parent == "aaaa0001");
+            Check("三方归一后可直接联表（快照 id == 血缘边键 == 聚合键 ✓）",
+                ssNorm[0].Id == "aaaa0001" && slNorm.Edges.ContainsKey(ssNorm[0].Id) && asNorm[0].Id == "cccc0003");
         }
         Console.WriteLine("== " + _pass + "/" + (_pass + _fail) + " passed, " + _fail + " failed ==");
         return _fail == 0 ? 0 : 1;

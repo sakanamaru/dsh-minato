@@ -477,24 +477,24 @@ try {
     Write-Host ("  -- cost --days 7（已配价 in=1/cr=2/cw=3/out=4）   rc=" + $cPr.rc)
     foreach ($l in (MarkLines $cPr.out '^COST_(TOTAL|BUDGET|NOTE)' | Select-Object -First 5)) { Write-Host ("       " + $l) }
     Check "1d 配价 COST_META priced=1" (HasMarker $cPr.out '^COST_META scope=window days=7 .+ priced=1 currency=USD tz=.+ truth=0 unknown_last=1 model_unknown=1$')
-    Check "1d 配价 COST_TOTAL scope=window 金额手算相等（750/1e6 = 0.000750 ✓ 验收②）" `
-        (HasMarker $cPr.out '^COST_TOTAL scope=window uncached=100 cacheRead=200 cacheWrite=30 output=40 tokens=370 cost=0.000750$')
-    Check "1d 验收④ 算钱只用 output：0.000750（**不是** 按 decodeTokens=50 的 0.000200 ✗）" `
-        ((HasMarker $cPr.out 'cost=0.000750$') -and (-not (HasMarker $cPr.out 'cost=0.000200$')))
-    Check "1d 配价 COST_SESSION 逐笔金额（aaaa0001 = 0.000750 · dddd0004 token 未知 ⇒ cost=none ✗ 不假装 0 ✓）" `
-        ((HasMarker $cPr.out '^COST_SESSION scope=window aaaa0001 model=test-model uncached=100 cacheRead=200 cacheWrite=30 output=40 cost=0.000750$') `
+    Check "1d 配价 COST_TOTAL scope=window 金额手算相等（750/1e6 = 0.00075 ✓ 验收② ✓ 往返精度形态 ✓）" `
+        (HasMarker $cPr.out '^COST_TOTAL scope=window uncached=100 cacheRead=200 cacheWrite=30 output=40 tokens=370 cost=0.00075$')
+    Check "1d 验收④ 算钱只用 output：0.00075（**不是** 按 decodeTokens=50 的 0.0002 ✗）" `
+        ((HasMarker $cPr.out 'cost=0.00075$') -and (-not (HasMarker $cPr.out 'cost=0.0002$')))
+    Check "1d 配价 COST_SESSION 逐笔金额（aaaa0001 = 0.00075 · dddd0004 token 未知 ⇒ cost=none ✗ 不假装 0 ✓）" `
+        ((HasMarker $cPr.out '^COST_SESSION scope=window aaaa0001 model=test-model uncached=100 cacheRead=200 cacheWrite=30 output=40 cost=0.00075$') `
         -and (HasMarker $cPr.out '^COST_SESSION scope=window dddd0004 model=unknown uncached=unknown cacheRead=unknown cacheWrite=unknown output=unknown cost=none$'))
     Check "1d 第三种 none 来源可见：COST_NOTE session-cost-unavailable n=1（配了价但有 1 笔算不了 ✓）" `
         (HasMarker $cPr.out '^COST_NOTE session-cost-unavailable n=1$')
-    Check "1d 预算超限：limit=0.000500 spent=0.000750 over=1（0.000750 > 0.0005 ✓）" `
-        (HasMarker $cPr.out '^COST_BUDGET limit=0.000500 spent=0.000750 over=1$')
+    Check "1d 预算超限：limit=0.0005 spent=0.00075 over=1（0.00075 > 0.0005 ✓）" `
+        (HasMarker $cPr.out '^COST_BUDGET limit=0.0005 spent=0.00075 over=1$')
     Check "1d 配价：price-missing **消失**（已配价 ✓）" (-not (HasMarker $cPr.out '^COST_NOTE price-missing$'))
     Check "1d 恒有两条如实说明（不对官方账单 / 模型是近似 ✓）" `
         ((HasMarker $cPr.out '^COST_NOTE official-billing-not-compared$') -and (HasMarker $cPr.out '^COST_NOTE model-approximate$'))
     # 非 global 档：预算行恒全局 ⇒ 必须自报 COST_NOTE budget-scope-global（规格 §3.1-③ ✓）
     $cPar = Run-Cli $Cli @("cost", "--days", "7", "--level", "parents")
     Check "1d 非 global 档：COST_NOTE budget-scope-global 出现 + 预算行仍是全局今日（spent 不变 ✓）" `
-        ((HasMarker $cPar.out '^COST_NOTE budget-scope-global$') -and (HasMarker $cPar.out '^COST_BUDGET limit=0.000500 spent=0.000750 over=1$') `
+        ((HasMarker $cPar.out '^COST_NOTE budget-scope-global$') -and (HasMarker $cPar.out '^COST_BUDGET limit=0.0005 spent=0.00075 over=1$') `
         -and (HasMarker $cPar.out '^COST_META scope=window days=7 .+ level=parents .+$'))
     # 参数面与 sessions 同形（成对/互斥/格式 ✓ 失败只打 COST_FAIL ✗ 不打半截数字 ✓）
     $cBad = Run-Cli $Cli @("cost", "--days", "99")
@@ -511,8 +511,128 @@ try {
         ($cResetLines.Count -eq 5 -and -not (HasMarker $cReset.out '^CONFIG (sessions_price_|sessions_budget_usd_per_day) [1-9]'))
 
     # ------------------------------------------------------------------
-    # 2) 写路径：backup / backup-list --verify / backup-export / restore --dry-run
+    # 1e) 数据正确性：会话 id 归一（2026-10-16 修复 ✓ 勘察 + 复核已冻结的必测用例）
+    #   夹具（冻结 ✓）：磁盘一份**裸 id** 父会话 pppp0001（父文件里带 childId=cccc0009 ✓ dsh 的真实记法）
+    #                  + 磁盘一份裸 id 子会话 cccc0009 + 快照只列**父**（live ✓）+ lineage 边键=**裸** id
+    #                  ⇒ 只改**快照里父 id 的形态**：带 `session-` 前缀 / 裸，各跑一遍
+    #   修复前（红）：SESSION 父出现两次（3 行）· 带前缀那份 children=unknown depth=unknown（血缘查不到）
+    #                 · SESSION_CHILD 的父 id 与快照行 id 对不上（联表失败）· COST_SESSION 也重复
+    #   修复后（绿）：1 行 · children=1 depth=0 · 联表命中 · 两种形态输出**完全一致**（方向正确性证据 ✓）
+    #   ★ 活库会漂 ⇒ 断言一律用**不变量**（归一后集合 == 原始集合）✗ 不写死 308/29 ✗
     # ------------------------------------------------------------------
+    Section "1e. 数据正确性：会话 id 归一（快照 session- 前缀 vs 磁盘去前缀）"
+    function Write-IdNormProj([string]$dir, [string]$id, [string]$extraKey, [int]$un, [int]$cr, [int]$cw, [int]$ou, [string]$statsKey) {
+        $msIso = $msNear
+        $json = '{"version":7,"record":{"identity":{"createdAt":' + $msIso + ',"cwd":"D:\\w"},' +
+            '"rows":{' + $statsKey +
+            '"tokenUsage":{"ver":2,"val":{"totals":{"uncachedInputTokens":' + $un + ',"outputTokens":' + $ou + ',"cacheReadTokens":' + $cr + ',"cacheWriteTokens":' + $cw + '}}},' +
+            '"sessionListMetadata":{"ver":1,"val":{"blank":false,"lastPromptAt":' + $msIso + '}},' +
+            $extraKey + '"title":{"ver":1,"val":"t-' + $id + '"}}}}'
+        [System.IO.File]::WriteAllText((Join-Path $dir ($id + ".json")), $json, [System.Text.Encoding]::UTF8)
+    }
+    function New-IdNormCase([string]$tag, [string]$snapParentId) {
+        $iso = Join-Path $env:TEMP ("dsht_matrix_idnorm_" + $tag + "_" + [guid]::NewGuid().ToString("N").Substring(0, 8))
+        $dHome = Join-Path $iso "dsh"
+        $projDir = Join-Path (Join-Path (Join-Path $dHome "storages") "session_projcache") "sessions"
+        $snapDir = Join-Path $dHome "shio-bridge"
+        New-Item -ItemType Directory -Path $projDir, $snapDir -Force | Out-Null
+        # ★ 父会话的**磁盘副本故意不带 sessionStats**（区分符 ✓）：这样"哪一份赢了"在 SESSAGG/SESSION 行里看得见
+        #   —— 快照那份 turns=3 steps=9 ✓ 磁盘那份 turns=unknown ✓（修复前磁盘那份会顶替活数据 ⇒ 断言抓得住 ✓）
+        $statsNone = ''
+        $statsChild = '"sessionStats":{"ver":1,"seq":1,"val":{"turns":3,"steps":9}},'
+        Write-IdNormProj $projDir "pppp0001" '"childId":"cccc0009",' 100 200 30 40 $statsNone
+        Write-IdNormProj $projDir "cccc0009" '' 10 20 3 4 $statsChild
+        $nowIso = (Get-Date).ToUniversalTime().ToString('yyyy-MM-ddTHH:mm:ss.fffZ')   # 只用于 generatedAt（新鲜度 ✓ 不进比对 ✓）
+        # ★ 快照里的 createdAt/lastPromptAt 用**固定**时刻（= 磁盘侧同一个 $msNear ✓）：
+        #   若用"现在"，两次夹具相差一两秒 ⇒ SESSION 行的 created=/last= 必然不同 ⇒ 对照断言假红 ✗（实测踩过 ✓）
+        $fixedIso = ([DateTimeOffset]::FromUnixTimeMilliseconds($msNear)).UtcDateTime.ToString('yyyy-MM-ddTHH:mm:ss.fffZ', [System.Globalization.CultureInfo]::InvariantCulture)
+        $snap = '{ "formatVersion": 2, "generatedAt": "' + $nowIso + '", "intervalMs": 3000, "sessions": [ ' +
+            '{ "id": "' + $snapParentId + '", "live": true, "title": "parent", "createdAt": "' + $fixedIso + '", "lastPromptAt": "' + $fixedIso +
+            '", "turns": 3, "steps": 9, "uncachedInputTokens": 100, "outputTokens": 40, "cacheReadTokens": 200, "cacheWriteTokens": 30 } ], ' +
+            '"lineage": { "errors": 0, "sessions": { "pppp0001": {}, "cccc0009": { "parent": "pppp0001" } } } }'
+        [System.IO.File]::WriteAllText((Join-Path $snapDir "sessions.json"), $snap, [System.Text.Encoding]::UTF8)
+        return @{ iso = $iso; home = $dHome }
+    }
+    function Get-IdSet([string]$clean, [string]$prefix, [int]$field) {
+        return @(MarkLines $clean $prefix | ForEach-Object { ($_ -split ' ')[$field] } | Sort-Object)
+    }
+    # -- 反例：快照父 id 带前缀（修复前会重复 + 联不上 + 血缘 unknown）--
+    $f1eA = New-IdNormCase "prefixed" "session-pppp0001"; $script:isoList.Add($f1eA.iso)
+    $env:DSH_HOME = $f1eA.home
+    $env:DSH_MINATO_BACKUP_DIR = $null
+    $a1e = Run-Cli $Cli @("sessions", "--days", "7")
+    $ap1e = Run-Cli $Cli @("sessions", "--days", "7", "--level", "parents_sub")
+    $idsA = Get-IdSet $a1e.out '^SESSION ' 1
+    Write-Host ("  -- sessions --days 7（快照父 id 带前缀）   rc=" + $a1e.rc)
+    foreach ($l in (MarkLines $a1e.out '^SESSION |^SESSAGG_SESSION |^SESSION_CHILD ')) { Write-Host ("       " + $l) }
+    Check "1e 去重：SESSION 行数 == 归一后不同 id 数（不变量 ✓ 修复前 3 vs 2 ✗）" `
+        ($idsA.Count -eq 2 -and (($idsA | Sort-Object -Unique).Count -eq $idsA.Count))
+    Check "1e 去重：输出 id 已是规范形态（不带 session- 前缀 ✓）" (-not (HasMarker $a1e.out '^SESSION session-'))
+    Check "1e 联表：SESSION_CHILD 的父 id 能在 SESSION 行里找到（修复前靠磁盘那份侥幸命中 ✗）" `
+        ((HasMarker $a1e.out '^SESSION_CHILD pppp0001 cccc0009$') -and ($idsA -contains 'pppp0001'))
+    Check "1e 活数据：pppp0001 的 SESSION 行是**快照那份**（turns=3 live=1 ✓ 修复前磁盘那份 turns=unknown live=0 ✗）" `
+        (HasMarker $a1e.out '^SESSION pppp0001 .* turns=3 steps=9 in=300 out=40 .* live=1 ')
+    Check "1e 血缘：pppp0001 children=1 depth=0（修复前带前缀那份 only unknown ✗ 磁盘那份顶替 ⇒ turns 也对不上 ✗）" `
+        (HasMarker $a1e.out '^SESSAGG_SESSION pppp0001 bucket=own turns=3 steps=9 uncached=100 cacheRead=200 cacheWrite=30 output=40 children=1 depth=0$')
+    Check "1e 非 global 档：活会话在聚合里**不被静默排除**（own 行=快照那份 · sub members=2 ✓）" `
+        ((HasMarker $ap1e.out '^SESSAGG_SESSION pppp0001 bucket=own turns=3 steps=9 .* children=1 depth=0$') `
+        -and (HasMarker $ap1e.out '^SESSAGG_SESSION pppp0001 bucket=sub .* members=2 sub_unknown=0 sub_unknown_stats=0$'))
+    # -- 配价后 cost 的 id 集合也必须与 SESSION 集合逐个一致（费用的重复计入同源 ✓）--
+    Run-Cli $Cli @("config-set", "sessions_price_in_per_mtok", "1") | Out-Null
+    $c1eA = Run-Cli $Cli @("cost", "--days", "7")
+    $cIdsA = Get-IdSet $c1eA.out '^COST_SESSION scope=window ' 2
+    Check "1e 成本：COST_SESSION 恰 2 条且集合 == SESSION 集合（修复前 3 条 ⇒ 重复计入 ✗）" `
+        ($cIdsA.Count -eq 2 -and $idsA.Count -eq 2 -and (($cIdsA -join ',') -eq ($idsA -join ',')))
+    Check "1e 成本：金额为数字（parent 10/20/3/4 已配价 ⇒ cost=0.0000xx ✓）" (HasMarker $c1eA.out '^COST_TOTAL scope=window .* cost=[0-9]')
+    # -- 对照：快照父 id 直接给裸 → 必须与上面**完全一致**（修复方向正确的独立证据 ✓ 冻结要求）--
+    $f1eB = New-IdNormCase "bare" "pppp0001"; $script:isoList.Add($f1eB.iso)
+    $env:DSH_HOME = $f1eB.home
+    $a1eB = Run-Cli $Cli @("sessions", "--days", "7")
+    $ap1eB = Run-Cli $Cli @("sessions", "--days", "7", "--level", "parents_sub")
+    $c1eB = Run-Cli $Cli @("cost", "--days", "7")
+    $segA = @(MarkLines $a1e.out '^SESSION |^SESSAGG_SESSION |^SESSION_CHILD ') -join "|"
+    $segB = @(MarkLines $a1eB.out '^SESSION |^SESSAGG_SESSION |^SESSION_CHILD ') -join "|"
+    $costA = @(MarkLines $c1eA.out '^COST_SESSION |^COST_TOTAL ') -join "|"
+    $costB = @(MarkLines $c1eB.out '^COST_SESSION |^COST_TOTAL ') -join "|"
+    Check "1e 对照：快照 id 带前缀 与 裸 id 的 sessions 段**逐字相同**（修复后两种形态等价 ✓）" ($segA -eq $segB -and $segA.Length -gt 0)
+    Check "1e 对照：两种形态的 COST 段也逐字相同" ($costA -eq $costB)
+    Check "1e 对照：非 global 档同样等价" (((@(MarkLines $ap1e.out '^SESSAGG_SESSION ')) -join '|') -eq ((@(MarkLines $ap1eB.out '^SESSAGG_SESSION ')) -join '|'))
+    Run-Cli $Cli @("config-set", "sessions_price_in_per_mtok", "0") | Out-Null   # 复位共享配置 ✓
+    $cfg1e = Run-Cli $Cli @("config-get")
+    Check "1e 复位：单价回 0（不把测试价留在共享配置里 ✓）" (-not (HasMarker $cfg1e.out '^CONFIG sessions_price_in_per_mtok [1-9]'))
+
+    # ------------------------------------------------------------------
+    # 1f) 金额精度：**极小非零**永不渲染成 0 / 0.000000（2026-10-16 修正 ✓ Lead 裁定 ✓）
+    #   夹具：1 个会话 · 只填输出单价 0.001（USD/百万）· output=118 token
+    #   ⇒ 期望金额 = 118 × 0.001 ÷ 1e6 = 1.18e-7 USD（往返精度形态 = `1.18E-07` ✓）
+    #   ★ 反例（改回固定 6 位/舍入）：会写成 `0` 或 `0.000000` ⇒ 本节的 ①② 必须红 ✓
+    #   ★ GUI 侧用 `decimal.TryParse(NumberStyles.Float)` 解析 ⇒ 科学计数与定点都认 ✓（本节点③ 复刻同一调用 ✓）
+    # ------------------------------------------------------------------
+    Section "1f. 金额精度：极小非零（往返精度 · 非零永不渲染成 0）"
+    $f1f = New-Fixture "tiny"; $script:isoList.Add($f1f.iso)
+    $env:DSH_HOME = $f1f.home
+    Write-BoardProj $f1f.home "tiny0001" $msNear $metaNear 0 0 0 118 1 2
+    Run-Cli $Cli @("config-set", "sessions_price_out_per_mtok", "0.001") | Out-Null
+    $cTiny = Run-Cli $Cli @("cost", "--days", "7")
+    Write-Host ("  -- cost --days 7（output=118 · 单价 0.001）   rc=" + $cTiny.rc)
+    foreach ($l in (MarkLines $cTiny.out '^COST_(TOTAL|BUDGET)')) { Write-Host ("       " + $l) }
+    $tinyTotal = @(MarkLines $cTiny.out '^COST_TOTAL scope=window ')
+    Check "1f ① 端到端极小非零：COST_TOTAL 精确整行（118×0.001÷1e6 = 1.18E-07 ✓）" `
+        ($tinyTotal.Count -eq 1 -and $tinyTotal[0] -eq 'COST_TOTAL scope=window uncached=0 cacheRead=0 cacheWrite=0 output=118 tokens=118 cost=1.18E-07')
+    Check "1f ② cost= 不是 `0` 也不是 `0.000000`（✗ 把「很小」说成「没有」就是不诚实 ✓）" `
+        ((HasMarker $cTiny.out 'cost=1\.18E-07$') -and (-not (HasMarker $cTiny.out 'cost=0$')) -and (-not (HasMarker $cTiny.out 'cost=0\.0+$')))
+    $tinyText = ($tinyTotal[0] -split 'cost=')[1]
+    $tinyVal = [decimal]0
+    $tinyParsed = [decimal]::TryParse($tinyText, [System.Globalization.NumberStyles]::Float, [System.Globalization.CultureInfo]::InvariantCulture, [ref]$tinyVal)
+    Check "1f ③ GUI 解析路径可达（复刻 GUI 的 decimal.TryParse(NumberStyles.Float) ⇒ 成功且 > 0 ✓）" `
+        ($tinyParsed -and $tinyVal -gt [decimal]0)
+    $tinySess = @(MarkLines $cTiny.out '^COST_SESSION scope=window tiny0001 ')
+    Check "1f ① 会话级同样非零（COST_SESSION … cost=1.18E-07 ✓）" `
+        ($tinySess.Count -eq 1 -and $tinySess[0] -eq 'COST_SESSION scope=window tiny0001 model=unknown uncached=0 cacheRead=0 cacheWrite=0 output=118 cost=1.18E-07')
+    Check "1f ④ 守卫：任一 cost= 都不许是零值写法（钉住「舍入回 6 位」这种回退 ✓）" `
+        (-not (HasMarker $cTiny.out 'cost=0(\.0+)?$'))
+    Run-Cli $Cli @("config-set", "sessions_price_out_per_mtok", "0") | Out-Null   # 复位共享配置 ✓
+
     Section "2. 写路径（隔离数据根 + 隔离备份根）"
     $f2 = New-Fixture "wr"; $script:isoList.Add($f2.iso)
     $env:DSH_HOME = $f2.home

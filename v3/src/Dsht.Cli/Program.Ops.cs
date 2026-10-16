@@ -921,10 +921,10 @@ namespace Dsht.Cli
             Console.WriteLine("CONFIGNOTE gui_style " + T("【视觉风格】0=A 浅色卡片 1=B 深色卡片 2=C 深色紧凑 3=D 浅色仪表盘（默认 0）——顶栏 A-D 会记住你的选择", "visual style A-D; the top-bar switcher remembers your choice"));
             Console.WriteLine("CONFIGNOTE balance_key " + T("【DeepSeek 平台 API key，用于余额检测】留空=未绑定（概览页不显示余额卡）。⚠ key 以明文保存在本机配置文件里，只在你自己的机器上，不上传", "DeepSeek platform API key for the balance card; empty = unbound; stored in plain text in the local config only"));
             Console.WriteLine("CONFIGNOTE sessions_default_level " + T("【看板口径默认】global=全局 / parents=仅父会话 / parents_sub=父会话+子代理（三档都可用）——后两档需要桥插件血缘段（dsh-minato-bridge 只解原始日志首帧 header，正文帧一帧不解）；缺血缘时看板会如实提示降级", "default sessions scope; all three tiers live (parents/parents_sub need the bridge lineage section)"));
-            Console.WriteLine("CONFIGNOTE sessions_price_in_per_mtok " + T("【输入单价】美元/百万 token；0=未填 → 不显示费用（费用显示的前置是多帧解码；当前只存不算）", "input price per million tokens; 0 = unset"));
-            Console.WriteLine("CONFIGNOTE sessions_price_cache_read_per_mtok " + T("【缓存读单价】美元/百万 token；0=未填", "cache-read price per million tokens; 0 = unset"));
-            Console.WriteLine("CONFIGNOTE sessions_price_cache_write_per_mtok " + T("【缓存写单价】美元/百万 token；0=未填", "cache-write price per million tokens; 0 = unset"));
-            Console.WriteLine("CONFIGNOTE sessions_price_out_per_mtok " + T("【输出单价】美元/百万 token；0=未填", "output price per million tokens; 0 = unset"));
+            Console.WriteLine("CONFIGNOTE sessions_price_in_per_mtok " + T("【输入单价】美元/百万 token；0=未填 → 不显示任何金额（看板/cost 只显示 token；在设置里填了才算，金额是估算）", "input price per million tokens; 0 = unset, so no amounts are shown (tokens only; fill it in to see an estimated amount)"));
+            Console.WriteLine("CONFIGNOTE sessions_price_cache_read_per_mtok " + T("【缓存读单价】美元/百万 token；0=未填 → 不显示任何金额（同上，金额是估算）", "cache-read price per million tokens; 0 = unset, so no amounts are shown (estimated)"));
+            Console.WriteLine("CONFIGNOTE sessions_price_cache_write_per_mtok " + T("【缓存写单价】美元/百万 token；0=未填 → 不显示任何金额（同上，金额是估算）", "cache-write price per million tokens; 0 = unset, so no amounts are shown (estimated)"));
+            Console.WriteLine("CONFIGNOTE sessions_price_out_per_mtok " + T("【输出单价】美元/百万 token；0=未填 → 不显示任何金额（同上，金额是估算）", "output price per million tokens; 0 = unset, so no amounts are shown (estimated)"));
             // ★ 成本面板 v3.2：预算说明（说清口径与"不是收费系统" ✓ 用户可见文案 ✗ 不带施工语气 ✓）
             Console.WriteLine("CONFIGNOTE sessions_budget_usd_per_day " + T("【每日预算上限】美元/天；0=未设 → 不作超限提示。只跟**今日**（按最后一次提问归属本地日）的估算金额比较；超限只提示，不阻止任何操作", "daily budget ceiling in USD; 0 = unset (no over-budget notice). Compared with today's estimated spend (sessions attributed by their last prompt's local day); the notice never blocks anything"));
             Console.WriteLine("CONFIGNOTE close_action " + T("【关闭窗口时】exit=直接退出（默认）/ ask=先弹确认 / tray=最小化到系统托盘（托盘图标右键可显示或退出）", "close behavior: exit / ask / tray (system tray)"));
