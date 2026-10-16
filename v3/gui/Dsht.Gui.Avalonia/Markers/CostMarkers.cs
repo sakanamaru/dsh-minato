@@ -164,6 +164,15 @@ namespace Dsht.Gui.Avalonia.Markers
         public const string WindowUnavailable = "当前窗口：该块不可用（本命令输出里没有 scope=window 成本块）";
         /// <summary>预算口径句（非 global 档必标 ✓ §3.1-③）。</summary>
         public const string BudgetScopeText = "预算按全局计（不受口径档影响）";
+        // —— 金额的三种「不是数字」情形，各说各的话 ✗ 谁也不许含糊成"没有金额" ✓（Lead 2026-10-16 裁决 ②）——
+        /// <summary>真零（`cost=0.000000` ✓ 配了价、该口径确实没有可计价的用量）。</summary>
+        public const string ZeroAmountText = "估算金额为 0（该口径没有可计价的用量）";
+        /// <summary>不可算（`cost=none` ✓ token 未知 ⇒ 这笔算不出来）。</summary>
+        public const string NotComputableText = "金额不可算（该块 token 未知，不假装 0）";
+        /// <summary>极小非零：四舍五入到 6 位会变 0，但**它确实不是 0** ⇒ 用 `<` 字面说清 ✗ 不用 `≈$0` 之类的含混写法 ✓（裁决 ①）。</summary>
+        public const string TinyAmountText = "<$0.000001";
+        /// <summary>「非零但小于可显示精度」的判定阈值 = 6 位小数的舍入边界 ✓。</summary>
+        public const decimal TinyThreshold = 0.0000005m;
 
         /// <summary>今日卡脚注（N 未知 → unknown ✗ 不装 0 ✓；N 只用 COST_META 的 unknown_last ✓）。</summary>
         public static string TodayFootnote(long unknownLast)
@@ -172,26 +181,41 @@ namespace Dsht.Gui.Avalonia.Markers
             return string.Format(CultureInfo.InvariantCulture, TodayFootnoteTemplate, n);
         }
 
-        /// <summary>CLI 的十进制金额串 → 显示串（`$0.14` ✓ 只裁尾零 ✗ 不重算 ✗ 不四舍五入改值 ✓）。
-        /// 非数字 / none / 空 → 空串（✗ 不显示假金额 ✓）。</summary>
+        /// <summary>金额显示（**全卡唯一入口** ✓ 今日/窗口/预算行/超限条/会话行都走这里 ✓）。
+        /// 四段（Lead 2026-10-16 裁决 ① ✓）：
+        ///   `|v| ≥ 0.01` → 2 位（`$0.14` / `$24755.70`）· `0 &lt; |v| &lt; 0.01` → 6 位（`$0.000005`）
+        ///   · `0 &lt; |v| &lt; 0.0000005` → 字面 `&lt;$0.000001` · `v == 0` → **空串**（不给 `$` ✓ 由调用方给说明句 ✓）。
+        /// 硬规则：**非零金额绝不许显示成 `$0.00` / `$0.000000`** ✗（把"很小"说成"没有"= 不诚实 ✓）。
+        /// none / 缺 / 非法 → 空串（✗ 不显示假金额 ✓）；金额**仍取自 CLI 原串** ✗ 不重算计价 ✓（只定显示位数 ✓）。</summary>
         public static string Usd(string costText)
         {
-            string t = costText == null ? "" : costText.Trim();
-            if (t.Length == 0 || t == "none") return "";
-            decimal d;
-            if (!decimal.TryParse(t, NumberStyles.Float, CultureInfo.InvariantCulture, out d)) return "";
-            return "$" + TrimZeros(t);
+            decimal v;
+            if (!TryMoney(costText, out v)) return "";
+            if (v == 0m) return "";                       // 真零 → 调用方说「估算金额为 0」✓
+            decimal a = v < 0m ? -v : v;
+            if (a < TinyThreshold) return TinyAmountText; // 非零但四舍五入到 6 位会变 0 ✓
+            if (a < 0.01m) return "$" + v.ToString("0.000000", CultureInfo.InvariantCulture);
+            return "$" + v.ToString("0.00", CultureInfo.InvariantCulture);
         }
 
-        /// <summary>裁掉小数尾零但至少留两位（`0.140000` → `0.14`；`1.200000` → `1.20`；`3.000000` → `3.00`）。</summary>
-        public static string TrimZeros(string dec)
+        /// <summary>把 CLI 的金额串解析成十进制（`none` / 空 / 非法 → false ✗ 不猜 ✓）。</summary>
+        public static bool TryMoney(string costText, out decimal value)
         {
-            string t = dec == null ? "" : dec.Trim();
-            int dot = t.IndexOf('.');
-            if (dot < 0) return t;
-            int end = t.Length;
-            while (end - 1 > dot + 2 && t[end - 1] == '0') end--;
-            return t.Substring(0, end);
+            value = 0m;
+            string t = costText == null ? "" : costText.Trim();
+            if (t.Length == 0 || t == "none") return false;
+            return decimal.TryParse(t, NumberStyles.Float, CultureInfo.InvariantCulture, out value);
+        }
+
+        /// <summary>金额槽的**统一取值**（✗ 三处调用点各写一套判断 = 迟早不一致 ✓）：
+        /// 未配价 → 提示句；缺/none/非法 → 不可算句；真零 → 真零句；其余 → 分段金额串 ✓。</summary>
+        private static string MoneySlot(bool priced, string costText)
+        {
+            if (!priced) return UnpricedHint;
+            decimal v;
+            if (!TryMoney(costText, out v)) return NotComputableText;
+            if (v == 0m) return ZeroAmountText;
+            return Usd(costText);
         }
 
         // —— 展示文案（纯函数 ✓ LogicTests 断言「未配价无 $ / 配价有估算」✓✓）——
@@ -221,24 +245,28 @@ namespace Dsht.Gui.Avalonia.Markers
         }
 
         /// <summary>今日金额行：配价 → 「估算金额 $…（USD · 估算，非官方账单）」（必含「估算」✓）；
-        /// 未配价 → 逐字提示句，**不含任何金额 / $ / USD 数字** ✓✓；块缺失 → 空串（由 TodayUnavailable 行负责 ✓）。</summary>
+        /// 未配价 → 逐字提示句，**不含任何金额 / $ / USD 数字** ✓✓；块缺失 → 空串（由 TodayUnavailable 行负责 ✓）。
+        /// 真零 / 不可算 / 未配价 **三种话各不相同** ✓（Lead 2026-10-16 裁决 ② ✓）。</summary>
         public static string TodayMoneyLine(CostBlock today)
         {
             if (today == null) return "";
-            if (!today.Priced) return UnpricedHint;
-            string usd = Usd(today.Total.CostText);
-            if (usd.Length == 0) return "今日金额不可算（该块 token 未知，不假装 0）";
-            return "估算金额 " + usd + "（" + Cur(today) + " · " + EstimateLabel + "，非官方账单）";
+            return MoneyLine(today, today.Total.CostText);
         }
 
-        /// <summary>当前窗口金额行（同今日：未配价 → 只给提示句 ✓）。</summary>
+        /// <summary>当前窗口金额行（同今日 ✓ 同一套话术 ✓）。</summary>
         public static string WindowMoneyLine(CostBlock win)
         {
             if (win == null) return "";
-            if (!win.Priced) return UnpricedHint;
-            string usd = Usd(win.Total.CostText);
-            if (usd.Length == 0) return "窗口金额不可算（该块 token 未知，不假装 0）";
-            return "估算金额 " + usd + "（" + Cur(win) + " · " + EstimateLabel + "，非官方账单）";
+            return MoneyLine(win, win.Total.CostText);
+        }
+
+        /// <summary>金额行（今日/窗口共用 ✓ 话术一处 ✓）：三种"不是数字"的情形各自成句，
+        /// 其余走分段金额 +「（USD · 估算，非官方账单）」✓。</summary>
+        private static string MoneyLine(CostBlock b, string costText)
+        {
+            string slot = MoneySlot(b != null && b.Priced, costText);
+            if (slot == UnpricedHint || slot == NotComputableText || slot == ZeroAmountText) return slot;
+            return "估算金额 " + slot + "（" + Cur(b) + " · " + EstimateLabel + "，非官方账单）";
         }
 
         private static string Cur(CostBlock b) { return b != null && !string.IsNullOrEmpty(b.Currency) ? b.Currency : CurrencyLabel; }
@@ -260,19 +288,24 @@ namespace Dsht.Gui.Avalonia.Markers
             return "总计";
         }
 
-        /// <summary>预算行（未设上限 → 空串 ✗ 不占版面 ✓；设了 → 预算 + 今日估算 ✗ 不把 none 当 0 ✓）。</summary>
+        /// <summary>预算行（未设上限 → 空串 ✗ 不占版面 ✓；设了 → 预算 + 今日估算 ✗ 不把 none 当 0 ✓；
+        /// 今日那半句同样三态分清：缺/none → 不可算句 · 真零 → 真零句 · 其余 → 分段金额 ✓）。</summary>
         public static string BudgetLine(CostSnapshot s)
         {
             CostBudget b = s != null ? s.Budget : null;
             if (b == null || !b.HasLimit) return "";
             string limit = Usd(b.LimitText);
-            if (limit.Length == 0) return "";
-            string spent = Usd(b.SpentText);
-            return "每日预算 " + limit + "（" + CurrencyLabel + "）· 今日" + EstimateLabel
-                + (spent.Length > 0 ? " " + spent : " 金额不可算（未配价或该笔用量未知）");
+            if (limit.Length == 0) return "";      // 上限自己都不是正数 → 不打这行 ✓
+            // 「今日」那半句三态分清且**不堆叠**：句子自带「估算金额…」/「金额…」⇒ 前缀只留「今日」✓；有数字才写「今日估算 $…」✓
+            string slot = MoneySlot(true, b.SpentText);
+            string tail = (slot == NotComputableText || slot == ZeroAmountText)
+                ? "今日" + slot
+                : "今日" + EstimateLabel + " " + slot;
+            return "每日预算 " + limit + "（" + CurrencyLabel + "）· " + tail;
         }
 
-        /// <summary>超限提示条文案（**只在真超限时给非空** ✓ ✗ 不阻止任何操作 ✓ 我们不是收费系统 ✓）。</summary>
+        /// <summary>超限提示条文案（**只在真超限时给非空** ✓ ✗ 不阻止任何操作 ✓ 我们不是收费系统 ✓）。
+        /// 金额走同一分段入口 ✓（✗ 绝不出现 `$0.00` ✓）。</summary>
         public static string OverBudgetText(CostSnapshot s)
         {
             CostBudget b = s != null ? s.Budget : null;
@@ -323,8 +356,13 @@ namespace Dsht.Gui.Avalonia.Markers
             else sb.Append("　用量未知（不计入求和）");
             if (win != null && win.Priced && r.HasCost)
             {
-                string usd = Usd(r.CostText);
-                if (usd.Length > 0) sb.Append("　").Append(EstimateLabel).Append(" ").Append(usd);
+                // 金额走同一分段入口 ✓：真零 → 真零句（✗ 不显示 $0）· 极小非零 → `<$0.000001` ✓ · 其余 → 分段金额 ✓
+                decimal rv;
+                if (TryMoney(r.CostText, out rv))
+                {
+                    if (rv == 0m) sb.Append("　").Append(ZeroAmountText);
+                    else sb.Append("　").Append(EstimateLabel).Append(" ").Append(Usd(r.CostText));
+                }
             }
             return sb.ToString();
         }

@@ -731,11 +731,76 @@ namespace Dsht.Gui.LogicTests
             Check("成本·配价：今日/窗口金额行都标「估算」+ USD（交付物 4 ✓ 只有美元 ✗ 无人民币换算 ✓）",
                 CostMarkers.TodayMoneyLine(cpT).Contains("估算金额 $0.66") && CostMarkers.TodayMoneyLine(cpT).Contains("USD")
                 && CostMarkers.WindowMoneyLine(cpW).Contains("估算金额 $1.32") && CostMarkers.WindowMoneyLine(cpW).Contains(CostMarkers.EstimateLabel));
-            Check("成本·金额只裁尾零 ✗ 不重算不改值（0.660000→$0.66 / 1.200000→$1.20 / 3.000000→$3.00 / 0.000005 保留 ✓）",
+            // ★ 金额显示四段（Lead 2026-10-16 裁决 ① ✓）：**分段显示** ✓ 金额仍取自 CLI 原串 ✗ GUI 不重算计价 ✓
+            Check("成本·★显示分段：≥0.01 → 2 位（0.660000→$0.66 / 1.200000→$1.20 / 3.000000→$3.00 / 24755.699751→$24755.70 ✓ 复核方实测那条 ✓）",
                 CostMarkers.Usd("0.660000") == "$0.66" && CostMarkers.Usd("1.200000") == "$1.20"
-                && CostMarkers.Usd("3.000000") == "$3.00" && CostMarkers.Usd("0.000005") == "$0.000005");
+                && CostMarkers.Usd("3.000000") == "$3.00" && CostMarkers.Usd("24755.699751") == "$24755.70"
+                && CostMarkers.Usd("0.014000") == "$0.01" && CostMarkers.Usd("0.010000") == "$0.01");
+            Check("成本·★显示分段：0<|v|<0.01 → 6 位（0.005→$0.005000 / 0.000005→$0.000005 / 0.0000006→$0.000001 ✓）",
+                CostMarkers.Usd("0.009000") == "$0.009000" && CostMarkers.Usd("0.000005") == "$0.000005"
+                && CostMarkers.Usd("0.0000006") == "$0.000001" && CostMarkers.Usd("0.0000005") == "$0.000001");
+            Check("成本·★显示分段：0<|v|<0.0000005 → 字面 `<$0.000001`（非零但小于可显示精度 ✓ ✗ 不用含混写法 ✓）",
+                CostMarkers.Usd("0.0000004") == "<$0.000001" && CostMarkers.Usd("0.0000001") == "<$0.000001"
+                && CostMarkers.Usd("0.0000004") == CostMarkers.TinyAmountText);
+            Check("成本·★显示分段：v==0 → 不给 `$`（由调用方给「估算金额为 0」说明句 ✓ ✗ 绝不显示 $0.00 ✓）",
+                CostMarkers.Usd("0.000000") == "" && CostMarkers.Usd("0") == "" && CostMarkers.Usd("-0.000000") == "");
+            // —— 硬规则四条守卫：**非零金额绝不许显示成 $0.00 / $0.000000** ✗（把"很小"说成"没有"= 不诚实 ✓）——
+            string[] guardNonZero = new string[] { "0.010000", "0.014000", "0.100000", "1.000000", "24755.699751", "0.500000" };
+            bool g1 = true;
+            for (int gi = 0; gi < guardNonZero.Length; gi++) if (CostMarkers.Usd(guardNonZero[gi]) == "$0.00") g1 = false;
+            Check("成本·守卫①：≥0.01 的非零金额**一个都不许**渲染成 `$0.00`（6 个样本逐个断言 ✓）", g1);
+            string[] guardSmall = new string[] { "0.009000", "0.005000", "0.000005", "0.000001", "0.0000006", "0.0000005" };
+            bool g2 = true;
+            for (int gi = 0; gi < guardSmall.Length; gi++)
+            {
+                string u = CostMarkers.Usd(guardSmall[gi]);
+                // 「渲染成零」的两种写法都算红 ✓：2 位档的 $0.00 与 6 位档的 $0.000000 ✓
+                if (u == "$0.00" || u == "$0.000000") g2 = false;
+            }
+            Check("成本·守卫②：非零金额**不许渲染成零**（`$0.00` 与 `$0.000000` 两种写法各 6 个样本 ✓）", g2);
+            bool g3 = true;
+            string[] guardTiny = new string[] { "0.0000004", "0.0000001", "0.000000499" };
+            for (int gi = 0; gi < guardTiny.Length; gi++)
+                if (CostMarkers.Usd(guardTiny[gi]) != CostMarkers.TinyAmountText) g3 = false;
+            Check("成本·守卫③：极小非零 → **必须**是字面 `<$0.000001`（✗ 不许是 $0.000000 ✗ 不许是空 ✗ 不许是 $0）", g3);
+            Check("成本·守卫④：真零**一律不给 `$`**（0 / 0.000000 / -0.000000 三个写法 ✓）",
+                CostMarkers.Usd("0.000000").IndexOf('$') < 0 && CostMarkers.Usd("0").IndexOf('$') < 0
+                && CostMarkers.Usd("-0.000000").IndexOf('$') < 0);
             Check("成本·none / 空 / 非法 → 不显示金额（✗ 不显示 $0 ✗ 不显示假数字 ✓）",
                 CostMarkers.Usd("none") == "" && CostMarkers.Usd("") == "" && CostMarkers.Usd("unknown") == "" && CostMarkers.Usd("abc") == "");
+
+            // —— 三种「不是数字」的情形三种话（裁决 ② ✓ 谁也不许含糊成"没有金额" ✓）——
+            string costZero =
+                "COST_META scope=today days=unknown from=2026-10-16 to=2026-10-16 level=global priced=1 currency=USD tz=UTC truth=0 unknown_last=8 model_unknown=0\n" +
+                "COST_TOTAL scope=today uncached=0 cacheRead=0 cacheWrite=0 output=0 tokens=0 cost=0.000000\n" +
+                "COST_META scope=window days=7 from=2026-10-10 to=2026-10-16 level=global priced=1 currency=USD tz=UTC truth=0 unknown_last=8 model_unknown=0\n" +
+                "COST_TOTAL scope=window uncached=0 cacheRead=0 cacheWrite=0 output=0 tokens=0 cost=0.000000\n" +
+                "COST_SESSION scope=window ddd44444-4444-4444-4444-444444444444 model=m1 uncached=0 cacheRead=0 cacheWrite=0 output=0 cost=0.000000\n";
+            CostSnapshot cz = CostMarkers.Parse(costZero);
+            Check("成本·真零（cost=0.000000）→「估算金额为 0（该口径没有可计价的用量）」（✗ 不给 $0.00 ✓ 三态第一态 ✓）",
+                CostMarkers.TodayMoneyLine(cz.Today) == "估算金额为 0（该口径没有可计价的用量）"
+                && CostMarkers.WindowMoneyLine(cz.Window) == CostMarkers.ZeroAmountText
+                && CostMarkers.SessionLine(cz.Window.Sessions[0], cz.Window).Contains(CostMarkers.ZeroAmountText)
+                && CardTextForTest(cz).IndexOf('$') < 0);
+            string costNoneOnly =
+                "COST_META scope=today days=unknown from=2026-10-16 to=2026-10-16 level=global priced=1 currency=USD tz=UTC truth=0 unknown_last=0 model_unknown=0\n" +
+                "COST_TOTAL scope=today uncached=unknown cacheRead=unknown cacheWrite=unknown output=unknown cost=none\n";
+            Check("成本·三态三种话互不相同（真零 / 不可算 / 未配价 ✗ 谁也不许含糊 ✓）",
+                CostMarkers.TodayMoneyLine(CostMarkers.Parse(costNoneOnly).Today) == CostMarkers.NotComputableText
+                && CostMarkers.ZeroAmountText != CostMarkers.NotComputableText
+                && CostMarkers.NotComputableText != CostMarkers.UnpricedHint
+                && CostMarkers.ZeroAmountText != CostMarkers.UnpricedHint
+                && CostMarkers.TodayMoneyLine(cuT) == CostMarkers.UnpricedHint);
+            // 极小非零**在行内**同样诚实（截图那条：真实库小会话就会落到这一档 ✓）
+            string costTiny =
+                "COST_META scope=window days=7 from=2026-10-10 to=2026-10-16 level=global priced=1 currency=USD tz=UTC truth=0 unknown_last=0 model_unknown=0\n" +
+                "COST_TOTAL scope=window uncached=1 cacheRead=1 cacheWrite=0 output=1 tokens=3 cost=0.0000004\n" +
+                "COST_SESSION scope=window eee55555-5555-5555-5555-555555555555 model=m1 uncached=1 cacheRead=1 cacheWrite=0 output=1 cost=0.0000004\n";
+            CostSnapshot ctx2 = CostMarkers.Parse(costTiny);
+            Check("成本·★极小非零在**行内**也是 `<$0.000001`（✗ 不显示 $0.000000 ✓ ✗ 不显示 $0 ✓）",
+                CostMarkers.WindowMoneyLine(ctx2.Window).Contains("<$0.000001")
+                && CostMarkers.SessionLine(ctx2.Window.Sessions[0], ctx2.Window).Contains("估算 <$0.000001")
+                && CardTextForTest(ctx2).IndexOf("$0.000000", StringComparison.Ordinal) < 0);
             Check("成本·cost=none ≠ 0：配价但该笔不可算 → 该行无 $ + 计数行如实说 N 笔不可算（§3.1-⑤ ✓）",
                 CostMarkers.SessionLine(cpW.Sessions[2], cpW).IndexOf('$') < 0
                 && CostMarkers.SessionUnavailableLine(cp, cpW) == "其中 1 笔金额不可算（token 未知，不假装 0）");
@@ -746,6 +811,9 @@ namespace Dsht.Gui.LogicTests
                 && CostMarkers.OverBudgetText(cp).Contains("仅提示，不阻止任何操作"));
             Check("成本·预算行（limit + 今日估算 ✓ over=1 时仍在 ✓）",
                 CostMarkers.BudgetLine(cp).Contains("每日预算 $0.50") && CostMarkers.BudgetLine(cp).Contains("今日估算 $0.66"));
+            Check("成本·预算行的「今日」那半句也三态分清且不堆叠（真零 →「今日估算金额为 0（…）」✓ / none →「今日金额不可算（…）」✓）",
+                CostMarkers.BudgetLine(CostMarkers.Parse("COST_BUDGET limit=5.000000 spent=0.000000 over=0")) == "每日预算 $5.00（USD）· 今日估算金额为 0（该口径没有可计价的用量）"
+                && CostMarkers.BudgetLine(CostMarkers.Parse("COST_BUDGET limit=5.000000 spent=none over=0")) == "每日预算 $5.00（USD）· 今日金额不可算（该块 token 未知，不假装 0）");
             CostSnapshot cpG = CostMarkers.Parse(costPriced.Replace("level=parents_sub", "level=global").Replace("COST_NOTE budget-scope-global\n", ""));
             Check("成本·非 global 档必标「预算按全局计」（§3.1-③ ✓ note 或 level≠global 都触发 ✓）",
                 CostMarkers.BudgetScopeLine(cp, cpW) == "预算按全局计（不受口径档影响）"

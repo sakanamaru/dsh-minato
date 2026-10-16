@@ -851,24 +851,23 @@ namespace Dsht.Gui.Avalonia.Shells
             c.Children.Add(sub);
 
             // —— 空态 / 失败态（没有成本标记行时只留这一行 ✓ ✗ 不装作 0 ✗ 不画假卡 ✓）——
-            TextBlock state = host.LiveText("", delegate
-            {
-                CostSnapshot cs = host.Cost;
-                if (cs == null) return CostMarkers.NotProvided;
-                if (!string.IsNullOrEmpty(cs.FailReason)) return CostMarkers.FailPrefix + cs.FailReason;
-                if (!cs.HasCost) return CostMarkers.NotProvided;
-                return "";
-            });
+            // ★★ 真机缺陷修复（2026-10-16 增量 ✓）：初始值必须**建树时就算** ✗ 不能给 "" 等下一拍 ✗
+            //   —— 首绘之后若没有 RefreshLiveFields（版本早已取到 / 三档拉取没回来）那些行会一直空着 ✓
+            //      （极小单价态截图抓到：预算行 + 会话明细整块缺失 ✓）；取值函数仍是唯一出处 ✓
+            TextBlock state = host.LiveText(CostStateText(host), delegate { return CostStateText(host); });
             state.FontSize = 11.5; state.Foreground = Palette.Warn; state.TextWrapping = TextWrapping.Wrap;
+            state.IsVisible = state.Text != null && state.Text.Length > 0;
             host.Live(delegate { state.IsVisible = state.Text != null && state.Text.Length > 0; });
             c.Children.Add(state);
 
             // —— 正文（有成本标记行才出现 ✓）——
             StackPanel body = new StackPanel { Spacing = 4 };
+            CostSnapshot cs0 = host.Cost;
+            body.IsVisible = cs0 != null && cs0.HasCost;
             host.Live(delegate { CostSnapshot cs = host.Cost; body.IsVisible = cs != null && cs.HasCost; });
 
             // ① 超限提示条（仅真超限 ✓ 只提示 ✗ 不阻止任何操作 ✓）
-            TextBlock over = host.LiveText("", delegate { return CostMarkers.OverBudgetText(host.Cost); });
+            TextBlock over = host.LiveText(CostMarkers.OverBudgetText(host.Cost), delegate { return CostMarkers.OverBudgetText(host.Cost); });
             over.FontSize = 12; over.Foreground = Palette.Bad; over.TextWrapping = TextWrapping.Wrap;
             Border overBar = new Border
             {
@@ -877,8 +876,8 @@ namespace Dsht.Gui.Avalonia.Shells
                 Padding = new Thickness(10, 6),
                 Child = over
             };
+            overBar.IsVisible = over.Text != null && over.Text.Length > 0;
             host.Live(delegate { overBar.IsVisible = over.Text != null && over.Text.Length > 0; });
-            overBar.IsVisible = false;
             body.Children.Add(overBar);
 
             // ② 今日（scope=today ✓ 含预算 ✓）
@@ -906,8 +905,8 @@ namespace Dsht.Gui.Avalonia.Shells
                 return scope.Length == 0 ? line : line + "　· " + scope;
             });
             bud.TextWrapping = TextWrapping.Wrap;
+            bud.IsVisible = bud.Text != null && bud.Text.Length > 0;
             host.Live(delegate { bud.IsVisible = bud.Text != null && bud.Text.Length > 0; });
-            bud.IsVisible = false;
             body.Children.Add(bud);
 
             // ③ 当前窗口（scope=window ✓ 含会话明细 ✓）
@@ -921,8 +920,8 @@ namespace Dsht.Gui.Avalonia.Shells
             // cost=none ≠ 0（配价但有 N 笔不可算 ✓ 计数取 COST_NOTE ✓）
             TextBlock un = LvLine(host, 11, Palette.Warn, FontWeight.Normal, delegate { return CostMarkers.SessionUnavailableLine(host.Cost, CostWindow(host)); });
             un.TextWrapping = TextWrapping.Wrap;
+            un.IsVisible = un.Text != null && un.Text.Length > 0;
             host.Live(delegate { un.IsVisible = un.Text != null && un.Text.Length > 0; });
-            un.IsVisible = false;
             body.Children.Add(un);
 
             // ④ 会话明细（token + 金额（若配价）+ 最后使用模型 ✓ 固定 8 行 → 字段级换字/显隐 ✓）
@@ -938,29 +937,23 @@ namespace Dsht.Gui.Avalonia.Shells
                 return h + "）";
             });
             listHead.TextWrapping = TextWrapping.Wrap;
+            listHead.IsVisible = listHead.Text != null && listHead.Text.Length > 0;
             host.Live(delegate { listHead.IsVisible = listHead.Text != null && listHead.Text.Length > 0; });
-            listHead.IsVisible = false;
             body.Children.Add(listHead);
             for (int ri = 0; ri < CostCardRows; ri++)
             {
                 int idx = ri;
-                TextBlock row = host.LiveText("", delegate
-                {
-                    CostBlock w = CostWindow(host);
-                    int more;
-                    List<CostSessionRow> top = CostMarkers.TopSessions(w, CostCardRows, out more);
-                    return idx < top.Count ? CostMarkers.SessionLine(top[idx], w) : "";
-                });
+                TextBlock row = host.LiveText(CostRowText(host, idx), delegate { return CostRowText(host, idx); });
                 row.FontSize = 11.5; row.Foreground = Palette.TextDim; row.TextWrapping = TextWrapping.Wrap;
+                row.IsVisible = row.Text != null && row.Text.Length > 0;
                 host.Live(delegate { row.IsVisible = row.Text != null && row.Text.Length > 0; });
-                row.IsVisible = false;
                 body.Children.Add(row);
             }
             // 模型近似说明（近似 ✓ + unknown 计数 ✓ 取 COST_META model_unknown ✓）
             TextBlock modelNote = LvLine(host, 10.5, Palette.TextFaint, FontWeight.Normal, delegate { return CostMarkers.ModelNoteLine(CostWindow(host)); });
             modelNote.TextWrapping = TextWrapping.Wrap;
+            modelNote.IsVisible = modelNote.Text != null && modelNote.Text.Length > 0;
             host.Live(delegate { modelNote.IsVisible = modelNote.Text != null && modelNote.Text.Length > 0; });
-            modelNote.IsVisible = false;
             body.Children.Add(modelNote);
             // COST_NOTE 汇总（多值 ✓ 出现即累加 ✓；预算口径 / 不可算笔数有专属行 ✗ 不重复 ✓）
             TextBlock notes = LvLine(host, 10.5, Palette.TextFaint, FontWeight.Normal, delegate
@@ -969,8 +962,8 @@ namespace Dsht.Gui.Avalonia.Shells
                 return cs == null ? "" : CostMarkers.NotesLine(cs.Notes);
             });
             notes.TextWrapping = TextWrapping.Wrap;
+            notes.IsVisible = notes.Text != null && notes.Text.Length > 0;
             host.Live(delegate { notes.IsVisible = notes.Text != null && notes.Text.Length > 0; });
-            notes.IsVisible = false;
             body.Children.Add(notes);
 
             c.Children.Add(body);
@@ -992,6 +985,25 @@ namespace Dsht.Gui.Avalonia.Shells
         {
             CostSnapshot cs = host.Cost;
             return cs == null ? null : cs.Window;
+        }
+
+        /// <summary>成本卡空态/失败态文案（**建树时算一次当初始值** ✓ 之后每拍由 Live 重算 ✓ 单一出处 ✓）。</summary>
+        private static string CostStateText(MainWindow host)
+        {
+            CostSnapshot cs = host.Cost;
+            if (cs == null) return CostMarkers.NotProvided;
+            if (!string.IsNullOrEmpty(cs.FailReason)) return CostMarkers.FailPrefix + cs.FailReason;
+            if (!cs.HasCost) return CostMarkers.NotProvided;
+            return "";
+        }
+
+        /// <summary>成本卡会话明细第 idx 行（同上：**建树即算** ✗ 不给空初始值 ✗ —— 否则没有下一拍就一直空着 ✓）。</summary>
+        private static string CostRowText(MainWindow host, int idx)
+        {
+            CostBlock w = CostWindow(host);
+            int more;
+            List<CostSessionRow> top = CostMarkers.TopSessions(w, CostCardRows, out more);
+            return idx >= 0 && idx < top.Count ? CostMarkers.SessionLine(top[idx], w) : "";
         }
 
         /// <summary>样式化 LiveText（看板体验修复 2026-10-11 ✓✓）：取值函数 ✗ 不是快照 ✓；样式逐项对齐原静态版本 ✓。</summary>
