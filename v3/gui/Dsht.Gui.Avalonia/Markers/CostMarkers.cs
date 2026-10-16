@@ -19,7 +19,8 @@ namespace Dsht.Gui.Avalonia.Markers
         public long CacheWrite;
         public long Output;
         public bool HasTokens;          // 四桶任一 unknown → false ✓
-        /// <summary>CLI 给的**十进制字符串**（固定 6 位小数 ✓ InvariantCulture ✓）✗ GUI 不重算 ✓。</summary>
+        /// <summary>CLI 给的**十进制字符串**（**变精度 G29** ✓ 定点或科学计数都可能 —— `0.07` / `1E-05` / `1.18E-07` ✓；
+        /// 解析走 `NumberStyles.Float` ⇒ 两种形态都认 ✓ InvariantCulture ✓）✗ GUI 不重算 ✓。</summary>
         public string CostText = "";
         public bool HasCost;            // cost=none / 缺键 → false ✓
         public long Tokens { get { return Uncached + CacheRead + CacheWrite + Output; } }
