@@ -801,6 +801,30 @@ namespace Dsht.Gui.LogicTests
                 CostMarkers.WindowMoneyLine(ctx2.Window).Contains("<$0.000001")
                 && CostMarkers.SessionLine(ctx2.Window.Sessions[0], ctx2.Window).Contains("估算 <$0.000001")
                 && CardTextForTest(ctx2).IndexOf("$0.000000", StringComparison.Ordinal) < 0);
+            // ★★ 用 CLI 的**真字符串**补测（cli-cost task-4 `850cf73` ✓）：`cost=` 改成往返精度后，
+            //    真实极小非零输出成**科学计数** `1.18E-07` —— ✗ 以前 6 位小数把它抹成 `0.000000` 时
+            //    这一档端到端跑不出来 ✓ CLI 侧修完，真正渲染成 `<$0.000001` 的责任在 GUI 这一侧 ✓
+            //    （Lead 2026-10-16 点名的补测 ✓ 两种形态都钉：科学计数 + 小数 ✓）
+            string costSci =
+                "COST_META scope=today days=unknown from=2026-10-16 to=2026-10-16 level=global priced=1 currency=USD tz=UTC truth=0 unknown_last=8 model_unknown=0\n" +
+                "COST_TOTAL scope=today uncached=347079299 cacheRead=11440133700 cacheWrite=1501922 output=33632830 tokens=11822347751 cost=1.18E-07\n" +
+                "COST_META scope=window days=7 from=2026-10-10 to=2026-10-16 level=global priced=1 currency=USD tz=UTC truth=0 unknown_last=8 model_unknown=0\n" +
+                "COST_TOTAL scope=window uncached=377007436 cacheRead=12029600270 cacheWrite=1501922 output=37107860 tokens=12445217488 cost=1.18E-07\n" +
+                "COST_SESSION scope=window fff66666-6666-6666-6666-666666666666 model=m1 uncached=1 cacheRead=1 cacheWrite=0 output=1 cost=1.18E-07\n";
+            CostSnapshot csc = CostMarkers.Parse(costSci);
+            Check("成本·★真字符串 `cost=1.18E-07`（科学计数 ✓ CLI 往返精度 ✓）→ 渲染 `<$0.000001`（✗ 不许 $0.00 / $0.000000 / 真零句 / 不可算句 ✓）",
+                CostMarkers.Usd("1.18E-07") == CostMarkers.TinyAmountText
+                && CostMarkers.TodayMoneyLine(csc.Today).Contains("<$0.000001")
+                && CostMarkers.WindowMoneyLine(csc.Window).Contains("<$0.000001")
+                && CostMarkers.SessionLine(csc.Window.Sessions[0], csc.Window).Contains("估算 <$0.000001")
+                && CostMarkers.TodayMoneyLine(csc.Today).IndexOf("$0.000000", StringComparison.Ordinal) < 0
+                && CostMarkers.TodayMoneyLine(csc.Today).IndexOf(CostMarkers.ZeroAmountText, StringComparison.Ordinal) < 0
+                && CostMarkers.TodayMoneyLine(csc.Today).IndexOf(CostMarkers.NotComputableText, StringComparison.Ordinal) < 0);
+            Check("成本·★小数形态 `cost=0.0000004` 与科学计数**同一结论**（两条形态都认 ✓ 会话行也认 ✓）",
+                CostMarkers.Usd("0.0000004") == CostMarkers.TinyAmountText
+                && CostMarkers.Usd("0.0000004") == CostMarkers.Usd("1.18E-07")
+                && CostMarkers.SessionLine(ctx2.Window.Sessions[0], ctx2.Window).Contains("估算 <$0.000001")
+                && CardTextForTest(ctx2).IndexOf("$0.000000", StringComparison.Ordinal) < 0);
             Check("成本·cost=none ≠ 0：配价但该笔不可算 → 该行无 $ + 计数行如实说 N 笔不可算（§3.1-⑤ ✓）",
                 CostMarkers.SessionLine(cpW.Sessions[2], cpW).IndexOf('$') < 0
                 && CostMarkers.SessionUnavailableLine(cp, cpW) == "其中 1 笔金额不可算（token 未知，不假装 0）");
