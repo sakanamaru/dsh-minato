@@ -666,8 +666,215 @@ namespace Dsht.Gui.LogicTests
                 UpdateCenterMarkers.Parse("UPDATECENTER_ITEM webui\nUPDATECENTER_ITEM plugin:x kind=plugin state=up-to-date installed=1 latest=1 profile=a\n").Count == 1
                 && UpdateCenterMarkers.Parse("UPDATECENTER_ITEM webui").Count == 0);
 
+            // ============ 成本面板 v3.2（2026-10-16 ✓✓ 规格 §3 + §3.1 ✓✓）：COST_* 解析 + 展示文案 ============
+            // 契约形状（Lead 冻结 ✓）：一个进程吐**两块** —— scope=today（含 COST_BUDGET）+ scope=window（含 COST_SESSION）
+            // ⚠ 故意把 **window 块写在前面**（顺序不保证 ✓）→ 证明按 scope 分组 ✗ 不按出现顺序锁死 ✓
+            string costUnpriced =
+                "COST_META scope=window days=7 from=2026-10-10 to=2026-10-16 level=global priced=0 currency=USD tz=China%20Standard%20Time truth=0 unknown_last=8 model_unknown=3\n" +
+                "COST_TOTAL scope=window uncached=1000 cacheRead=2000 cacheWrite=300 output=400 tokens=3700 cost=none\n" +
+                "COST_SESSION scope=window aaa11111-1111-1111-1111-111111111111 model=deepseek-v4.1-flash uncached=100 cacheRead=200 cacheWrite=30 output=40 cost=none\n" +
+                "COST_SESSION scope=window bbb22222-2222-2222-2222-222222222222 model=unknown uncached=unknown cacheRead=unknown cacheWrite=unknown output=unknown cost=none\n" +
+                "COST_META scope=today days=unknown from=2026-10-16 to=2026-10-16 level=global priced=0 currency=USD tz=China%20Standard%20Time truth=0 unknown_last=8 model_unknown=3\n" +
+                "COST_TOTAL scope=today uncached=345046135 cacheRead=11223198404 cacheWrite=1501922 output=32855795 tokens=11602602256 cost=none\n" +
+                "COST_BUDGET limit=none spent=none over=0\n" +
+                "COST_NOTE price-missing\nCOST_NOTE official-billing-not-compared\nCOST_NOTE model-approximate\n";
+            CostSnapshot cu = CostMarkers.Parse(costUnpriced);
+            CostBlock cuT = cu.Today, cuW = cu.Window;
+            Check("成本·未配价：HasCost/Ok ✓ 按 scope 分组（两块都在 ✓ 顺序颠倒也认 ✓）",
+                cu.HasCost && cu.Ok && cuT != null && cuW != null && cuT.Scope == "today" && cuW.Scope == "window");
+            Check("成本·两块各取各的数（今日 tokens=11602602256 ✗ 绝不用窗口 3700 顶上 ✓）",
+                cuT.Total.HasTokens && cuT.Total.Tokens == 11602602256L && cuW.Total.Tokens == 3700L);
+            Check("成本·今日 token 行（未配价照常显示 token ✓ 人读格式 ✓）",
+                CostMarkers.TodayTokensLine(cuT).Contains("11.6B") && CostMarkers.TodayTokensLine(cuT).Contains("今日（2026-10-16）"));
+            Check("成本·窗口 token 行（窗口名 = 近 7 天 ✓ 合计用 CLI 的 tokens= ✓）",
+                CostMarkers.WindowTokensLine(cuW).Contains("当前窗口（近 7 天）") && CostMarkers.WindowTokensLine(cuW).Contains("3.7K"));
+            Check("成本·★未配价：金额行 = 逐字提示句（✗ 不显示任何金额 ✗ 不显示 $0 ✓）",
+                CostMarkers.TodayMoneyLine(cuT) == "未配置单价 → 不显示金额（设置页可填）"
+                && CostMarkers.WindowMoneyLine(cuW) == CostMarkers.UnpricedHint);
+            Check("成本·★未配价：会话行不含 $（只 token + 模型 ✓ 模型未知如实 unknown ✓）",
+                CostMarkers.SessionLine(cuW.Sessions[0], cuW).IndexOf('$') < 0
+                && CostMarkers.SessionLine(cuW.Sessions[0], cuW).Contains("模型 deepseek-v4.1-flash")
+                && CostMarkers.SessionLine(cuW.Sessions[1], cuW).Contains("模型 unknown")
+                && CostMarkers.SessionLine(cuW.Sessions[1], cuW).Contains("用量未知"));
+            Check("成本·★未配价：整卡文案**一个 $ 都没有**、也没有「USD 金额」（规格 §5-1 ✓ 最强的守门断言 ✓）",
+                NoMoney(CardTextForTest(cu)));
+            Check("成本·今日卡脚注三要素逐字（规格 §2 末行 ✓ N = COST_META unknown_last ✓ ✗ 不自己数 ✓）",
+                CostMarkers.TodayFootnote(cuT.UnknownLast) == "整会话累计，非今日增量 · 按最后提问归属（昨天提问、今天仍在用的会话不计入）· 8 个无锚点会话被排除"
+                && CostMarkers.TodayFootnote(8).Contains(CostMarkers.FootnotePart1)
+                && CostMarkers.TodayFootnote(8).Contains(CostMarkers.FootnotePart2)
+                && CostMarkers.TodayFootnote(8).Contains(CostMarkers.FootnotePart3));
+            Check("成本·脚注 N 未知 → unknown（✗ 不装 0 ✓ 与 ForkDiffText 同一诚实档 ✓）",
+                CostMarkers.TodayFootnote(-1).Contains("unknown 个无锚点会话被排除"));
+            Check("成本·模型近似说明用 model_unknown 计数（✗ GUI 不自己数 ✓ 2/3 都照打 ✓）",
+                CostMarkers.ModelNoteLine(cuW).Contains("3 个会话的模型未知") && CostMarkers.ModelNoteLine(cuW).Contains("「最后使用」近似"));
+            Check("成本·COST_NOTE 多值：出现即累加（price-missing + billing + model 三条都在 ✓）",
+                cu.HasNote("price-missing") && cu.HasNote("official-billing-not-compared") && cu.HasNote("model-approximate")
+                && CostMarkers.NotesLine(cu.Notes).Contains("未配置单价") && CostMarkers.NotesLine(cu.Notes).Contains("未与官方账单对账"));
+            Check("成本·未设预算 → 预算行空串（✗ 不占版面 ✗ 不把 none 当 0 ✓）；未超限 → 提示条空 ✓",
+                CostMarkers.BudgetLine(cu) == "" && CostMarkers.OverBudgetText(cu) == "" && !cu.Budget.HasLimit && !cu.Budget.Over);
+            Check("成本·未配价时「N 笔不可算」行不出现（整句由未配价提示负责 ✓）",
+                CostMarkers.SessionUnavailableLine(cu, cuW) == "");
+
+            // —— 配价态（含超限 / 会话级金额 / budget-scope-global / session-cost-unavailable n=N）——
+            string costPriced =
+                "COST_META scope=today days=unknown from=2026-10-16 to=2026-10-16 level=parents_sub priced=1 currency=USD tz=UTC truth=0 unknown_last=8 model_unknown=0\n" +
+                "COST_TOTAL scope=today uncached=1000000 cacheRead=2000000 cacheWrite=500000 output=300000 tokens=3800000 cost=0.660000\n" +
+                "COST_BUDGET limit=0.500000 spent=0.660000 over=1\n" +
+                "COST_META scope=window days=7 from=2026-10-10 to=2026-10-16 level=parents_sub priced=1 currency=USD tz=UTC truth=0 unknown_last=8 model_unknown=2\n" +
+                "COST_TOTAL scope=window uncached=2000000 cacheRead=4000000 cacheWrite=1000000 output=600000 tokens=7600000 cost=1.320000\n" +
+                "COST_SESSION scope=window aaa11111-1111-1111-1111-111111111111 model=deepseek-v4.1-flash uncached=1000000 cacheRead=2000000 cacheWrite=500000 output=300000 cost=0.330000\n" +
+                "COST_SESSION scope=window bbb22222-2222-2222-2222-222222222222 model=glm-5.3 uncached=1000000 cacheRead=2000000 cacheWrite=500000 output=300000 cost=0.330000\n" +
+                "COST_SESSION scope=window ccc33333-3333-3333-3333-333333333333 model=unknown uncached=unknown cacheRead=unknown cacheWrite=unknown output=unknown cost=none\n" +
+                "COST_NOTE official-billing-not-compared\nCOST_NOTE model-approximate\nCOST_NOTE budget-scope-global\nCOST_NOTE session-cost-unavailable n=1\n";
+            CostSnapshot cp = CostMarkers.Parse(costPriced);
+            CostBlock cpT = cp.Today, cpW = cp.Window;
+            Check("成本·配价：今日/窗口金额行都标「估算」+ USD（交付物 4 ✓ 只有美元 ✗ 无人民币换算 ✓）",
+                CostMarkers.TodayMoneyLine(cpT).Contains("估算金额 $0.66") && CostMarkers.TodayMoneyLine(cpT).Contains("USD")
+                && CostMarkers.WindowMoneyLine(cpW).Contains("估算金额 $1.32") && CostMarkers.WindowMoneyLine(cpW).Contains(CostMarkers.EstimateLabel));
+            Check("成本·金额只裁尾零 ✗ 不重算不改值（0.660000→$0.66 / 1.200000→$1.20 / 3.000000→$3.00 / 0.000005 保留 ✓）",
+                CostMarkers.Usd("0.660000") == "$0.66" && CostMarkers.Usd("1.200000") == "$1.20"
+                && CostMarkers.Usd("3.000000") == "$3.00" && CostMarkers.Usd("0.000005") == "$0.000005");
+            Check("成本·none / 空 / 非法 → 不显示金额（✗ 不显示 $0 ✗ 不显示假数字 ✓）",
+                CostMarkers.Usd("none") == "" && CostMarkers.Usd("") == "" && CostMarkers.Usd("unknown") == "" && CostMarkers.Usd("abc") == "");
+            Check("成本·cost=none ≠ 0：配价但该笔不可算 → 该行无 $ + 计数行如实说 N 笔不可算（§3.1-⑤ ✓）",
+                CostMarkers.SessionLine(cpW.Sessions[2], cpW).IndexOf('$') < 0
+                && CostMarkers.SessionUnavailableLine(cp, cpW) == "其中 1 笔金额不可算（token 未知，不假装 0）");
+            Check("成本·会话行配价时带「估算」金额（$0.33 ✓ 与 CLI 逐笔一致 ✗ GUI 不重算 ✓）",
+                CostMarkers.SessionLine(cpW.Sessions[0], cpW).Contains("估算 $0.33"));
+            Check("成本·超限提示条（只提示 ✗ 不阻止操作 ✓ 含超出与预算两个数 ✓）",
+                CostMarkers.OverBudgetText(cp).Contains("$0.66") && CostMarkers.OverBudgetText(cp).Contains("已超过每日预算 $0.50")
+                && CostMarkers.OverBudgetText(cp).Contains("仅提示，不阻止任何操作"));
+            Check("成本·预算行（limit + 今日估算 ✓ over=1 时仍在 ✓）",
+                CostMarkers.BudgetLine(cp).Contains("每日预算 $0.50") && CostMarkers.BudgetLine(cp).Contains("今日估算 $0.66"));
+            CostSnapshot cpG = CostMarkers.Parse(costPriced.Replace("level=parents_sub", "level=global").Replace("COST_NOTE budget-scope-global\n", ""));
+            Check("成本·非 global 档必标「预算按全局计」（§3.1-③ ✓ note 或 level≠global 都触发 ✓）",
+                CostMarkers.BudgetScopeLine(cp, cpW) == "预算按全局计（不受口径档影响）"
+                && CostMarkers.BudgetScopeLine(cpG, cpG.Window) == "");
+            Check("成本·预算口径句有专属行 → NotesLine 不重复它（✗ 同一句话说两遍 ✓）",
+                CostMarkers.NotesLine(cp.Notes).IndexOf("预算按全局计") < 0
+                && CostMarkers.NotesLine(cp.Notes).IndexOf("金额不可算") < 0
+                && CostMarkers.NotesLine(cp.Notes).Contains("未与官方账单对账"));
+            Check("成本·配价态整卡文案含 $ 且必含「估算」（✗ 不出现无标签的金额 ✓）",
+                CardTextForTest(cp).IndexOf('$') >= 0 && CardTextForTest(cp).Contains(CostMarkers.EstimateLabel));
+            Check("成本·排序：配价 → 金额降序；未配价 → 用量降序；并列按 id（确定性 ✓）+ more 计数 ✓",
+                TopFirst(cpW) == "aaa11111-1111-1111-1111-111111111111"
+                && TopFirst(cuW) == "aaa11111-1111-1111-1111-111111111111"
+                && TopMore(cpW) == 0);
+            Check("成本·会话明细 id 集**逐个相等**于 SESSAGG_SESSION bucket=own（窗口一致性 §5-3 ✓）",
+                SameIds(cpW, SessionsMarkers.Parse(
+                    "SESSIONS_OK 3\nSESSWIN_META days=7 from=2026-10-10 to=2026-10-16 tz=UTC truth=0 level=global source=disk scanned=3 eligible=3 unknown_last=0\n" +
+                    "SESSAGG_SESSION aaa11111-1111-1111-1111-111111111111 bucket=own turns=1 steps=1 uncached=1 cacheRead=1 cacheWrite=1 output=1 children=unknown depth=unknown\n" +
+                    "SESSAGG_SESSION bbb22222-2222-2222-2222-222222222222 bucket=own turns=1 steps=1 uncached=1 cacheRead=1 cacheWrite=1 output=1 children=unknown depth=unknown\n" +
+                    "SESSAGG_SESSION ccc33333-3333-3333-3333-333333333333 bucket=own turns=1 steps=1 uncached=1 cacheRead=1 cacheWrite=1 output=1 children=unknown depth=unknown")));
+            // ★ 最危险的串档：只吐一块时 ✗ 绝不许把窗口数当今日数显示 ✓（§3.1-②）
+            CostSnapshot onlyWindow = CostMarkers.Parse(
+                "COST_META scope=window days=7 from=2026-10-10 to=2026-10-16 level=global priced=1 currency=USD tz=UTC truth=0 unknown_last=2 model_unknown=0\n" +
+                "COST_TOTAL scope=window uncached=2000000 cacheRead=4000000 cacheWrite=1000000 output=600000 tokens=7600000 cost=1.320000\n");
+            Check("成本·★缺块不串档：只有 window 块 → Today=null 且今日行如实说「该块不可用」（✗ 不显示窗口的 1.32 ✓）",
+                onlyWindow.Today == null && onlyWindow.Window != null
+                && CostMarkers.TodayTokensLine(onlyWindow.Today) == CostMarkers.TodayUnavailable
+                && CostMarkers.TodayMoneyLine(onlyWindow.Today) == ""
+                && CostMarkers.TodayTokensLine(onlyWindow.Today).IndexOf("1.32") < 0);
+            Check("成本·★缺块不串档：只有 today 块 → Window=null 且窗口行/明细如实说「该块不可用」✓",
+                CostMarkers.Parse(costPriced.Substring(0, costPriced.IndexOf("COST_META scope=window"))).Window == null
+                && CostMarkers.WindowTokensLine(null) == CostMarkers.WindowUnavailable
+                && CostMarkers.WindowMoneyLine(null) == "");
+            Check("成本·认不出 scope 的块 ✗ 不当任何一块用（Unscoped 单列 ✓ 不硬猜成 window ✓）",
+                HasUnscopedOnly() && CostMarkers.Parse("COST_META days=7 priced=0 currency=USD\nCOST_TOTAL uncached=1 cacheRead=1 cacheWrite=1 output=1 tokens=4 cost=none").Today == null);
+            Check("成本·COST_FAIL 如实转述（✗ 不装作 0 ✗ 不装作没数据 ✓）",
+                CostMarkers.Parse("COST_FAIL 没有可读的会话投影（dsh 未初始化）").HasCost
+                && !CostMarkers.Parse("COST_FAIL 没有可读的会话投影（dsh 未初始化）").Ok
+                && (CostMarkers.FailPrefix + CostMarkers.Parse("COST_FAIL x").FailReason).Contains("成本数据读取失败："));
+            Check("成本·老 CLI / 未接线 → HasCost=false（卡片只说未提供 ✗ 不画假数字 ✓）",
+                !CostMarkers.Parse("SESSIONS_OK 1\nSESSION a1 turns=1").HasCost && !CostMarkers.Parse("").HasCost && !CostMarkers.Parse(null).HasCost);
+            Check("成本·脏数据不炸（缺 field / 裸标记 / 垃圾行 ✓ 单行失败不影响它行 ✓）",
+                CostMarkers.Parse("垃圾\nCOST_META\nCOST_TOTAL scope=today uncached=x cacheRead=y cacheWrite=z output=w\nCOST_BUDGET limit=abc spent= over=maybe\nCOST_NOTE\n").HasCost
+                && !CostMarkers.Parse("COST_TOTAL scope=today uncached=unknown cacheRead=unknown cacheWrite=unknown output=unknown").Today.Total.HasTokens);
+            Check("成本·设置页接线：五个成本键都认得（四个现成单价键 + 新预算键 ✓ ✗ 不新造键 ✓）",
+                ConfigItem.IsCostKey("sessions_price_in_per_mtok") && ConfigItem.IsCostKey("sessions_price_out_per_mtok")
+                && ConfigItem.IsCostKey("sessions_price_cache_read_per_mtok") && ConfigItem.IsCostKey("sessions_price_cache_write_per_mtok")
+                && ConfigItem.IsCostKey("sessions_budget_usd_per_day") && !ConfigItem.IsCostKey("balance_key"));
+            List<ConfigItem> costCfg = ConfigMarkers.Parse(
+                "CONFIG sessions_price_in_per_mtok 0.14\nCONFIG sessions_price_out_per_mtok 0.28\n" +
+                "CONFIG sessions_price_cache_read_per_mtok 0.0028\nCONFIG sessions_price_cache_write_per_mtok 0\n" +
+                "CONFIG sessions_budget_usd_per_day 5");
+            Check("成本·设置页：五键各自的人话说明非空（分组卡片标题下的说明 ✓）+ 都能从 config-get 原文解析 ✓",
+                costCfg.Count == 5 && costCfg[0].Value == "0.14" && costCfg[4].Value == "5"
+                && costCfg[0].Desc.Contains("输入单价") && costCfg[1].Desc.Contains("输出单价")
+                && costCfg[2].Desc.Contains("缓存读") && costCfg[3].Desc.Contains("缓存写")
+                && costCfg[4].Desc.Contains("每日预算"));
+
             Console.WriteLine("== " + _pass + "/" + (_pass + _fail) + " passed, " + _fail + " failed ==");
             return _fail == 0 ? 0 : 1;
+        }
+
+        /// <summary>成本卡在**当前数据**下会渲染出来的全部文案（纯函数拼一遍 ✓）——
+        /// 用来钉死两条最关键的验收：未配价「一个 $ 都没有」✓ / 配价「每个金额都带估算」✓。
+        /// 顺序与 BoardCostCard 一致（空态 / 超限条 / 今日 / 预算 / 窗口 / 明细 / 模型 / NOTE ✓）。</summary>
+        private static string CardTextForTest(CostSnapshot cs)
+        {
+            if (cs == null) return CostMarkers.NotProvided;
+            CostBlock t = cs.Today, w = cs.Window;
+            System.Text.StringBuilder sb = new System.Text.StringBuilder(512);
+            if (!cs.HasCost)
+            {
+                sb.Append(string.IsNullOrEmpty(cs.FailReason) ? CostMarkers.NotProvided : CostMarkers.FailPrefix + cs.FailReason).Append('\n');
+                return sb.ToString();
+            }
+            sb.Append(CostMarkers.OverBudgetText(cs)).Append('\n');
+            sb.Append(CostMarkers.TodayTokensLine(t)).Append('\n');
+            sb.Append(CostMarkers.TodayMoneyLine(t)).Append('\n');
+            if (t != null) sb.Append(CostMarkers.TodayFootnote(t.UnknownLast)).Append('\n');
+            sb.Append(CostMarkers.BudgetLine(cs)).Append('\n');
+            sb.Append(CostMarkers.BudgetScopeLine(cs, w)).Append('\n');
+            sb.Append(CostMarkers.WindowTokensLine(w)).Append('\n');
+            sb.Append(CostMarkers.WindowMoneyLine(w)).Append('\n');
+            sb.Append(CostMarkers.SessionUnavailableLine(cs, w)).Append('\n');
+            int more;
+            List<CostSessionRow> top = CostMarkers.TopSessions(w, 8, out more);
+            for (int i = 0; i < top.Count; i++) sb.Append(CostMarkers.SessionLine(top[i], w)).Append('\n');
+            sb.Append(CostMarkers.ModelNoteLine(w)).Append('\n');
+            sb.Append(CostMarkers.NotesLine(cs.Notes)).Append('\n');
+            return sb.ToString();
+        }
+
+        /// <summary>整段文案里既没有 `$` 也没有 `USD`（未配价的守门断言 ✓ 规格 §5-1 ✓）。</summary>
+        private static bool NoMoney(string text)
+        {
+            return text != null && text.IndexOf('$') < 0 && text.IndexOf("USD", StringComparison.Ordinal) < 0;
+        }
+
+        private static string TopFirst(CostBlock w)
+        {
+            int more;
+            List<CostSessionRow> t = CostMarkers.TopSessions(w, 8, out more);
+            return t.Count > 0 ? t[0].Id : "";
+        }
+
+        private static int TopMore(CostBlock w)
+        {
+            int more;
+            CostMarkers.TopSessions(w, 8, out more);
+            return more;
+        }
+
+        /// <summary>COST_SESSION 的 id 集 == SESSAGG_SESSION bucket=own 的 id 集（逐个比对 ✓ 窗口一致性 ✓）。</summary>
+        private static bool SameIds(CostBlock w, SessionsSnapshot s)
+        {
+            if (w == null || s == null) return false;
+            HashSet<string> a = new HashSet<string>(StringComparer.Ordinal);
+            for (int i = 0; i < w.Sessions.Count; i++) if (w.Sessions[i] != null) a.Add(w.Sessions[i].Id);
+            HashSet<string> b = s.AggIdSet();
+            if (b == null || a.Count != b.Count) return false;
+            foreach (string id in a) if (!b.Contains(id)) return false;
+            return true;
+        }
+
+        /// <summary>只有「认不出 scope」的块时：不当 today/window 任何一块用 ✓（Unscoped 单列 ✓）。</summary>
+        private static bool HasUnscopedOnly()
+        {
+            CostSnapshot s = CostMarkers.Parse("COST_META days=7 priced=0 currency=USD\nCOST_TOTAL uncached=1 cacheRead=1 cacheWrite=1 output=1 tokens=4 cost=none");
+            return s.HasCost && s.Unscoped != null && s.Today == null && s.Window == null && s.Unscoped.Total.Tokens == 4L;
         }
 
         /// <summary>真机实测（2026-10-11）：按 GUI 用的同一套候选路径扫一遍桥接插件，

@@ -121,11 +121,24 @@ namespace Dsht.Gui.Avalonia.Markers
                     case "gui_start_page": return "GUI 启动先开哪页（0=概览 … 9=日志）";
                     case "gui_auto_refresh": return "概览页自动刷新间隔（off / 秒数）";
                     case "balance_key": return "DeepSeek 平台 API key（余额检测；留空=未绑定 → 概览页不显示余额卡）";
+                    // ★ 成本估算（2026-10-16 v3.2）：四个现成单价键 + 每日预算键（✗ 不新造键 ✓ 校验规则在后端 ✓）
+                    case "sessions_price_in_per_mtok": return "输入单价（美元 / 百万 token；0=未填 → 不显示金额）";
+                    case "sessions_price_out_per_mtok": return "输出单价（美元 / 百万 token；0=未填 → 不显示金额）";
+                    case "sessions_price_cache_read_per_mtok": return "缓存读单价（美元 / 百万 token；0=未填）";
+                    case "sessions_price_cache_write_per_mtok": return "缓存写单价（美元 / 百万 token；0=未填）";
+                    case "sessions_budget_usd_per_day": return "每日预算上限（美元 / 天；0 或留空=不设上限，只在看板提示）";
                     default: return "";
                 }
             }
         }
         public bool ReadOnly { get { return Key == "dsh_versions"; } }
+        /// <summary>成本估算相关的键（单价四件 + 每日预算）——设置页据此给输入框加水印/说明 ✓ 界面只做引导 ✗ 不改校验规则 ✓。</summary>
+        public static bool IsCostKey(string key)
+        {
+            return key == "sessions_price_in_per_mtok" || key == "sessions_price_out_per_mtok"
+                || key == "sessions_price_cache_read_per_mtok" || key == "sessions_price_cache_write_per_mtok"
+                || key == "sessions_budget_usd_per_day";
+        }
         /// <summary>on/off 型配置 → 渲染成两枚按钮 ✓（2026-10-02 补上 ui_parallel / scan_children ✓ 原来它们被当自由文本 ✗）。</summary>
         public bool IsSwitch { get { return Key == "check_update" || Key == "check_dsh_update" || Key == "auto_start" || Key == "ui_parallel" || Key == "scan_children"; } }
     }

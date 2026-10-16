@@ -438,6 +438,8 @@ namespace Dsht.Gui.Avalonia.Shells
             //   （CLI 数据照旧按原节奏刷 ✗ 不降刷新频率 ✓；两棵树同一时刻只有一棵可见 ✗ 没有双份 CLI 开销 ✓）
             // —— 子标签「指标」✓✓ 顺序 = KPI → 筛选 → 总计 → 三档对比 → Top5 → 回执细条（§2-9 + 体验修复 ✓）——
             StackPanel metrics = new StackPanel { Spacing = ShapeTokens.S12 };   // 12px ✓（规格：卡间距 12~16 ✓ 一屏放下 ✓）
+            // ★ 成本卡（2026-10-16 v3.2 ✓ 规格 §3/§3.1 ✓）：**指标页顶部** ✓（维护者已确认位置 ✓ 高频信息优先 ✓）
+            metrics.Children.Add(BoardCostCard(host));
             metrics.Children.Add(KpiStrip(host));
             // 筛选条：窗口档 + 「自定义…」+ 口径 chips + fork 口径差「?」入口（B.5 ✓ §2-4 ✓）+ C.4 固定脚注（本屏唯一一次 ✓ §1 ✓）
             metrics.Children.Add(BoardFilterBar(host));
@@ -822,6 +824,174 @@ namespace Dsht.Gui.Avalonia.Shells
                 if (card.IsVisible != v) card.IsVisible = v;
             });
             return card;
+        }
+
+        /// <summary>成本卡（2026-10-16 v3.2 ✓ 规格 §3 + §3.1 ✓）：**看板「指标」页顶部** ✓
+        /// 「今日 · 当前窗口 · 会话明细」三块 ✓ 数据 = **同一次** `overview` 输出里的 COST_* 两块
+        /// （`scope=today` / `scope=window` ✓）—— ✗ 不为成本再起一个 CLI 进程 ✓（规格 §4 ✓）。
+        /// 纪律（逐条 ✓）：未配价 → 不显示任何金额、只报 token + 逐字提示句 ✓；金额一律标「估算」✓ 只显示 USD ✓；
+        /// 超限只提示 ✗ 不阻止操作 ✓；今日/窗口**各取各的块** ✗ 缺块 → 如实说该块不可用（✗ 绝不串档 ✓）；
+        /// N（无锚点排除数 / 模型未知数）只取 COST_META ✓ GUI 不自己数 ✓；
+        /// 刷新全部走**字段级** Live / LiveText ✓ ✗ 不整页重建 ✓。</summary>
+        private static Control BoardCostCard(MainWindow host)
+        {
+            StackPanel c = new StackPanel { Spacing = 6 };
+
+            // —— 卡头：标题 + 「估算」标签 ——
+            Grid head = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto") };
+            TextBlock title = T("成本估算", 13, Palette.Text, FontWeight.Bold);
+            Grid.SetColumn(title, 0);
+            head.Children.Add(title);
+            Control tag = Chip("估算 · 非官方账单", Palette.Warn, Palette.WarnSoft);
+            Grid.SetColumn(tag, 2);
+            head.Children.Add(tag);
+            c.Children.Add(head);
+            TextBlock sub = T("单价来自你的设置（设置页「成本估算」）。界面只显示美元，不做汇率换算；金额一律是估算，不是 DeepSeek 的官方账单。", 11.5, Palette.TextFaint);
+            sub.TextWrapping = TextWrapping.Wrap;
+            c.Children.Add(sub);
+
+            // —— 空态 / 失败态（没有成本标记行时只留这一行 ✓ ✗ 不装作 0 ✗ 不画假卡 ✓）——
+            TextBlock state = host.LiveText("", delegate
+            {
+                CostSnapshot cs = host.Cost;
+                if (cs == null) return CostMarkers.NotProvided;
+                if (!string.IsNullOrEmpty(cs.FailReason)) return CostMarkers.FailPrefix + cs.FailReason;
+                if (!cs.HasCost) return CostMarkers.NotProvided;
+                return "";
+            });
+            state.FontSize = 11.5; state.Foreground = Palette.Warn; state.TextWrapping = TextWrapping.Wrap;
+            host.Live(delegate { state.IsVisible = state.Text != null && state.Text.Length > 0; });
+            c.Children.Add(state);
+
+            // —— 正文（有成本标记行才出现 ✓）——
+            StackPanel body = new StackPanel { Spacing = 4 };
+            host.Live(delegate { CostSnapshot cs = host.Cost; body.IsVisible = cs != null && cs.HasCost; });
+
+            // ① 超限提示条（仅真超限 ✓ 只提示 ✗ 不阻止任何操作 ✓）
+            TextBlock over = host.LiveText("", delegate { return CostMarkers.OverBudgetText(host.Cost); });
+            over.FontSize = 12; over.Foreground = Palette.Bad; over.TextWrapping = TextWrapping.Wrap;
+            Border overBar = new Border
+            {
+                Background = Palette.BadSoft,
+                CornerRadius = new CornerRadius(ShapeTokens.RCtrl),
+                Padding = new Thickness(10, 6),
+                Child = over
+            };
+            host.Live(delegate { overBar.IsVisible = over.Text != null && over.Text.Length > 0; });
+            overBar.IsVisible = false;
+            body.Children.Add(overBar);
+
+            // ② 今日（scope=today ✓ 含预算 ✓）
+            body.Children.Add(T("今日", 12, Palette.Text, FontWeight.SemiBold));
+            TextBlock tTok = LvLine(host, 11.5, Palette.TextDim, FontWeight.Normal, delegate { return CostMarkers.TodayTokensLine(CostToday(host)); });
+            tTok.TextWrapping = TextWrapping.Wrap;
+            body.Children.Add(tTok);
+            TextBlock tMoney = LvLine(host, 11.5, Palette.Text, FontWeight.SemiBold, delegate { return CostMarkers.TodayMoneyLine(CostToday(host)); });
+            tMoney.TextWrapping = TextWrapping.Wrap;
+            body.Children.Add(tMoney);
+            // 今日卡脚注（三要素 ✓ N = COST_META unknown_last ✓ 缺块 → 不显示脚注 ✓）
+            TextBlock foot = LvLine(host, 10.5, Palette.TextFaint, FontWeight.Normal, delegate
+            {
+                CostBlock tb = CostToday(host);
+                return tb == null ? "" : CostMarkers.TodayFootnote(tb.UnknownLast);
+            });
+            foot.TextWrapping = TextWrapping.Wrap;
+            body.Children.Add(foot);
+            // 预算行（未设上限 → 空 ✓ 折叠 ✓）+ 非 global 档必标的「预算按全局计」✓
+            TextBlock bud = LvLine(host, 11.5, Palette.TextDim, FontWeight.Normal, delegate
+            {
+                string line = CostMarkers.BudgetLine(host.Cost);
+                if (line.Length == 0) return "";
+                string scope = CostMarkers.BudgetScopeLine(host.Cost, CostWindow(host));
+                return scope.Length == 0 ? line : line + "　· " + scope;
+            });
+            bud.TextWrapping = TextWrapping.Wrap;
+            host.Live(delegate { bud.IsVisible = bud.Text != null && bud.Text.Length > 0; });
+            bud.IsVisible = false;
+            body.Children.Add(bud);
+
+            // ③ 当前窗口（scope=window ✓ 含会话明细 ✓）
+            body.Children.Add(T("当前窗口", 12, Palette.Text, FontWeight.SemiBold));
+            TextBlock wTok = LvLine(host, 11.5, Palette.TextDim, FontWeight.Normal, delegate { return CostMarkers.WindowTokensLine(CostWindow(host)); });
+            wTok.TextWrapping = TextWrapping.Wrap;
+            body.Children.Add(wTok);
+            TextBlock wMoney = LvLine(host, 11.5, Palette.Text, FontWeight.SemiBold, delegate { return CostMarkers.WindowMoneyLine(CostWindow(host)); });
+            wMoney.TextWrapping = TextWrapping.Wrap;
+            body.Children.Add(wMoney);
+            // cost=none ≠ 0（配价但有 N 笔不可算 ✓ 计数取 COST_NOTE ✓）
+            TextBlock un = LvLine(host, 11, Palette.Warn, FontWeight.Normal, delegate { return CostMarkers.SessionUnavailableLine(host.Cost, CostWindow(host)); });
+            un.TextWrapping = TextWrapping.Wrap;
+            host.Live(delegate { un.IsVisible = un.Text != null && un.Text.Length > 0; });
+            un.IsVisible = false;
+            body.Children.Add(un);
+
+            // ④ 会话明细（token + 金额（若配价）+ 最后使用模型 ✓ 固定 8 行 → 字段级换字/显隐 ✓）
+            TextBlock listHead = LvLine(host, 11, Palette.TextFaint, FontWeight.Normal, delegate
+            {
+                CostBlock w = CostWindow(host);
+                if (w == null || w.Sessions.Count == 0) return "";
+                int more;
+                int take = Math.Min(CostCardRows, w.Sessions.Count);
+                CostMarkers.TopSessions(w, CostCardRows, out more);
+                string h = "会话明细（当前窗口 · 按" + (w.Priced ? "估算金额" : "用量") + "降序取前 " + take + " 个";
+                if (more > 0) h += "，另有 " + more + " 个未列出";
+                return h + "）";
+            });
+            listHead.TextWrapping = TextWrapping.Wrap;
+            host.Live(delegate { listHead.IsVisible = listHead.Text != null && listHead.Text.Length > 0; });
+            listHead.IsVisible = false;
+            body.Children.Add(listHead);
+            for (int ri = 0; ri < CostCardRows; ri++)
+            {
+                int idx = ri;
+                TextBlock row = host.LiveText("", delegate
+                {
+                    CostBlock w = CostWindow(host);
+                    int more;
+                    List<CostSessionRow> top = CostMarkers.TopSessions(w, CostCardRows, out more);
+                    return idx < top.Count ? CostMarkers.SessionLine(top[idx], w) : "";
+                });
+                row.FontSize = 11.5; row.Foreground = Palette.TextDim; row.TextWrapping = TextWrapping.Wrap;
+                host.Live(delegate { row.IsVisible = row.Text != null && row.Text.Length > 0; });
+                row.IsVisible = false;
+                body.Children.Add(row);
+            }
+            // 模型近似说明（近似 ✓ + unknown 计数 ✓ 取 COST_META model_unknown ✓）
+            TextBlock modelNote = LvLine(host, 10.5, Palette.TextFaint, FontWeight.Normal, delegate { return CostMarkers.ModelNoteLine(CostWindow(host)); });
+            modelNote.TextWrapping = TextWrapping.Wrap;
+            host.Live(delegate { modelNote.IsVisible = modelNote.Text != null && modelNote.Text.Length > 0; });
+            modelNote.IsVisible = false;
+            body.Children.Add(modelNote);
+            // COST_NOTE 汇总（多值 ✓ 出现即累加 ✓；预算口径 / 不可算笔数有专属行 ✗ 不重复 ✓）
+            TextBlock notes = LvLine(host, 10.5, Palette.TextFaint, FontWeight.Normal, delegate
+            {
+                CostSnapshot cs = host.Cost;
+                return cs == null ? "" : CostMarkers.NotesLine(cs.Notes);
+            });
+            notes.TextWrapping = TextWrapping.Wrap;
+            host.Live(delegate { notes.IsVisible = notes.Text != null && notes.Text.Length > 0; });
+            notes.IsVisible = false;
+            body.Children.Add(notes);
+
+            c.Children.Add(body);
+            return Card(c, new Thickness(0), new Thickness(18, 10));
+        }
+
+        /// <summary>会话明细最多列几行（固定行数 ⇒ 字段级刷新能原地换字 ✓ ✗ 不整页重建 ✓）。</summary>
+        private const int CostCardRows = 8;
+
+        /// <summary>今日块（`scope=today` ✓ 没有 → null ✗ 绝不退回窗口块 ✓）。</summary>
+        private static CostBlock CostToday(MainWindow host)
+        {
+            CostSnapshot cs = host.Cost;
+            return cs == null ? null : cs.Today;
+        }
+
+        /// <summary>当前窗口块（`scope=window` ✓ 同上 ✗ 不串档 ✓）。</summary>
+        private static CostBlock CostWindow(MainWindow host)
+        {
+            CostSnapshot cs = host.Cost;
+            return cs == null ? null : cs.Window;
         }
 
         /// <summary>样式化 LiveText（看板体验修复 2026-10-11 ✓✓）：取值函数 ✗ 不是快照 ✓；样式逐项对齐原静态版本 ✓。</summary>

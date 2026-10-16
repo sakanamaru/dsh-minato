@@ -1257,15 +1257,27 @@ namespace Dsht.Gui.Avalonia.Shells
 
             string[] balKeys = new string[] { "balance_key" };
 
+            // ★ 成本估算**单独成组**（2026-10-16 v3.2 ✓）：四个单价键 + 每日预算键 ——
+            //   它们本来在「其它」里挤着，用户找不到入口（勘察 §7.1：`v3\gui` 零命中 ✗）。
+            //   ✗ 不新造键 ✓ 键名与 CLI 白名单逐字一致 ✓；校验规则仍在后端（ConfigValidator ✓）✗ GUI 不重复实现 ✓
+
+            string[] costKeys = new string[] { "sessions_price_in_per_mtok", "sessions_price_out_per_mtok", "sessions_price_cache_read_per_mtok", "sessions_price_cache_write_per_mtok", "sessions_budget_usd_per_day" };
+
             List<ConfigItem> placed = new List<ConfigItem>();
 
-            RenderSettingsGroup(s, host, PickItems(items, guiKeys, placed), "界面与启动（含排障开关）");
+            RenderSettingsGroup(s, host, PickItems(items, guiKeys, placed), "界面与启动（含排障开关）", null);
 
-            RenderSettingsGroup(s, host, PickItems(items, dshKeys, placed), "dsh · 更新 · 数据");
+            RenderSettingsGroup(s, host, PickItems(items, dshKeys, placed), "dsh · 更新 · 数据", null);
 
-            RenderSettingsGroup(s, host, PickItems(items, balKeys, placed), "DeepSeek 余额检测（概览页显示充值 / 赠送余额）");
+            string costNote = "单价用来把 token 折算成估算金额，单位是美元 / 百万 token，界面只显示美元（不做汇率换算）。四个单价键留 0 或留空就等于未填 → 看板不显示任何金额，只显示 token。金额一律是估算，不是 DeepSeek 的官方账单。";
 
-            RenderSettingsGroup(s, host, RestItems(items, placed), "其它");
+            if (FindItem(items, "sessions_budget_usd_per_day") == null) costNote += "（每日预算键由新版 CLI 提供：当前这个 CLI 还没有这个键，升级后会出现）";
+
+            RenderSettingsGroup(s, host, PickItems(items, costKeys, placed), "成本估算（单价与每日预算）", costNote);
+
+            RenderSettingsGroup(s, host, PickItems(items, balKeys, placed), "DeepSeek 余额检测（概览页显示充值 / 赠送余额）", null);
+
+            RenderSettingsGroup(s, host, RestItems(items, placed), "其它", null);
 
             // 操作日志改为**右下角 toast** ✓✓（不再在页面流里占一张卡片 ✓）
 
@@ -1273,15 +1285,44 @@ namespace Dsht.Gui.Avalonia.Shells
 
         }
 
-        private static void RenderSettingsGroup(StackPanel s, MainWindow host, List<ConfigItem> group, string title)
+        private static void RenderSettingsGroup(StackPanel s, MainWindow host, List<ConfigItem> group, string title, string note)
 
         {
 
             if (group == null || group.Count == 0) return;
 
-            s.Children.Add(Card(T(title, 13, Palette.Text, FontWeight.SemiBold), new Thickness(0), new Thickness(16, 12)));
+            StackPanel head = new StackPanel { Spacing = 6 };
+
+            head.Children.Add(T(title, 13, Palette.Text, FontWeight.SemiBold));
+
+            if (!string.IsNullOrEmpty(note))
+
+            {
+
+                TextBlock nt = T(note, 11.5, Palette.TextDim);
+
+                nt.TextWrapping = TextWrapping.Wrap;
+
+                head.Children.Add(nt);
+
+            }
+
+            s.Children.Add(Card(head, new Thickness(0), new Thickness(16, 12)));
 
             for (int i = 0; i < group.Count; i++) s.Children.Add(SettingsItemCard(host, group[i]));
+
+        }
+
+        /// <summary>按键名在配置项里找一项（找不到 → null ✗ 不抛 ✓）——设置页分组提示用 ✓。</summary>
+        private static ConfigItem FindItem(List<ConfigItem> items, string key)
+
+        {
+
+            if (items == null) return null;
+
+            for (int i = 0; i < items.Count; i++) if (items[i] != null && items[i].Key == key) return items[i];
+
+            return null;
 
         }
 
@@ -1365,6 +1406,20 @@ namespace Dsht.Gui.Avalonia.Shells
 
             return null;
 
+        }
+
+        /// <summary>成本估算键的输入提示（✗ 不重复实现校验规则 ✓ 只说明单位与"未填"的语义 ✓；非成本键 → null ✓）。</summary>
+        private static string CostKeyHint(string key)
+        {
+            switch (key)
+            {
+                case "sessions_price_in_per_mtok": return "单位：美元 / 百万 token（未命中缓存的输入）；填 0 或留空 = 未填";
+                case "sessions_price_out_per_mtok": return "单位：美元 / 百万 token（输出）；填 0 或留空 = 未填";
+                case "sessions_price_cache_read_per_mtok": return "单位：美元 / 百万 token（缓存读）；填 0 或留空 = 未填";
+                case "sessions_price_cache_write_per_mtok": return "单位：美元 / 百万 token（缓存写）；填 0 或留空 = 未填";
+                case "sessions_budget_usd_per_day": return "单位：美元 / 天；填 0 或留空 = 不设上限（超限只在看板提示，不阻止任何操作）";
+                default: return null;
+            }
         }
 
         private static Control SettingsItemCard(MainWindow host, ConfigItem c)
@@ -1523,6 +1578,10 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 TextBox box = new TextBox { Text = c.Value, Width = 300, FontSize = 12 };
 
+                // ★ 成本估算键（2026-10-16 v3.2）**只做引导**：水印 + 单位说明 ✗ 不在 GUI 重复实现校验规则 ✓（后端 ConfigValidator 说了算 ✓）
+                if (ConfigItem.IsCostKey(c.Key))
+                    box.Watermark = c.Key == "sessions_budget_usd_per_day" ? "例如 5；0 或留空 = 不设上限" : "例如 0.14；0 或留空 = 未填";
+
                 edit.Children.Add(box);
 
                 Button save = PrimaryButton("保存", delegate { host.SetConfig(c.Key, box.Text == null ? "" : box.Text.Trim()); });
@@ -1530,6 +1589,10 @@ namespace Dsht.Gui.Avalonia.Shells
                 edit.Children.Add(save);
 
                 if (c.Key == "ws") edit.Children.Add(T("留空=自动探测；填了必须存在", 11.5, Palette.TextFaint));
+
+                string chint = CostKeyHint(c.Key);
+
+                if (chint != null) edit.Children.Add(T(chint, 11.5, Palette.TextFaint));
 
 
 

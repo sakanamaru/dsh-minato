@@ -898,6 +898,10 @@ namespace Dsht.Gui.Avalonia
         // ---------------- 给 Shells 用的状态 ----------------
 
         public SessionsSnapshot Data { get { return _data; } }
+        /// <summary>成本事实（`cost` / `overview` 输出里的 COST_* 行 ✓ 2026-10-16 v3.2）。
+        /// **与看板共用同一次命令输出** ✗ 不为成本再起一个进程 ✓（规格 §4 ✓）；未接线 → HasCost=false ✓ 卡片如实说不提供 ✓。</summary>
+        public Dsht.Gui.Avalonia.Markers.CostSnapshot Cost { get { return _cost; } }
+        private Dsht.Gui.Avalonia.Markers.CostSnapshot _cost;
         public ProfilesSnapshot Profiles { get { return _profiles; } }
         public StatusSnapshot Status { get { return _status; } }
         public BackupSummary Backups { get { return _backups; } }
@@ -1925,6 +1929,7 @@ namespace Dsht.Gui.Avalonia
                 _status = StatusMarkers.Parse(_rawOutput);
                 _profiles = ProfilesMarkers.Parse(_rawOutput);
                 _data = SessionsMarkers.Parse(_rawOutput);
+                _cost = Dsht.Gui.Avalonia.Markers.CostMarkers.Parse(_rawOutput);   // ★ 同一份输出里取 COST_* ✓ 零额外进程 ✓
                 _backups = SummaryMarkers.ParseBackups(_rawOutput);
                 EnsureBoardLevelAggs(cli);   // ★ 看板体验修复：指标页三档对比表的另外两档后台补齐（火忘 ✓ 只刷字段 ✓ 别页不花 ✓）
                 string cfgText2 = await System.Threading.Tasks.Task.Run(delegate { return CfgCached(cli); });   // ✓ 缓存 ✓ 省一次进程启动 ✓✓
