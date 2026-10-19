@@ -242,8 +242,8 @@ namespace Dsht.Cli
                             // 只在缺字段时才问 ✓（npm view 每次要 1~2 秒 ✗ 不能对每个插件都问 ✓）
                             if (string.IsNullOrEmpty(repo)) repo = NpmRepoOf(name);
                             plugPart.Add("UPDATECENTER_URL " + pid + " " + (string.IsNullOrEmpty(repo) ? "unknown" : repo));
-                            plugPart.Add("UPDATECENTER_NOTE " + pid + " " + T("没有独立的版本渠道：插件随工具箱发布，它的版本号（package.json 的 version）与工具箱 tag（如 v3.1.0）不在一个序列上，因此没有可比的 latest —— 这里 `latest=unknown` 是事实，不是「还没查」；本工具也不会拿工具箱 tag 当插件的 latest。插件更新先描述风险再确认（版本变化可能改行为）；更新前自动备份。插件由各自作者维护，本工具不替它担保。",
-                                "no independent release channel: this plugin ships with the toolkit, so its version (package.json) and the toolkit tag (e.g. v3.1.0) are not the same series - there is no comparable latest, so latest=unknown is a FACT, not a pending lookup, and this tool will not pass the toolkit tag off as the plugin's latest. plugin updates describe the risk and ask first; the data root is backed up"));
+                            plugPart.Add("UPDATECENTER_NOTE " + pid + " " + T("没有独立的版本渠道：插件随工具箱发布，它的版本号（package.json 的 version）与工具箱 tag（如 v3.2.0）不在一个序列上，因此没有可比的 latest —— 这里 `latest=unknown` 是事实，不是「还没查」；本工具也不会拿工具箱 tag 当插件的 latest。插件更新先描述风险再确认（版本变化可能改行为）；更新前自动备份。插件由各自作者维护，本工具不替它担保。",
+                                "no independent release channel: this plugin ships with the toolkit, so its version (package.json) and the toolkit tag (e.g. v3.2.0) are not the same series - there is no comparable latest, so latest=unknown is a FACT, not a pending lookup, and this tool will not pass the toolkit tag off as the plugin's latest. plugin updates describe the risk and ask first; the data root is backed up"));
                             AddPart(lines, emit, plugPart);
                         }
                         // ★ 该 profile **是真 profile** 但没装桥接插件 → 也**如实报一行「未安装」** ✓

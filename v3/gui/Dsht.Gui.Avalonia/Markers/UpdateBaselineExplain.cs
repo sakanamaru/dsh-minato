@@ -25,7 +25,7 @@ namespace Dsht.Gui.Avalonia.Markers
             sb.Append("更新页里的插件行只回答一件事：你这台机器上每个 profile 的 dsh-minato-bridge，和你这份工具箱自带的那一份比，是「已是最新」「有更新」还是「内容不一致」。");
             sb.Append('\n').Append("基准 = 你这份工具箱自带的插件，就在本程序旁边的 plugin\\dsh-minato-bridge\\（完整路径见下面这一节）。");
             sb.Append('\n').Append("这个基准是离线的、可判的：不查网上的最新版，也因此不需要任何新的版本渠道。");
-            sb.Append('\n').Append("latest 取的是工具箱自带那一份的版本号。插件没有独立的版本渠道，它的版本号（package.json 的 version）与工具箱的 tag（如 v3.1.0）不在一个序列上，所以本工具不会拿工具箱 tag 当插件的 latest。");
+            sb.Append('\n').Append("latest 取的是工具箱自带那一份的版本号。插件没有独立的版本渠道，它的版本号（package.json 的 version）与工具箱的 tag（如 v3.2.0）不在一个序列上，所以本工具不会拿工具箱 tag 当插件的 latest。");
             sb.Append('\n').Append("判定 = 双比对：先比版本号（VersionComparer），再比内容哈希（snapshot.js 与 index.js 各算一份 SHA-256，两个都相同才算内容一致）。版本号相同但哈希不同 = 半旧或被改过，单独算一态，只看版本号抓不出来。");
             sb.Append('\n').Append("有些 profile 不需要你动手：desktop 由 dsh 桌面端独占管理，命令行装不进也卸不掉，请在桌面端的插件机制里更新（它接受本地目录路径）。");
             sb.Append('\n').Append("插件更新一律先描述风险再确认；更新前会自动备份数据根并保留回滚点。插件由各自作者维护，本工具不替它更新、也不替它担保。");

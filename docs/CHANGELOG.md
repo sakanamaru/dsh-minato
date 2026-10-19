@@ -6,6 +6,34 @@ All notable changes to **dsh-minato** (unofficial). Full release notes, assets a
 
 ---
 
+## v3.2.0 — 2026-10-19（成本面板 / cost panel）
+
+### Added / 新增
+
+- **成本面板**：新命令 `cost`（**只读**，与 `sessions` 同一套窗口参数）——一个进程吐两块（`scope=today|window`）：
+  `COST_META` / `COST_TOTAL` / `COST_SESSION` / `COST_BUDGET` / `COST_NOTE`（失败面 `COST_FAIL`）；
+  金额**只用 `output=` 桶**计价（`decodeTokens` 会低估 ⇒ 不用）· **未配价一律不显示金额**（`cost=none` + `COST_NOTE price-missing`）·
+  每日预算键 `sessions_budget_usd_per_day`（0 = 未设；超限**只提示，不阻止任何操作**；预算行恒按「今日 · global」）
+- **看板成本卡**（「指标」页顶部）：今日 / 当前窗口 / 会话明细（token + 估算金额 + **最后使用模型**近似并给 unknown 计数）·
+  设置页接线四个现成单价键 + 预算键 · 金额显示四段（`≥$0.01` / `<$0.01` / `<$0.000001` / 真零不给 `$`）+ 真零/不可算三态分句
+- `cost` 与看板**共用同一次 `overview` 输出**（✗ 不为成本再起一个进程 ✗）；`docs/COST.md`（怎么填价 · 口径 · 为什么不预置价 ·
+  为什么不读第三方价表的三条理由）
+
+### Fixed / 修复
+
+- **数据正确性（既有缺陷）**：会话 id 在前缀上不归一（快照保留 `session-`，而磁盘投影 / 投影总表 / `childId` / 血缘边本就裸 UUID）
+  ⇒ 同一会话**被计两次**、`SESSION_CHILD` 联表与血缘查表对不上、非 global 档带前缀的**活会话在聚合层被整条排除**
+  （global **高估** / 非 global **低估**）→ 解析入口统一归一为裸 UUID（当时实测 `sessions --days 7` **317 → 309**、`cost` **36 → 30**）
+- **金额精度**：`cost=` 由固定 6 位改**往返精度**（`G29`）⇒ 非零**永不**渲染成 `0` / `0.000000`（真值 `1.18e-7` 如实显示为 `1.18E-07`）
+- 四个单价键的 `CONFIGNOTE` 去掉 v3.2 之前的旧话（「费用显示的前置是多帧解码；当前只存不算」）· GUI 成本行注释同步为变精度
+
+### Known / 已知
+
+- GUI 首帧像素未核验 · `budget-scope-global` 与**真机** lineage 快照未在真机验证（本机 `lineage=none`）·
+  小数单价（如 `0.14`）的端到端对拍未做 · 观感类改动无自动化测试 · CI 只覆盖 Windows / Ubuntu
+
+---
+
 ## v3.1.0 — 2026-10-13（更新中心与看板一轮 / update centre and dashboard round）
 
 ### Added / 新增
