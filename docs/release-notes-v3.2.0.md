@@ -15,9 +15,9 @@ amount is an **estimate** derived only from unit prices **you** enter. This rele
 data defect where session ids were not normalised, so some sessions were counted twice.
 
 ```
-commit=<待补>
+commit=78137559b7ff244e0554c3910223570e073aa426
 tag=v3.2.0
-tag-ci-run=<待补>
+tag-ci-run=39190838582
 ```
 
 > 上面三行是**来源块**：`commit` 是产出本版产物的提交（全长 SHA），`tag-ci-run` 是该 tag 的 CI 构建 run id（由发版流程注入）。
