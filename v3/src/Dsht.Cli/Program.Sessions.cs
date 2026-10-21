@@ -77,7 +77,7 @@ namespace Dsht.Cli
             {
                 string customErr = null;
                 if (days > 0) customErr = "--from/--to 与 --days 互斥（选一个）";
-                else if (fromRaw.Length == 0 || toRaw.Length == 0) customErr = "--from 与 --to 必须成对给出（不默认补端点 ✗ 不猜 ✓）";
+                else if (fromRaw.Length == 0 || toRaw.Length == 0) customErr = "--from 与 --to 必须成对给出（不会自动补另一个端点）";
                 else
                 {
                     DateTime pf;
@@ -184,7 +184,7 @@ namespace Dsht.Cli
                         for (int i = 0; i < fromSnap.Length; i++)
                             if (fromSnap[i].Live) { fromSnap[i].Live = false; cleared++; }
                         if (cleared > 0)
-                            Console.Error.WriteLine("SESSIONS_SNAPSHOT_STALE 快照已 " + snapAgeSec + " 秒未刷新 → 插件已不在 → 已把 " + cleared + " 条「运行中」如实置为 false（数据保留 ✓）");
+                            Console.Error.WriteLine("SESSIONS_SNAPSHOT_STALE 快照已 " + snapAgeSec + " 秒未刷新 → 插件已不在 → 已把 " + cleared + " 条「运行中」置为 false（数据保留）");
                     }
                     list.AddRange(fromSnap);
                     for (int i = 0; i < fromSnap.Length; i++) if (fromSnap[i].Id != null) have.Add(fromSnap[i].Id);

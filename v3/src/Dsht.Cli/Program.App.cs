@@ -314,7 +314,7 @@ namespace Dsht.Cli
                     return false;
                 }
                 System.IO.File.WriteAllText(profPatch, result);
-                detail = "已写入 ✓ 备份：" + System.IO.Path.GetFileName(backup);
+                detail = "已写入，备份：" + System.IO.Path.GetFileName(backup);
                 return true;
             }
             catch (Exception ex)
@@ -576,7 +576,7 @@ namespace Dsht.Cli
         private static int AboutCmd()
         {
             // 图标署名 ✓✓（用户要求："README + 关于页署名原作者" ✓）
-            Console.WriteLine("CREDITS " + T("鲸鱼娘（Whale-chan）形象来自 DeepSeek 社区同人创作；本项目图标为生成式 AI 产出（生成式 AI 工具），提示词由维护者编写。非官方、非商业、与 DeepSeek 官方无关。详见仓库 docs/ASSETS.md。", "Whale-chan is community fan art; this project's icon is AI-generated (生成式 AI 工具). Unofficial, non-commercial, not affiliated with DeepSeek. See ASSETS.md."));
+            Console.WriteLine("CREDITS " + T("鲸鱼娘（Whale-chan）形象来自 DeepSeek 社区同人创作；本项目图标为生成式 AI 产出（生成式 AI 工具），提示词由本项目作者编写。非官方、非商业、与 DeepSeek 官方无关。详见仓库 docs/ASSETS.md。", "Whale-chan is community fan art; this project's icon is AI-generated (生成式 AI 工具). Unofficial, non-commercial, not affiliated with DeepSeek. See ASSETS.md."));
             Console.WriteLine("dsh-minato " + ToolkitVersion);
             Console.WriteLine(T("社区版 DeepSeek Harness (dsh) 本机部署运维套件：安装 / 启动 / 监控 / 备份恢复 / 插件诊断与隔离",
                                 "community deploy & ops kit for DeepSeek Harness (dsh): install, start, monitor, backup & restore, plugin diagnosis & quarantine"));

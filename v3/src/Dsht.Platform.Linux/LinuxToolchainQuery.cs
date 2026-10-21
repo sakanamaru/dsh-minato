@@ -272,7 +272,7 @@ namespace Dsht.Platform.Linux
                 string gotSha = Sha256File(tar);
                 if (wantSha == null || gotSha == null || !string.Equals(wantSha, gotSha, StringComparison.OrdinalIgnoreCase))
                 {
-                    LastError = "Node " + ver + " 哈希校验未通过（拿不到官方 SHASUMS256.txt 或对不上）—— 已拒绝解压 ✓";
+                    LastError = "Node " + ver + " 哈希校验未通过（拿不到官方 SHASUMS256.txt 或对不上）—— 已拒绝解压";
                     try { System.IO.File.Delete(tar); } catch { }
                     continue;   // 换下一个候选版本 ✓
                 }

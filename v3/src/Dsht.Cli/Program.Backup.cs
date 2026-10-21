@@ -86,7 +86,7 @@ namespace Dsht.Cli
                 // ✓ 现在：**缺标记就是"未完成"** ✓✓（照旧可用 --force 强行使用 ✓ 但要用户明说 ✓）
                 if (!System.IO.File.Exists(mf))
                     return System.IO.Directory.Exists(pkgDir)
-                        ? T("备份未完成（缺少完成标记 ✓ 可能是中断/磁盘满）：", "backup is incomplete (no completion marker): ") + System.IO.Path.GetFileName(pkgDir)
+                        ? T("备份未完成（缺少完成标记，可能是中断或磁盘满）：", "backup is incomplete (no completion marker): ") + System.IO.Path.GetFileName(pkgDir)
                         : null;
                 // ★ 第 2 轮抓到：标记里写着 `failed=<n>` ✓（平台侧真的写 ✓）而这里**只读 files= 与 sha256=** ✗
                 //   → 工具自己在备份时说了"该备份不完整" ✓ backup-list --verify 也这么报 ✓
@@ -100,7 +100,7 @@ namespace Dsht.Cli
                     {
                         int failedN;
                         if (int.TryParse(fm.Groups[1].Value, out failedN) && failedN > 0)
-                            return T("备份不完整（标记里记着 " + failedN + " 项没能备份 ✓）：", "backup is incomplete (the marker records " + failedN + " items that could not be backed up): ") + System.IO.Path.GetFileName(pkgDir);
+                            return T("备份不完整（标记里记着 " + failedN + " 项没能备份）：", "backup is incomplete (the marker records " + failedN + " items that could not be backed up): ") + System.IO.Path.GetFileName(pkgDir);
                     }
                 }
                 catch { }
