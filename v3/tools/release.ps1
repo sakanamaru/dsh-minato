@@ -410,6 +410,49 @@ function Invoke-Gate($g) {
 }
 
 # ============================================================================
+#  release 标题 / 正文占位 的**纯函数**（✗ 不碰远端 ✗ 可被 -SelfTest 直接测）
+#  动因（2026-10-21 · 发版后两次手工擦屁股 ⇒ 固化成自动步骤）：
+#   ① tag CI 建 draft release 时用占位标题「(draft - CI attaching assets)」，发版后标题一直是那句
+#      → 由 notes 的 H1 推导标题，在 provenance 注入成功后自动 gh release edit --title
+#   ② notes 文件自己那两行占位（commit=<待补> / tag-ci-run=<待补>）会留在正文里
+#      → 写 body 前**定向替换**这两行（✗ 不整篇重写 ✗），并断言残留「待补」== 0（非 0 就 FAIL 且不写正文）
+# ============================================================================
+function Get-ReleaseTitleFromNotes([string]$notesText) {
+    # 推导规则（照维护者手工口径 + **已发布标题的实测形态**）：
+    #   · 取**第一行 H1**（行首 `# `；notes 开头的 <p>/<img> 等 HTML 行跳过 ✓；`##` 不算）
+    #   · 去掉 `# `
+    #   · 去掉**尾部**的「— YYYY-MM-DD」（**锚定行尾**：日期后还有括号说明时不算尾部 ⇒ 保留）
+    #     —— 依据：线上 v3.1.0 / v3.2.0 的 release 名称里**日期都还在**（日期后面跟着「（…）」）
+    #   · 取不到 H1 → 返回 $null（✗ 不猜 ✗ 调用方保持原标题并明说）
+    if ([string]::IsNullOrEmpty($notesText)) { return $null }
+    $lines = $notesText -split "`r?`n"
+    foreach ($ln in $lines) {
+        $m = [regex]::Match($ln, '^#\s+(.+?)\s*$')
+        if (-not $m.Success) { continue }
+        $t = $m.Groups[1].Value.Trim()
+        if ($t.Length -eq 0) { continue }
+        $tail = [regex]::Match($t, '\s+[—–-]\s+\d{4}-\d{2}-\d{2}\s*$')
+        if ($tail.Success) { $t = $t.Substring(0, $tail.Index).Trim() }
+        if ($t.Length -eq 0) { return $null }
+        return $t
+    }
+    return $null
+}
+
+function Resolve-ReleasePlaceholders([string]$text, [string]$commitSha, [string]$runId) {
+    # 只做两处**定向替换**：其它字节一律不动（✗ 不整篇重写 ✗ 不丢 provenance 块 ✗）
+    if ([string]::IsNullOrEmpty($text)) { return $text }
+    $out = $text.Replace('commit=<待补>', ('commit=' + $commitSha))
+    $out = $out.Replace('tag-ci-run=<待补>', ('tag-ci-run=' + $runId))
+    return $out
+}
+
+function Get-PlaceholderCount([string]$text) {
+    if ([string]::IsNullOrEmpty($text)) { return 0 }
+    return ([regex]::Matches($text, '待补')).Count
+}
+
+# ============================================================================
 #  2. 自检（-SelfTest）—— 不碰远端；只验证本脚本的关键机制
 # ============================================================================
 function Invoke-SelfTest {
@@ -632,9 +675,88 @@ function Invoke-SelfTest {
     }
     Write-Host ("     | 解析样本 " + $samples.Count + " 条，失败 " + $parserBad + " 条")
 
+    Head "SelfTest ⑥ release 标题推导（纯函数 · 夹具 notes · 含「H1 缺失」这一支）"
+    # 动因（2026-10-21）：CI 建的 draft release 标题是「(draft - CI attaching assets)」，发版后一直留着 ⇒ 手工改。
+    # 这里用**夹具 notes 文本**回归推导规则（✗ 不碰远端 ✗ 不读网络）。
+    $titleCases = @(
+        [pscustomobject]@{ Name = '常规（HTML 开头 + H1；日期后还有括号 ⇒ 日期**不是尾部** ⇒ 保留，与线上 v3.1.0/v3.2.0 标题一致）'
+            Text = '<p align="center">' + "`r`n  " + '<img src="x">' + "`r`n" + '</p>' + "`r`n`r`n" + '# dsh-minato 3.2.0 — 2026-10-19（成本面板 / cost panel）' + "`r`n`r`n正文"
+            Expect = 'dsh-minato 3.2.0 — 2026-10-19（成本面板 / cost panel）' },
+        [pscustomobject]@{ Name = '日期在**行尾** ⇒ 去掉尾部「— YYYY-MM-DD」'
+            Text = '# dsh-minato 3.0.4 — 2026-10-05' + "`r`n"
+            Expect = 'dsh-minato 3.0.4' },
+        [pscustomobject]@{ Name = '没有日期 ⇒ 原样（只去 `# `）'
+            Text = '# dsh-minato 9.9.9（标题示例）' + "`r`n"
+            Expect = 'dsh-minato 9.9.9（标题示例）' },
+        [pscustomobject]@{ Name = 'H1 缺失（只有 HTML 与正文、`##` 不算 H1）⇒ 返回 null（✗ 不猜 ✗）'
+            Text = '<p align="center">' + "`r`n  " + '<img src="x">' + "`r`n" + '</p>' + "`r`n`r`n" + '正文第一行不是标题' + "`r`n" + '## 二级标题不算 H1' + "`r`n"
+            Expect = $null },
+        [pscustomobject]@{ Name = '空文本 ⇒ null'
+            Text = ''
+            Expect = $null }
+    )
+    $titleBad = 0
+    foreach ($tc in $titleCases) {
+        $got = Get-ReleaseTitleFromNotes $tc.Text
+        $ok = if ($null -eq $tc.Expect) { $null -eq $got } else { $got -ceq $tc.Expect }
+        if ($ok) {
+            ST-Ok ('标题：' + $tc.Name) ('→ ' + $(if ($null -eq $got) { '<null>' } else { '「' + $got + '」' }))
+        } else {
+            $titleBad++
+            ST-Fail ('标题：' + $tc.Name) ('期望 ' + $(if ($null -eq $tc.Expect) { '<null>' } else { '「' + $tc.Expect + '」' }) + '，实际 ' + $(if ($null -eq $got) { '<null>' } else { '「' + $got + '」' }))
+        }
+    }
+    # 真实文件对照（磁盘上的 UTF-8 无 BOM notes）：必须推出非空、且以「dsh-minato 3.1.0」开头
+    $realNotes = Join-Path $Repo 'docs\release-notes-v3.1.0.md'
+    if (Test-Path -LiteralPath $realNotes) {
+        $realTitle = Get-ReleaseTitleFromNotes ([System.IO.File]::ReadAllText($realNotes))
+        if ($null -ne $realTitle -and $realTitle.StartsWith('dsh-minato 3.1.0') -and $realTitle.IndexOf('# ') -ne 0) {
+            ST-Ok "标题：真实 notes 文件（v3.1.0）→ 推出非空且形态正确" ('「' + $realTitle + '」')
+        } else {
+            ST-Fail "标题：真实 notes 文件（v3.1.0）" ('推出 ' + $(if ($null -eq $realTitle) { '<null>' } else { '「' + $realTitle + '」' }))
+        }
+    } else {
+        ST-Ok "标题：真实 notes 文件（v3.1.0）不存在 ⇒ 跳过（本机仓库应有该文件；不影响上面 5 条夹具）" $realNotes
+    }
+    Write-Host ("     | 标题夹具 " + $titleCases.Count + " 条，失败 " + $titleBad + " 条")
+
+    Head "SelfTest ⑦ release 正文占位替换（commit=<待补> / tag-ci-run=<待补> ⇒ 真值；残留必须 0）"
+    # 动因（2026-10-21）：notes 文件自己那两行占位会跟着正文发出去 ⇒ 写 body 前定向替换 + 断言残留 0。
+    $fakeSha = '0123456789abcdef0123456789abcdef01234567'
+    $fakeRun = '4269000000'
+    $notesFixture = '# dsh-minato 9.9.9（夹具）' + "`n`n" + 'commit=<待补>' + "`n" + 'tag=v9.9.9' + "`n" + 'tag-ci-run=<待补>' + "`n`n" + '## 正文' + "`n" + '别动这些字节：<details> ✓ 中文 ✓' + "`n"
+    $provFixture = '<!-- dsh-minato provenance (auto-injected) -->' + "`n" + ('commit=' + $fakeSha) + "`n" + 'tag=v9.9.9' + "`n" + ('tag-ci-run=' + $fakeRun)
+    $before = Get-PlaceholderCount $notesFixture
+    $resolved = Resolve-ReleasePlaceholders $notesFixture $fakeSha $fakeRun
+    $after = Get-PlaceholderCount $resolved
+    if ($before -eq 2 -and $after -eq 0) { ST-Ok "占位：替换前 2 处 → 替换后 0 处" ('before=' + $before + ' after=' + $after) }
+    else { ST-Fail "占位：替换前 2 处 → 替换后 0 处" ('before=' + $before + ' after=' + $after) }
+    $expectResolved = $notesFixture.Replace('commit=<待补>', ('commit=' + $fakeSha)).Replace('tag-ci-run=<待补>', ('tag-ci-run=' + $fakeRun))
+    if ($resolved -ceq $expectResolved) { ST-Ok "占位：只动那两行 —— 其余字节**逐字未变**（定向替换 ✓ 不是整篇重写）" }
+    else { ST-Fail "占位：只动那两行" '替换结果与「按两行定向替换」的期望不一致' }
+    if ($resolved.Contains('commit=' + $fakeSha) -and $resolved.Contains('tag-ci-run=' + $fakeRun) -and $resolved.Contains('别动这些字节：<details> ✓ 中文 ✓')) {
+        ST-Ok "占位：真值确实落进正文（commit / tag-ci-run）+ 正文其余内容保留" ('commit=' + $fakeSha + ' · tag-ci-run=' + $fakeRun)
+    } else { ST-Fail "占位：真值确实落进正文 + 其余内容保留" '替换后缺真值或缺正文内容' }
+    $combined = $provFixture + "`n`n" + $notesFixture
+    $combinedOut = Resolve-ReleasePlaceholders $combined $fakeSha $fakeRun
+    if ((Get-PlaceholderCount $combinedOut) -eq 0) { ST-Ok "占位：provenance 块 + notes 组合体 → 残留 0（✗ 不丢 provenance 块 ✗）" '组合体 待补=0' }
+    else { ST-Fail "占位：组合体残留 0" ('残留 ' + (Get-PlaceholderCount $combinedOut) + ' 处') }
+    $cleanFixture = '# 已回填' + "`n" + ('commit=' + $fakeSha) + "`n" + ('tag-ci-run=' + $fakeRun) + "`n"
+    $cleanOut = Resolve-ReleasePlaceholders $cleanFixture 'x' 'y'
+    if ($cleanOut -ceq $cleanFixture -and (Get-PlaceholderCount $cleanOut) -eq 0) { ST-Ok "占位：本来就没有占位 ⇒ 一个字节都不动（幂等 ✓）" }
+    else { ST-Fail "占位：本来就没有占位 ⇒ 不动" '无占位时输出与原文字节不同' }
+    # 反例守卫：**故意把替换顺序漏一处**（只替换 commit）→ 残留必须 > 0（证明断言真的会红）
+    $missed = $notesFixture.Replace('commit=<待补>', ('commit=' + $fakeSha))
+    if ((Get-PlaceholderCount $missed) -gt 0) { ST-Ok "占位：反例守卫 —— 只替换一行时残留 > 0（断言不是永真 ✓）" ('残留 ' + (Get-PlaceholderCount $missed) + ' 处') }
+    else { ST-Fail "占位：反例守卫" '漏替换时残留仍为 0 ⇒ 断言是永真的，没用' }
+
     Head "SelfTest 汇总"
 
-    if ($script:SelfTestFail -eq 0) { Write-Host "== SelfTest：4 项全部通过 ==" } else { Write-Host ("== SelfTest：有 " + $script:SelfTestFail + " 项失败 ==") }
+    if ($script:SelfTestFail -eq 0) {
+        Write-Host ("== SelfTest：全部通过（" + $script:Ok + " 条断言 · 0 FAIL；共 " + $script:StepNo + " 步）==")
+    } else {
+        Write-Host ("== SelfTest：有 " + $script:SelfTestFail + " 条断言失败（共 " + $script:StepNo + " 步）==")
+    }
     return ($script:SelfTestFail -eq 0)
 }
 
@@ -772,6 +894,8 @@ if ($DryRun) {
     [void](Confirm-Mutation ("打 tag " + $tagName + " → " + $targetSha))
     [void](Confirm-Mutation ("push origin v3-linux / main / " + $tagName + "（带重试）"))
     [void](Confirm-Mutation ("读 docs\release-notes-" + $tagName + ".md，把 commit/tag/run id 注入 release body（只改 body）"))
+    [void](Confirm-Mutation ("清掉 notes 正文里的两行占位（commit=<待补> / tag-ci-run=<待补>），并断言残留「待补」== 0（✗ 不整篇重写 ✗）"))
+    [void](Confirm-Mutation ("从 notes 的 H1 推导标题 → gh release edit " + $tagName + " --title <标题>（只改标题，不改 body）"))
     Write-Host ("     | 计划的目标提交：" + $targetSha + "（全长）· tag：" + $tagName)
 }
 
@@ -857,6 +981,7 @@ Push-WithRetry @('origin', $tagName) ('origin ' + $tagName)
 Head "6. release body（commit / tag / CI run id 注入）"
 $notesFile = Join-Path $Repo ('docs\release-notes-' + $tagName + '.md')
 $runId = 'unavailable'
+$injected = $false   # ★ 提前初始化：-DryRun 时 body 块被 Confirm-Mutation 挡掉 ⇒ 标题那步要能判「release 还没建出来」
 $provenance = @(
     '<!-- dsh-minato provenance (auto-injected by v3/tools/release.ps1) -->',
     ('commit=' + $targetSha),
@@ -893,8 +1018,18 @@ if (-not (Test-Path -LiteralPath $notesFile)) {
                 ('tag-ci-run=' + $runId)
             )
             $bodyFile = Join-Path $env:TEMP ('dsht_release_body_' + $PID + '.md')
-            $body = ($provenance -join "`n") + "`n`n" + [System.IO.File]::ReadAllText($notesFile)
-            [System.IO.File]::WriteAllText($bodyFile, $body, (New-Object System.Text.UTF8Encoding($false)))
+            # ★ 2026-10-21 缺陷②：notes 自带的两行占位（commit=<待补> / tag-ci-run=<待补>）**就地**替换成真值
+            #   ✗ 不整篇重写 ✗ —— 只在原 body 上做定向替换，其余字节（含 provenance 块）一个不动
+            $notesText = [System.IO.File]::ReadAllText($notesFile)
+            $notesResolved = Resolve-ReleasePlaceholders $notesText $targetSha $runId
+            $body = ($provenance -join "`n") + "`n`n" + $notesResolved
+            $leftover = Get-PlaceholderCount $body
+            if ($leftover -ne 0) {
+                Fail "正文里无残留占位（待补 == 0）" ("残留 " + $leftover + " 处 ⇒ notes 里的 commit=<待补>/tag-ci-run=<待补> 没被替换；**不写正文**（✗ 不把占位发出去 ✗）")
+            } else {
+                Ok "正文里无残留占位（待补 == 0）" "notes 的两行占位已就地替换为真值（其余字节未动）"
+                [System.IO.File]::WriteAllText($bodyFile, $body, (New-Object System.Text.UTF8Encoding($false)))
+            }
     # ★ 2026-10-13：draft release 由 tag CI 在 push **之后**才建出来 → 轮询等待（最长 10 分钟），等不到就 SKIP 不 FAIL。
     $deadline = (Get-Date).AddMinutes(10)
     $injected = $false
@@ -913,6 +1048,21 @@ if ($injected) { Ok "release body 已注入来源块" ($provenance -join ' · ')
         }
     } else {
         Fail "gh 可用" "PATH 里没有 gh → 无法注入 body / 发布（不是编造，是不做）"
+    }
+    # ★ 2026-10-21 缺陷①：tag CI 建的 draft release 标题是占位「(draft - CI attaching assets)」，
+    #   注入成功后**自动**从 notes 的 H1 推导并设置标题（✗ 不再靠发版后手工改 ✗）。
+    #   H1 取不到 ⇒ 不猜，保持原标题并在输出里明说（Skip）。
+    if ($ghExe) {
+        $titleFromNotes = Get-ReleaseTitleFromNotes ([System.IO.File]::ReadAllText($notesFile))
+        if ($null -eq $titleFromNotes) {
+            Skip "release 标题自动设置" ("notes 里找不到 H1（行首 `# `）⇒ **保持原标题**（不猜）；需要时手动：gh release edit " + $tagName + " --title <标题>")
+        } elseif ((-not $injected) -and (-not $DryRun)) {
+            Skip "release 标题自动设置" ("release 尚未建出（body 注入未成功）⇒ 等 tag CI 建出后手动：gh release edit " + $tagName + " --title `"" + $titleFromNotes + "`"")
+        } elseif (Confirm-Mutation ("设置 " + $tagName + " 的 release 标题（只改标题，不改 body）⇒ " + $titleFromNotes)) {
+            $rt = Invoke-Rc $ghExe @('release', 'edit', $tagName, '--repo', 'sakanamaru/dsh-minato', '--title', $titleFromNotes)
+            if ($rt.Rc -eq 0) { Ok "release 标题已设置（从 notes H1 推导）" $titleFromNotes }
+            else { Fail "release 标题已设置" ("gh rc=" + $rt.Rc + " · " + $rt.Out + " · 手动：gh release edit " + $tagName + " --title `"" + $titleFromNotes + "`"") }
+        }
     }
 }
 
