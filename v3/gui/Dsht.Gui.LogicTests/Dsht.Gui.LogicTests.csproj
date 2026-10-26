@@ -17,6 +17,11 @@
   <ItemGroup>
     <Compile Include="Program.cs" />
     <Compile Include="..\Dsht.Gui.Avalonia\Markers\*.cs" />
+    <!-- ★ 2026-10-26 视觉规范化：设计 token 表**只有一份**（Design/DesignTokens.cs）——
+         它刻意不含任何 Avalonia 类型（纯 string/double/int + 自带色math）⇒ 本工程能直接编译它，
+         于是"5 语义色 × 明暗两套都在 / 间距是 4 的倍数 / 字号 ≤3 档 / 动效 ≤200ms / 状态灯对比度"
+         这些断言能在**无图形环境**里直接读真值 ✓（✗ 不靠正则去猜源码 ✗ 源码扫描只用于"散落 hex"）。 -->
+    <Compile Include="..\Dsht.Gui.Avalonia\Design\DesignTokens.cs" Link="DesignTokens.cs" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="..\..\src\Dsht.Domain\Services\MarkerText.cs" Link="MarkerText.cs" />

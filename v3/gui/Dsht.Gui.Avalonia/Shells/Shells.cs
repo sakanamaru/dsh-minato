@@ -627,7 +627,7 @@ namespace Dsht.Gui.Avalonia.Shells
                 HorizontalContentAlignment = global::Avalonia.Layout.HorizontalAlignment.Center,
                 Margin = new Thickness(6, 0, 0, 0)
             };
-            TextBlock depT = (TextBlock)dep.Content; depT.FontSize = 11.5; depT.Foreground = Palette.Text;
+            TextBlock depT = (TextBlock)dep.Content; depT.FontSize = ShapeTokens.FsFoot; depT.Foreground = Palette.Text;
             dep.Click += delegate { host.DeployForMode(); };
             if (host.ActionBusy) { dep.IsEnabled = false; dep.Opacity = 0.55; }   // ★ 有动作在跑 → 别再引诱人点（2026-10-04 ✓）
             s.Children.Add(dep);
@@ -708,7 +708,7 @@ namespace Dsht.Gui.Avalonia.Shells
         private static Control MainMenuInner(MainWindow host)
         {
             StackPanel s = new StackPanel { Margin = new Thickness(12, 16, 12, 12), Spacing = 2 };
-            s.Children.Add(new TextBlock { Text = "导航", Foreground = Palette.TextFaint, FontSize = 11, Margin = new Thickness(12, 0, 0, 8) });
+            s.Children.Add(new TextBlock { Text = "导航", Foreground = Palette.TextFaint, FontSize = ShapeTokens.FsFoot, Margin = new Thickness(12, 0, 0, 8) });
             for (int i = 0; i < MainWindow.NavItems.Length; i++) s.Children.Add(NavItem(host, i));
             return s;
         }
@@ -726,7 +726,7 @@ namespace Dsht.Gui.Avalonia.Shells
             // ★ 看板体验修复（2026-10-11 ✓✓）：副标题（含「图表 = 当前窗口 · 按日分桶」随标签切换的那句）
             //   走 LiveText 原地换 ✓ 不再依赖整页重建 ✓（取值函数 ✗ 不是快照 ✓ 样式与原来逐项对齐 ✓）
             TextBlock sub = host.LiveText(StripMd(host.SubtitleText), delegate { return StripMd(host.SubtitleText); });
-            sub.Foreground = Palette.TextDim; sub.FontSize = 12.5; sub.TextWrapping = TextWrapping.Wrap;
+            sub.Foreground = Palette.TextDim; sub.FontSize = ShapeTokens.FsBody; sub.TextWrapping = TextWrapping.Wrap;
             s.Children.Add(sub);
             g.Children.Add(s);
             // 提案A：概览/看板页的「自动刷新」收进页眉行右侧 ✓（内容流不再被它占一整行 ✓）
@@ -745,7 +745,7 @@ namespace Dsht.Gui.Avalonia.Shells
             // ★ 版本显示（2026-10-11）：页脚这一行现在**长**了（数据来源 + 投影目录 + 工具箱版本 + 桥接插件版本 + 纪律）
             //   → 换行照旧 ✓（TextWrapping.Wrap ✓ 容器宽度就是窗口宽度 ✓ 长文案换行不截断 ✓）
             //   → 并注册成**字段级刷新** ✓：版本是后台补的（启动时 CLI 还不在的情形）✓ 到了原地换字 ✗ 不整页重建 ✓
-            TextBlock ft = new TextBlock { Text = host.SourceText, Foreground = Palette.TextFaint, FontSize = 11, TextWrapping = TextWrapping.Wrap };
+            TextBlock ft = new TextBlock { Text = host.SourceText, Foreground = Palette.TextFaint, FontSize = ShapeTokens.FsFoot, TextWrapping = TextWrapping.Wrap };
             host.Live(delegate { ft.Text = host.SourceText; });
             return new Border
             {
@@ -782,7 +782,7 @@ namespace Dsht.Gui.Avalonia.Shells
                 TextWrapping = TextWrapping.NoWrap,
                 Text = host.RawOutput,
                 FontFamily = MonoFont,
-                FontSize = 11.5,
+                FontSize = ShapeTokens.FsFoot,
                 Foreground = Palette.TextDim,
                 Background = Brushes.Transparent,
                 BorderThickness = new Thickness(0)
@@ -838,7 +838,7 @@ namespace Dsht.Gui.Avalonia.Shells
             catch { }
             global::Avalonia.Controls.TextBlock name = new global::Avalonia.Controls.TextBlock();
             name.Text = "dsh-minato";
-            name.FontSize = 20;
+            name.FontSize = ShapeTokens.FsPage;
             name.FontWeight = global::Avalonia.Media.FontWeight.SemiBold;
             name.HorizontalAlignment = global::Avalonia.Layout.HorizontalAlignment.Center;
             sp.Children.Add(name);
@@ -936,7 +936,7 @@ namespace Dsht.Gui.Avalonia.Shells
                 Grid.SetColumn(et, 1);
                 eh.Children.Add(wic); eh.Children.Add(et);
                 err.Children.Add(eh);
-                err.Children.Add(new TextBlock { Text = msg, Foreground = Palette.TextDim, FontSize = 12, TextWrapping = TextWrapping.Wrap });
+                err.Children.Add(new TextBlock { Text = msg, Foreground = Palette.TextDim, FontSize = ShapeTokens.FsBody, TextWrapping = TextWrapping.Wrap });
                 s.Children.Add(Card(err, new Thickness(0), new Thickness(18, 16)));
                 return s;
             }
@@ -949,7 +949,7 @@ namespace Dsht.Gui.Avalonia.Shells
             else listCtl = SessionList(host, host.SubTab);
             s.Children.Add(KpiStrip(host));
             s.Children.Add(Toolbar(host));
-            s.Children.Add(new TextBlock { Text = host.FocusText, Foreground = Palette.TextDim, FontSize = 12, TextWrapping = TextWrapping.Wrap });
+            s.Children.Add(new TextBlock { Text = host.FocusText, Foreground = Palette.TextDim, FontSize = ShapeTokens.FsBody, TextWrapping = TextWrapping.Wrap });
             // 三视图 ✓：0=整体（全部，子代理随后归类进父会话）1=父会话 2=子代理 3=统计 ✓
             s.Children.Add(listCtl);
             s.Children.Add(Explain());

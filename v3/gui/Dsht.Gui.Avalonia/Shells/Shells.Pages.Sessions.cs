@@ -339,15 +339,15 @@ namespace Dsht.Gui.Avalonia.Shells
 
             StackPanel mid = new StackPanel { VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0) };
 
-            mid.Children.Add(new TextBlock { Text = vm.TitleText, Foreground = Palette.Text, FontSize = 13.5, FontWeight = FontWeight.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis });
+            mid.Children.Add(new TextBlock { Text = vm.TitleText, Foreground = Palette.Text, FontSize = ShapeTokens.FsEm, FontWeight = FontWeight.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis });
 
-            mid.Children.Add(new TextBlock { Text = vm.ShortId + " · " + vm.MetaText, Foreground = Palette.TextDim, FontSize = 11.5, Margin = new Thickness(0, 2, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis });
+            mid.Children.Add(new TextBlock { Text = vm.ShortId + " · " + vm.MetaText, Foreground = Palette.TextDim, FontSize = ShapeTokens.FsFoot, Margin = new Thickness(0, 2, 0, 0), TextTrimming = TextTrimming.CharacterEllipsis });
 
-            mid.Children.Add(new TextBlock { Text = vm.DecodeLine, Foreground = Palette.TextFaint, FontSize = 11, Margin = new Thickness(0, 2, 0, 0) });
+            mid.Children.Add(new TextBlock { Text = vm.DecodeLine, Foreground = Palette.TextFaint, FontSize = ShapeTokens.FsFoot, Margin = new Thickness(0, 2, 0, 0) });
 
             // 「含子代理」小字行（第三批 · 2026-10-09 ✓✓ 规格 §11.7-E-3 ✓✓）：仅该会话有 sub 行时显示 ✓ 文案唯一出处 SubLineText ✓
             if (vm.SubLine != null && vm.SubLine.Length > 0)
-                mid.Children.Add(new TextBlock { Text = vm.SubLine, Foreground = Palette.TextFaint, FontSize = 11, Margin = new Thickness(0, 2, 0, 0) });
+                mid.Children.Add(new TextBlock { Text = vm.SubLine, Foreground = Palette.TextFaint, FontSize = ShapeTokens.FsFoot, Margin = new Thickness(0, 2, 0, 0) });
 
             Grid.SetColumn(mid, 1);
 
@@ -411,23 +411,23 @@ namespace Dsht.Gui.Avalonia.Shells
 
             Grid.SetColumn(id, 0);
 
-            TextBlock title = new TextBlock { Text = vm.TitleText, FontSize = 12, Foreground = Palette.Text, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
+            TextBlock title = new TextBlock { Text = vm.TitleText, FontSize = ShapeTokens.FsBody, Foreground = Palette.Text, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
 
             Grid.SetColumn(title, 1);
 
-            TextBlock turns = new TextBlock { Text = vm.MetaText, FontSize = 11, Foreground = Palette.TextDim, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
+            TextBlock turns = new TextBlock { Text = vm.MetaText, FontSize = ShapeTokens.FsFoot, Foreground = Palette.TextDim, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
 
             Grid.SetColumn(turns, 2);
 
-            TextBlock tin = new TextBlock { Text = vm.InText, FontSize = 12, Foreground = Palette.Text, VerticalAlignment = VerticalAlignment.Center };
+            TextBlock tin = new TextBlock { Text = vm.InText, FontSize = ShapeTokens.FsBody, Foreground = Palette.Text, VerticalAlignment = VerticalAlignment.Center };
 
             Grid.SetColumn(tin, 3);
 
-            TextBlock hit = new TextBlock { Text = vm.HitText, FontSize = 12, Foreground = vm.HitBrush, VerticalAlignment = VerticalAlignment.Center };
+            TextBlock hit = new TextBlock { Text = vm.HitText, FontSize = ShapeTokens.FsBody, Foreground = vm.HitBrush, VerticalAlignment = VerticalAlignment.Center };
 
             Grid.SetColumn(hit, 4);
 
-            TextBlock dec = new TextBlock { Text = vm.DecodeText, FontSize = 12, Foreground = Palette.TextDim, VerticalAlignment = VerticalAlignment.Center };
+            TextBlock dec = new TextBlock { Text = vm.DecodeText, FontSize = ShapeTokens.FsBody, Foreground = Palette.TextDim, VerticalAlignment = VerticalAlignment.Center };
 
             Grid.SetColumn(dec, 5);
 
@@ -467,7 +467,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             Grid.SetColumn(dot, 0);
 
-            TextBlock title = new TextBlock { Text = vm.TitleText, FontSize = 13.5, FontWeight = FontWeight.SemiBold, Foreground = Palette.Text, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
+            TextBlock title = new TextBlock { Text = vm.TitleText, FontSize = ShapeTokens.FsEm, FontWeight = FontWeight.SemiBold, Foreground = Palette.Text, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
 
             Grid.SetColumn(title, 1);
 
@@ -481,7 +481,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             s.Children.Add(head);
 
-            s.Children.Add(new TextBlock { Text = vm.ShortId + " · " + vm.MetaText + " · " + vm.DecodeLine, FontSize = 11, Foreground = Palette.TextFaint, TextTrimming = TextTrimming.CharacterEllipsis });
+            s.Children.Add(new TextBlock { Text = vm.ShortId + " · " + vm.MetaText + " · " + vm.DecodeLine, FontSize = ShapeTokens.FsFoot, Foreground = Palette.TextFaint, TextTrimming = TextTrimming.CharacterEllipsis });
 
             s.Children.Add(DashMeter("输入 token", vm.InText, vm.TokenBar, vm.TokenBrush));
 
@@ -567,7 +567,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 Grid.SetColumn(dot, 0);
 
-                TextBlock title = new TextBlock { Text = vm.TitleText, FontSize = 12.5, Foreground = Palette.Text, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
+                TextBlock title = new TextBlock { Text = vm.TitleText, FontSize = ShapeTokens.FsBody, Foreground = Palette.Text, TextTrimming = TextTrimming.CharacterEllipsis, VerticalAlignment = VerticalAlignment.Center };
 
                 Grid.SetColumn(title, 1);
 
@@ -575,7 +575,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 s.Children.Add(row);
 
-                s.Children.Add(new TextBlock { Text = vm.ShortId + " · " + vm.HitText + " 命中", FontSize = 11, Foreground = Palette.TextDim, Margin = new Thickness(16, 0, 0, 0) });
+                s.Children.Add(new TextBlock { Text = vm.ShortId + " · " + vm.HitText + " 命中", FontSize = ShapeTokens.FsFoot, Foreground = Palette.TextDim, Margin = new Thickness(16, 0, 0, 0) });
 
                 return s;
 
@@ -729,7 +729,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
         {
 
-            return new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap, Foreground = Palette.TextDim, FontSize = 12 };
+            return new TextBlock { Text = text, TextWrapping = TextWrapping.Wrap, Foreground = Palette.TextDim, FontSize = ShapeTokens.FsBody };
 
         }
 

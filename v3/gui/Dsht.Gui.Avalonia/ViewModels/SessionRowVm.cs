@@ -1,6 +1,7 @@
 using System;
 using Avalonia.Media;
 using Dsht.Gui.Avalonia.Markers;
+using Dsht.Gui.Avalonia.Design;
 
 namespace Dsht.Gui.Avalonia.ViewModels
 {
@@ -31,160 +32,69 @@ namespace Dsht.Gui.Avalonia.ViewModels
         public static IBrush Border = Brushes.Transparent;      // 发丝线
         public static IBrush BorderStrong = Brushes.Transparent;
 
-        // —— 文字层级 ——
+        // —— 文字层级（三档：主 / 次 / 弱 ✓ 色阶来自 token 表 ✓ 不是透明度随手调 ✓）——
         public static IBrush Text = Brushes.Transparent;        // 主文字
         public static IBrush TextDim = Brushes.Transparent;     // 次要
         public static IBrush TextFaint = Brushes.Transparent;   // 提示/占位
 
-        // —— 语义色（四风格通用，只在 Apply 里微调深浅）——
-        public static IBrush Good = new SolidColorBrush(Color.Parse("#16A34A"));
-        public static IBrush Warn = new SolidColorBrush(Color.Parse("#B45309"));
-        public static IBrush Bad = new SolidColorBrush(Color.Parse("#DC2626"));
-        public static IBrush Idle = new SolidColorBrush(Color.Parse("#8A919C"));
-        public static IBrush Muted = new SolidColorBrush(Color.Parse("#C9CDD4"));
-        public static IBrush GoodSoft = new SolidColorBrush(Color.Parse("#E2F4E8"));
-        public static IBrush WarnSoft = new SolidColorBrush(Color.Parse("#FBEFD8"));
-        public static IBrush BadSoft = new SolidColorBrush(Color.Parse("#FAE3E3"));
+        // —— 语义色（占位；真值由 Apply 从 token 表灌入 ✗ 这里不许写死色值 ✗）——
+        public static IBrush Good = Brushes.Transparent;
+        public static IBrush Warn = Brushes.Transparent;
+        public static IBrush Bad = Brushes.Transparent;
+        public static IBrush Idle = Brushes.Transparent;
+        public static IBrush Muted = Brushes.Transparent;
+        public static IBrush GoodSoft = Brushes.Transparent;
+        public static IBrush WarnSoft = Brushes.Transparent;
+        public static IBrush BadSoft = Brushes.Transparent;
 
         public static IBrush BarTrack = Brushes.Transparent;
-        public static IBrush FormAcp = new SolidColorBrush(Color.Parse("#7C5CFC"));
+        public static IBrush FormAcp = Brushes.Transparent;
 
         /// <summary>卡片投影（BoxShadows.Parse 格式）；深色风格为空串 = 不投影（靠描边分层）。</summary>
         public static string CardShadow = "";
 
         static Palette() { Apply(0); }
 
+        /// <summary>按风格把 <see cref="DesignTokens"/> 的取值灌成画刷（全界面唯一的取色入口 ✓）。
+        /// ✗ 本方法里不许出现任何色值字面量 ✗ —— 要改颜色 ⇒ 改 token 表 ✓（有源码扫描断言 ✓）。</summary>
         public static void Apply(int kind)
         {
-            StyleKind = kind;
-            Dark = kind == 1 || kind == 2;
-            Compact = kind == 2;
+            StyleKind = DesignTokens.Clamp(kind);
+            DesignTokens.StyleSet s = DesignTokens.Style(StyleKind);
+            Dark = s.Mode == DesignTokens.Mode.Dark;
+            Compact = StyleKind == 2;
 
-            if (kind == 2)
-            {
-                // C · 深色紧凑：密度优先的控制台，青色 accent（样式重构：#2DD4BF 略降饱和 → 不那么霓虹）
-                Accent = new SolidColorBrush(Color.Parse("#2CC9B5"));
-                AccentHover = new SolidColorBrush(Color.Parse("#4BD4C2"));
-                AccentSoft = new SolidColorBrush(Color.Parse("#143B37"));
-                OnAccent = new SolidColorBrush(Color.Parse("#052622"));
-                PageBg = new SolidColorBrush(Color.Parse("#0A0C0E"));
-                SidebarBg = new SolidColorBrush(Color.Parse("#0C0F12"));
-                CardBg = new SolidColorBrush(Color.Parse("#0F1318"));
-                CardHover = new SolidColorBrush(Color.Parse("#151B22"));
-                InsetBg = new SolidColorBrush(Color.Parse("#08090B"));
-                Border = new SolidColorBrush(Color.Parse("#1F262E"));
-                BorderStrong = new SolidColorBrush(Color.Parse("#2C3540"));
-                Text = new SolidColorBrush(Color.Parse("#D9DFE8"));
-                TextDim = new SolidColorBrush(Color.Parse("#93A0AE"));
-                TextFaint = new SolidColorBrush(Color.Parse("#5F6B78"));
-                Good = new SolidColorBrush(Color.Parse("#4ADE80"));
-                Warn = new SolidColorBrush(Color.Parse("#F2C14E"));
-                Bad = new SolidColorBrush(Color.Parse("#F2707C"));
-                Idle = new SolidColorBrush(Color.Parse("#5F6B78"));
-                Muted = new SolidColorBrush(Color.Parse("#3E4854"));
-                GoodSoft = new SolidColorBrush(Color.Parse("#133327"));
-                WarnSoft = new SolidColorBrush(Color.Parse("#38300F"));
-                BadSoft = new SolidColorBrush(Color.Parse("#3B1A1E"));
-                BarTrack = new SolidColorBrush(Color.Parse("#1C232B"));
-                FormAcp = new SolidColorBrush(Color.Parse("#A78BFA"));
-                CardShadow = "";
-            }
-            else if (kind == 1)
-            {
-                // B · 深色卡片：石墨底 + 亮靛蓝 accent
-                Accent = new SolidColorBrush(Color.Parse("#7C8DFF"));
-                AccentHover = new SolidColorBrush(Color.Parse("#97A4FF"));
-                AccentSoft = new SolidColorBrush(Color.Parse("#2A3558"));
-                OnAccent = Brushes.White;
-                PageBg = new SolidColorBrush(Color.Parse("#0E1013"));
-                SidebarBg = new SolidColorBrush(Color.Parse("#12151A"));
-                CardBg = new SolidColorBrush(Color.Parse("#161A20"));
-                CardHover = new SolidColorBrush(Color.Parse("#1C222B"));
-                InsetBg = new SolidColorBrush(Color.Parse("#0B0D10"));
-                Border = new SolidColorBrush(Color.Parse("#262C37"));
-                BorderStrong = new SolidColorBrush(Color.Parse("#343D4B"));
-                Text = new SolidColorBrush(Color.Parse("#E8EAF0"));
-                TextDim = new SolidColorBrush(Color.Parse("#A6ADBB"));
-                TextFaint = new SolidColorBrush(Color.Parse("#7E8798"));   // 样式重构：原 #9AA3B2 与 TextDim 仅 ~5% 明度差 ✗ 层级拉不开 → 压暗 ✓
-                Good = new SolidColorBrush(Color.Parse("#3FB97F"));
-                Warn = new SolidColorBrush(Color.Parse("#F0B35E"));
-                Bad = new SolidColorBrush(Color.Parse("#EF6A6A"));
-                Idle = new SolidColorBrush(Color.Parse("#9AA3B2"));
-                Muted = new SolidColorBrush(Color.Parse("#46505E"));
-                GoodSoft = new SolidColorBrush(Color.Parse("#17352A"));
-                WarnSoft = new SolidColorBrush(Color.Parse("#3A2E18"));
-                BadSoft = new SolidColorBrush(Color.Parse("#3D1F1F"));
-                BarTrack = new SolidColorBrush(Color.Parse("#232A35"));
-                FormAcp = new SolidColorBrush(Color.Parse("#9D8CFF"));
-                CardShadow = "";
-            }
-            else if (kind == 3)
-            {
-                // D · 浅色仪表盘：更冷的蓝灰底，把可视化放大
-                Accent = new SolidColorBrush(Color.Parse("#2F6BFF"));
-                AccentHover = new SolidColorBrush(Color.Parse("#2059DB"));
-                AccentSoft = new SolidColorBrush(Color.Parse("#E4ECFF"));
-                OnAccent = Brushes.White;
-                PageBg = new SolidColorBrush(Color.Parse("#EEF2F9"));
-                SidebarBg = new SolidColorBrush(Color.Parse("#F7F9FC"));
-                CardBg = Brushes.White;
-                CardHover = new SolidColorBrush(Color.Parse("#F4F7FC"));
-                InsetBg = new SolidColorBrush(Color.Parse("#E8EEF7"));
-                Border = new SolidColorBrush(Color.Parse("#E2E7F0"));
-                BorderStrong = new SolidColorBrush(Color.Parse("#D0D8E4"));
-                Text = new SolidColorBrush(Color.Parse("#131C2B"));
-                TextDim = new SolidColorBrush(Color.Parse("#55617A"));
-                TextFaint = new SolidColorBrush(Color.Parse("#6B7280"));
-                Good = new SolidColorBrush(Color.Parse("#0EA36B"));
-                Warn = new SolidColorBrush(Color.Parse("#B45309"));
-                Bad = new SolidColorBrush(Color.Parse("#E5484D"));
-                Idle = new SolidColorBrush(Color.Parse("#6B7280"));
-                Muted = new SolidColorBrush(Color.Parse("#CBD3DF"));
-                GoodSoft = new SolidColorBrush(Color.Parse("#DFF2E9"));
-                WarnSoft = new SolidColorBrush(Color.Parse("#FBEFD5"));
-                BadSoft = new SolidColorBrush(Color.Parse("#FBE5E5"));
-                BarTrack = new SolidColorBrush(Color.Parse("#E6EBF3"));
-                FormAcp = new SolidColorBrush(Color.Parse("#8B5CF6"));
-                CardShadow = "0 1 3 0 #1B2A4A10";   // 样式重构：更轻更柔的发丝投影
-            }
-            else
-            {
-                // A · 浅色卡片（默认）：暖灰底 + 品牌蓝
-                Accent = new SolidColorBrush(Color.Parse("#4D6BFE"));
-                AccentHover = new SolidColorBrush(Color.Parse("#3B57E8"));
-                AccentSoft = new SolidColorBrush(Color.Parse("#E9EEFF"));
-                OnAccent = Brushes.White;
-                PageBg = new SolidColorBrush(Color.Parse("#F5F6F8"));
-                SidebarBg = new SolidColorBrush(Color.Parse("#FCFCFD"));
-                CardBg = Brushes.White;
-                CardHover = new SolidColorBrush(Color.Parse("#F6F7FA"));
-                InsetBg = new SolidColorBrush(Color.Parse("#EFF1F5"));
-                Border = new SolidColorBrush(Color.Parse("#E5E7EB"));
-                BorderStrong = new SolidColorBrush(Color.Parse("#D6D9E0"));
-                Text = new SolidColorBrush(Color.Parse("#151A23"));
-                TextDim = new SolidColorBrush(Color.Parse("#5B6270"));
-                TextFaint = new SolidColorBrush(Color.Parse("#6B7280"));
-                Good = new SolidColorBrush(Color.Parse("#16A34A"));
-                Warn = new SolidColorBrush(Color.Parse("#B45309"));
-                Bad = new SolidColorBrush(Color.Parse("#DC2626"));
-                Idle = new SolidColorBrush(Color.Parse("#8A919C"));
-                Muted = new SolidColorBrush(Color.Parse("#C9CDD4"));
-                GoodSoft = new SolidColorBrush(Color.Parse("#E2F4E8"));
-                WarnSoft = new SolidColorBrush(Color.Parse("#FBEFD8"));
-                BadSoft = new SolidColorBrush(Color.Parse("#FAE3E3"));
-                BarTrack = new SolidColorBrush(Color.Parse("#ECEEF2"));
-                FormAcp = new SolidColorBrush(Color.Parse("#7C5CFC"));
-                CardShadow = "0 1 3 0 #10182810";   // 样式重构：更轻更柔的发丝投影
-            }
+            Accent = B(s.Accent);
+            AccentHover = B(s.AccentHover);
+            AccentSoft = B(s.AccentSoft);
+            OnAccent = B(s.OnAccent);
+            PageBg = B(s.PageBg);
+            SidebarBg = B(s.SidebarBg);
+            CardBg = B(s.CardBg);
+            CardHover = B(s.CardHover);
+            InsetBg = B(s.InsetBg);
+            Border = B(s.Border);
+            BorderStrong = B(s.BorderStrong);
+            Text = B(s.Text);
+            TextDim = B(s.TextDim);
+            TextFaint = B(s.TextFaint);
+            Good = B(s.Normal);
+            Warn = B(s.Attention);
+            Bad = B(s.Abnormal);
+            Idle = B(s.Unknown);
+            Muted = B(s.Muted);
+            GoodSoft = B(s.NormalSoft);
+            WarnSoft = B(s.AttentionSoft);
+            BadSoft = B(s.AbnormalSoft);
+            BarTrack = B(s.BarTrack);
+            FormAcp = B(s.FormAcp);
+            CardShadow = s.CardShadow;
         }
 
-        public static string StyleName(int kind)
-        {
-            if (kind == 1) return "B · 深色卡片";
-            if (kind == 2) return "C · 深色紧凑";
-            if (kind == 3) return "D · 浅色仪表盘";
-            return "A · 浅色卡片";
-        }
+        /// <summary>`#RRGGBB` / `#RRGGBBAA` → 画刷（token 表 → 界面 的**唯一**转换点 ✓）。</summary>
+        private static IBrush B(string hex) { return new SolidColorBrush(Color.Parse(hex)); }
+
+        public static string StyleName(int kind) { return DesignTokens.Style(kind).Name; }
 
         public static IBrush HitBrush(int level) { return level >= 3 ? Good : (level == 2 ? Warn : (level == 1 ? Bad : Muted)); }
         public static IBrush CtxBrush(int level) { return level == 1 ? Good : (level == 2 ? Warn : (level >= 3 ? Bad : Muted)); }

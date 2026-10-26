@@ -26,7 +26,7 @@ namespace Dsht.Gui.Avalonia
             s.Children.Add(new TextBlock
             {
                 Text = message,
-                FontSize = 13,
+                FontSize = ShapeTokens.FsEm,
                 Foreground = Palette.Text,
                 TextWrapping = TextWrapping.Wrap
             });

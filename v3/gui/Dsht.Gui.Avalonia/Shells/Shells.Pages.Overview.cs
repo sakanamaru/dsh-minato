@@ -236,7 +236,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             Grid.SetColumn(tile, 0);
 
-            TextBlock label = new TextBlock { Text = title, Foreground = Palette.TextDim, FontSize = 11.5, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0) };
+            TextBlock label = new TextBlock { Text = title, Foreground = Palette.TextDim, FontSize = ShapeTokens.FsFoot, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(10, 0, 0, 0) };
 
             Grid.SetColumn(label, 1);
 
@@ -244,9 +244,9 @@ namespace Dsht.Gui.Avalonia.Shells
 
             s.Children.Add(head);
 
-            s.Children.Add(new TextBlock { Text = value, FontSize = 22, FontWeight = FontWeight.SemiBold, Foreground = valueBrush, Margin = new Thickness(0, 8, 0, 0) });
+            s.Children.Add(new TextBlock { Text = value, FontSize = ShapeTokens.FsStat, FontWeight = FontWeight.SemiBold, Foreground = valueBrush, Margin = new Thickness(0, 8, 0, 0) });
 
-            s.Children.Add(new TextBlock { Text = sub, Foreground = Palette.TextFaint, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0) });
+            s.Children.Add(new TextBlock { Text = sub, Foreground = Palette.TextFaint, FontSize = ShapeTokens.FsFoot, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0) });
 
             if (barPercent >= 0)
 
@@ -282,7 +282,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             TextBlock label = host.LiveText(title(), title);
 
-            label.Foreground = Palette.TextDim; label.FontSize = 11.5; label.TextWrapping = TextWrapping.Wrap;
+            label.Foreground = Palette.TextDim; label.FontSize = ShapeTokens.FsFoot; label.TextWrapping = TextWrapping.Wrap;
 
             label.VerticalAlignment = VerticalAlignment.Center; label.Margin = new Thickness(10, 0, 0, 0);
 
@@ -294,13 +294,13 @@ namespace Dsht.Gui.Avalonia.Shells
 
             TextBlock v = host.LiveText(value(), value);
 
-            v.FontSize = 22;   // 美学B4：与 StatCard 统一为 22 ✓ v.FontWeight = FontWeight.SemiBold; v.Foreground = valueBrush; v.Margin = new Thickness(0, 5, 0, 0);   // ★ 体验修复：8→5（一屏 ✓）
+            v.FontSize = ShapeTokens.FsStat;   // 美学B4：与 StatCard 统一为 22 ✓ v.FontWeight = FontWeight.SemiBold; v.Foreground = valueBrush; v.Margin = new Thickness(0, 5, 0, 0);   // ★ 体验修复：8→5（一屏 ✓）
 
             s.Children.Add(v);
 
             TextBlock sb = host.LiveText(sub(), sub);
 
-            sb.Foreground = Palette.TextFaint; sb.FontSize = 11; sb.TextWrapping = TextWrapping.Wrap; sb.Margin = new Thickness(0, 2, 0, 0);
+            sb.Foreground = Palette.TextFaint; sb.FontSize = ShapeTokens.FsFoot; sb.TextWrapping = TextWrapping.Wrap; sb.Margin = new Thickness(0, 2, 0, 0);
 
             s.Children.Add(sb);
 
@@ -567,7 +567,7 @@ namespace Dsht.Gui.Avalonia.Shells
             Grid.SetColumn(title, 0);
             head.Children.Add(title);
             TextBlock tag = host.LiveText(GaugeTagText(host), delegate { return GaugeTagText(host); });
-            tag.FontSize = 11.5; tag.Foreground = Palette.TextFaint;
+            tag.FontSize = ShapeTokens.FsFoot; tag.Foreground = Palette.TextFaint;
             tag.VerticalAlignment = VerticalAlignment.Center; tag.HorizontalAlignment = HorizontalAlignment.Right;
             Grid.SetColumn(tag, 2);
             head.Children.Add(tag);
@@ -575,7 +575,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             // 超限提示条（仅真超限 ✓ 只提示 ✗ 不阻止 ✓ 与成本卡共用同一文案函数 ✓）
             TextBlock over = host.LiveText(CostMarkers.OverBudgetText(host.Cost), delegate { return CostMarkers.OverBudgetText(host.Cost); });
-            over.FontSize = 12; over.Foreground = Palette.Bad; over.TextWrapping = TextWrapping.Wrap;
+            over.FontSize = ShapeTokens.FsBody; over.Foreground = Palette.Bad; over.TextWrapping = TextWrapping.Wrap;
             Border overBar = new Border
             {
                 Background = Palette.BadSoft,
@@ -653,7 +653,7 @@ namespace Dsht.Gui.Avalonia.Shells
         {
             StackPanel col = new StackPanel { Spacing = 4 };
             TextBlock label = host.LiveText(MoreLabel(host.BoardMoreOpen), delegate { return MoreLabel(host.BoardMoreOpen); });
-            label.FontSize = 11.5; label.Foreground = Palette.Accent;
+            label.FontSize = ShapeTokens.FsFoot; label.Foreground = Palette.Accent;
             Button b = new Button
             {
                 Content = label,
@@ -875,7 +875,7 @@ namespace Dsht.Gui.Avalonia.Shells
         private static Control ReceiptStrip(MainWindow host)
         {
             TextBlock tb = host.LiveText(ReceiptText(host.ActionLog), delegate { return ReceiptText(host.ActionLog); });
-            tb.FontSize = 11.5; tb.Foreground = Palette.TextDim;
+            tb.FontSize = ShapeTokens.FsFoot; tb.Foreground = Palette.TextDim;
             return new Border
             {
                 Background = Palette.CardHover,
@@ -1017,7 +1017,7 @@ namespace Dsht.Gui.Avalonia.Shells
             TextBlock ft = host.LiveText(
                 SessionsMarkers.ForkDiffText(bd0 != null ? bd0.ForkSessions : -1),
                 delegate { SessionsSnapshot dd = host.Data; return SessionsMarkers.ForkDiffText(dd != null ? dd.ForkSessions : -1); });
-            ft.FontSize = 11.5; ft.Foreground = Palette.TextDim;
+            ft.FontSize = ShapeTokens.FsFoot; ft.Foreground = Palette.TextDim;
             ft.TextWrapping = TextWrapping.Wrap;   // ✗ 不再设 Width/MaxWidth ✓（宽度由「筛选条这一列的页面宽度」决定 ✓✓）
             fc.Children.Add(ft);
             Border help = Card(fc, new Thickness(0), new Thickness(14, 10));
@@ -1055,7 +1055,7 @@ namespace Dsht.Gui.Avalonia.Shells
             TextBlock c4 = host.LiveText(
                 (bd0 != null && bd0.HasWinMeta && bd0.WinTruth0) ? SessionsMarkers.TruthFootnote : "",
                 delegate { SessionsSnapshot dd = host.Data; return (dd != null && dd.HasWinMeta && dd.WinTruth0) ? SessionsMarkers.TruthFootnote : ""; });
-            c4.FontSize = 11.5; c4.Foreground = Palette.TextFaint;
+            c4.FontSize = ShapeTokens.FsFoot; c4.Foreground = Palette.TextFaint;
             col.Children.Add(c4);
             return Card(col, new Thickness(0), new Thickness(14, 6));   // ★ 体验修复：纵向压一档（一屏 ✓ 内容不变 ✓）
         }
@@ -1244,7 +1244,7 @@ namespace Dsht.Gui.Avalonia.Shells
             //   —— 首绘之后若没有 RefreshLiveFields（版本早已取到 / 三档拉取没回来）那些行会一直空着 ✓
             //      （极小单价态截图抓到：预算行 + 会话明细整块缺失 ✓）；取值函数仍是唯一出处 ✓
             TextBlock state = host.LiveText(CostStateText(host), delegate { return CostStateText(host); });
-            state.FontSize = 11.5; state.Foreground = Palette.Warn; state.TextWrapping = TextWrapping.Wrap;
+            state.FontSize = ShapeTokens.FsFoot; state.Foreground = Palette.Warn; state.TextWrapping = TextWrapping.Wrap;
             state.IsVisible = state.Text != null && state.Text.Length > 0;
             host.Live(delegate { state.IsVisible = state.Text != null && state.Text.Length > 0; });
             c.Children.Add(state);
@@ -1323,7 +1323,7 @@ namespace Dsht.Gui.Avalonia.Shells
             {
                 int idx = ri;
                 TextBlock row = host.LiveText(CostRowText(host, idx), delegate { return CostRowText(host, idx); });
-                row.FontSize = 11.5; row.Foreground = Palette.TextDim; row.TextWrapping = TextWrapping.Wrap;
+                row.FontSize = ShapeTokens.FsFoot; row.Foreground = Palette.TextDim; row.TextWrapping = TextWrapping.Wrap;
                 row.IsVisible = row.Text != null && row.Text.Length > 0;
                 host.Live(delegate { row.IsVisible = row.Text != null && row.Text.Length > 0; });
                 body.Children.Add(row);
@@ -1571,7 +1571,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             {
 
-                s.Children.Add(Card(new TextBlock { Text = "读不到状态（CLI 未返回 STATUS_* 标记）。", Foreground = Palette.TextDim, FontSize = 12 }, new Thickness(0), new Thickness(18, 16)));
+                s.Children.Add(Card(new TextBlock { Text = "读不到状态（CLI 未返回 STATUS_* 标记）。", Foreground = Palette.TextDim, FontSize = ShapeTokens.FsBody }, new Thickness(0), new Thickness(18, 16)));
 
                 return s;
 
@@ -1615,7 +1615,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 Foreground = Palette.TextDim,
 
-                FontSize = 12,
+                FontSize = ShapeTokens.FsBody,
 
                 TextWrapping = TextWrapping.Wrap
 
@@ -1890,7 +1890,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             TextBlock l = host.LiveText(label(), label);
 
-            l.FontSize = 11.5; l.Foreground = Palette.TextDim; l.VerticalAlignment = VerticalAlignment.Center;
+            l.FontSize = ShapeTokens.FsFoot; l.Foreground = Palette.TextDim; l.VerticalAlignment = VerticalAlignment.Center;
 
             l.Margin = new Thickness(10, 0, 0, 0); l.TextWrapping = TextWrapping.Wrap;
 
@@ -1902,7 +1902,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             TextBlock v = host.LiveText(value(), value);
 
-            v.FontSize = 22; v.FontWeight = FontWeight.SemiBold; v.Foreground = valueBrush;
+            v.FontSize = ShapeTokens.FsStat; v.FontWeight = FontWeight.SemiBold; v.Foreground = valueBrush;
 
             v.Margin = new Thickness(0, 8, 0, 0); v.TextTrimming = TextTrimming.CharacterEllipsis;
 
@@ -1910,7 +1910,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             TextBlock sb = host.LiveText(sub(), sub);
 
-            sb.FontSize = 11; sb.Foreground = Palette.TextFaint; sb.Margin = new Thickness(0, 2, 0, 0); sb.TextWrapping = TextWrapping.Wrap;
+            sb.FontSize = ShapeTokens.FsFoot; sb.Foreground = Palette.TextFaint; sb.Margin = new Thickness(0, 2, 0, 0); sb.TextWrapping = TextWrapping.Wrap;
 
             s.Children.Add(sb);
 

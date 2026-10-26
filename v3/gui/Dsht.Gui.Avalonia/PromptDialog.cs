@@ -36,7 +36,7 @@ namespace Dsht.Gui.Avalonia
             s.Children.Add(new TextBlock
             {
                 Text = caption,
-                FontSize = 13,
+                FontSize = ShapeTokens.FsEm,
                 Foreground = Palette.Text,
                 TextWrapping = TextWrapping.Wrap
             });
@@ -45,7 +45,7 @@ namespace Dsht.Gui.Avalonia
                 s.Children.Add(new TextBlock
                 {
                     Text = hint,
-                    FontSize = 11.5,
+                    FontSize = ShapeTokens.FsFoot,
                     Foreground = Palette.TextFaint,
                     TextWrapping = TextWrapping.Wrap
                 });
@@ -53,7 +53,7 @@ namespace Dsht.Gui.Avalonia
             _box = new TextBox
             {
                 Text = initial ?? "",
-                FontSize = 14,   // 输入框字号（有意比正文大 ✓ 聚焦录入；字阶例外，记录于样式重构文档）
+                FontSize = ShapeTokens.FsEm,   // 输入框字号（有意比正文大 ✓ 聚焦录入；字阶例外，记录于样式重构文档）
                 FontFamily = new FontFamily("Consolas, Menlo, monospace"),
                 Padding = new Thickness(10, 8),
                 HorizontalAlignment = HorizontalAlignment.Stretch

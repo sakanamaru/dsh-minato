@@ -1563,7 +1563,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 bool hasKey = c.Value != null && c.Value.Trim() == "set";
 
-                TextBox kb = new TextBox { Text = "", Width = 300, FontSize = 12, Watermark = hasKey ? "已设置——输入新值替换；留空=保持不变" : "未绑定——粘贴你的 DeepSeek API key" };
+                TextBox kb = new TextBox { Text = "", Width = 300, FontSize = ShapeTokens.FsBody, Watermark = hasKey ? "已设置——输入新值替换；留空=保持不变" : "未绑定——粘贴你的 DeepSeek API key" };
 
                 edit.Children.Add(kb);
 
@@ -1589,7 +1589,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             {
 
-                TextBox box = new TextBox { Text = c.Value, Width = 300, FontSize = 12 };
+                TextBox box = new TextBox { Text = c.Value, Width = 300, FontSize = ShapeTokens.FsBody };
 
                 // ★ 成本估算键（2026-10-16 v3.2）**只做引导**：水印 + 单位说明 ✗ 不在 GUI 重复实现校验规则 ✓（后端 ConfigValidator 说了算 ✓）
                 if (ConfigItem.IsCostKey(c.Key))
@@ -1653,7 +1653,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
                     Foreground = Palette.TextDim,
 
-                    FontSize = 12,
+                    FontSize = ShapeTokens.FsBody,
 
                     TextWrapping = TextWrapping.Wrap
 
@@ -1673,7 +1673,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 Text = d.Count + " 个 profile · " + totalBundles + " 个组合包 · 其中第三方插件 " + totalThird + " 个（数据来自各 profile 的 package.json 里 dsh.profile.bundles）",
 
-                Foreground = Palette.TextDim, FontSize = 12, TextWrapping = TextWrapping.Wrap
+                Foreground = Palette.TextDim, FontSize = ShapeTokens.FsBody, TextWrapping = TextWrapping.Wrap
 
             });
 
@@ -1686,7 +1686,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 Text = "工具箱版本：" + host.CliVersionText + "（实读 CLI 的 DSHT_VERSION 行）\n桥接插件版本：" + host.BridgeVersionText + "（实读 package.json 的 version 字段；" + host.BridgeSourceText + "）",
 
-                Foreground = Palette.TextFaint, FontSize = 11.5, TextWrapping = TextWrapping.Wrap
+                Foreground = Palette.TextFaint, FontSize = ShapeTokens.FsFoot, TextWrapping = TextWrapping.Wrap
 
             });
 
@@ -1816,7 +1816,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
                         Text = "https://github.com/sakanamaru/dsh-minato",
 
-                        FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Foreground = Palette.Accent
+                        FontSize = ShapeTokens.FsFoot, TextWrapping = TextWrapping.Wrap, Foreground = Palette.Accent
 
                     };
 
@@ -1828,7 +1828,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
                         Text = "github:sakanamaru/dsh-minato#path:plugin/dsh-minato-bridge",
 
-                        FontSize = 11, TextWrapping = TextWrapping.Wrap, Foreground = Palette.TextDim
+                        FontSize = ShapeTokens.FsFoot, TextWrapping = TextWrapping.Wrap, Foreground = Palette.TextDim
 
                     };
 
@@ -1852,7 +1852,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
                         Text = selfPlugin.Length > 0 ? selfPlugin : "(工具箱自带的 plugin/dsh-minato-bridge 目录)",
 
-                        FontSize = 11.5, TextWrapping = TextWrapping.Wrap, Foreground = Palette.Accent
+                        FontSize = ShapeTokens.FsFoot, TextWrapping = TextWrapping.Wrap, Foreground = Palette.Accent
 
                     };
 
@@ -1908,7 +1908,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 Padding = new Thickness(10, 6),
 
-                FontSize = 12.5,
+                FontSize = ShapeTokens.FsBody,
 
                 Foreground = Palette.Text
 
@@ -2026,7 +2026,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
                     {
 
-                        Content = new TextBlock { Text = host.Health, FontFamily = MonoFont, FontSize = 11.5, Foreground = Palette.TextDim, TextWrapping = TextWrapping.Wrap }
+                        Content = new TextBlock { Text = host.Health, FontFamily = MonoFont, FontSize = ShapeTokens.FsFoot, Foreground = Palette.TextDim, TextWrapping = TextWrapping.Wrap }
 
                     }
 
@@ -2118,7 +2118,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             StackPanel head = new StackPanel { Orientation = Orientation.Horizontal, Spacing = ShapeTokens.S12 };
 
-            head.Children.Add(new TextBlock { Text = p.Name, FontSize = 15, FontWeight = FontWeight.SemiBold, Foreground = Palette.Text, VerticalAlignment = VerticalAlignment.Center });
+            head.Children.Add(new TextBlock { Text = p.Name, FontSize = ShapeTokens.FsTitle, FontWeight = FontWeight.SemiBold, Foreground = Palette.Text, VerticalAlignment = VerticalAlignment.Center });
 
             IBrush fb = Palette.FormBrush(p.FormKind);
 

@@ -1,6 +1,7 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using Dsht.Gui.Avalonia.Markers;
+using Dsht.Gui.Avalonia.Design;
 
 namespace Dsht.Gui.LogicTests
 {
@@ -1435,8 +1436,333 @@ namespace Dsht.Gui.LogicTests
                 OverlayLight.NoBridgeText.Contains("未装桥接") && OverlayLight.NoBridgeText.Contains("未知")
                 && OverlayLight.OldBridgeText.Contains("未知"));
 
+            // VT-TOKENS-BLOCK-START  (ASCII marker: the patch runner rewrites this whole block idempotently)
+            // ================= ⑭ 视觉规范化（2026-10-26 · 提案 §12）：六条可证伪断言 =================
+            //  每条都指向一个"改坏就红"的具体事实 ✓（反例实验见施工记录 ✓）
+            //  局部名一律 vt 前缀 ✓ 免得与外层既有局部变量重名（✗ CS0136 ✗）
+            Console.WriteLine();
+            Console.WriteLine("== 视觉规范化：设计 token 表 / 散落 hex / 间距 / 字号 / 明暗 / 动效 ==");
+
+            // —— 先把 5 语义色 × 明暗两套摊成日志（证据 ✓ 也是断言读的同一份数据 ✓）——
+            List<string> vtGrid = DesignTokens.SemanticGridLines();
+            Console.WriteLine("  [INFO] 语义色 5 个 × 明暗两套（唯一一张 5×2 网格 ✓）：");
+            for (int vi = 0; vi < vtGrid.Count; vi++) Console.WriteLine("  [INFO]   " + vtGrid[vi]);
+
+            // ⑭-3 明暗两套色值都存在（5 × 2 = 10 个 ✓ 明 ≠ 暗 ✓ 缺一即红）
+            bool vtGridOk = vtGrid.Count == DesignTokens.SemanticCount && DesignTokens.SemanticCount == 5;
+            for (int vi = 0; vi < DesignTokens.Semantics.Length; vi++)
+            {
+                DesignTokens.Semantic vtS = DesignTokens.Semantics[vi];
+                string vtLi = DesignTokens.SemanticColor(vtS, DesignTokens.Mode.Light);
+                string vtDk = DesignTokens.SemanticColor(vtS, DesignTokens.Mode.Dark);
+                if (!DesignTokens.IsHex(vtLi) || !DesignTokens.IsHex(vtDk) || vtLi == vtDk) vtGridOk = false;
+            }
+            Check("⑭-3 · 明暗两套色值都存在（5 语义色 × 明/暗 = 10 个合法色值，且明 ≠ 暗 ✓ 缺一即红）", vtGridOk);
+
+            // —— 源码扫描（散落 hex / 字号随手值 / 布局常量来源）——
+            string vtGuiDir = GuiSourceDir();
+            Check("⑭-1a · 找得到 GUI 源码目录（找不到 ⇒ 红 ✗ 不静默跳过 ✗）", vtGuiDir != null);
+
+            int vtHexBiz = 0, vtHexTok = 0, vtRawFonts = 0, vtRawFontsWhite = 0;
+            List<string> vtHexBad = new List<string>();
+            List<string> vtFontBad = new List<string>();
+            string vtTokenRel = "Design\\DesignTokens.cs";
+            // ✗ 唯一的例外名单 ✗：本任务明确划定"不许碰"的文件（悬浮窗那一路的接线文件 ✓）
+            //   ⇒ 本轮**没有**把它的字号纳入归并 ✓ 如实登记 ✓ 并打印计数 ✓（✗ 不许静默豁免 ✗）
+            string[] vtWhite = { "MainWindow.axaml.cs" };
+
+            if (vtGuiDir != null)
+            {
+                List<string> vtFiles = GuiSourceFiles(vtGuiDir);
+                Console.WriteLine("  [INFO] 扫描源码 " + vtFiles.Count + " 个文件（跳过 bin/obj ✓）");
+                for (int vi = 0; vi < vtFiles.Count; vi++)
+                {
+                    string vtRel = ShortPath(vtGuiDir, vtFiles[vi]);
+                    string vtTxt = System.IO.File.ReadAllText(vtFiles[vi]);
+                    int vtH = HexCount(vtTxt);
+                    if (vtRel == vtTokenRel) vtHexTok += vtH;
+                    else if (vtH > 0) { vtHexBiz += vtH; vtHexBad.Add(vtRel + " x" + vtH); }
+
+                    bool vtIsWhite = false;
+                    for (int vw = 0; vw < vtWhite.Length; vw++)
+                        if (vtRel.EndsWith(vtWhite[vw], StringComparison.OrdinalIgnoreCase)) vtIsWhite = true;
+                    int vtRf = RawFontSizeCount(vtTxt);
+                    if (vtRf > 0)
+                    {
+                        if (vtIsWhite) vtRawFontsWhite += vtRf;
+                        else { vtRawFonts += vtRf; vtFontBad.Add(vtRel + " x" + vtRf); }
+                    }
+                }
+                Console.WriteLine("  [INFO] hex：token 表 " + vtHexTok + " 处 · 业务文件 " + vtHexBiz + " 处");
+                Console.WriteLine("  [INFO] FontSize 随手值：业务文件 " + vtRawFonts + " 处 · 例外（在途文件 " + string.Join(", ", vtWhite) + "）" + vtRawFontsWhite + " 处");
+                for (int vi = 0; vi < vtHexBad.Count; vi++) Console.WriteLine("  [INFO]   散落 hex → " + vtHexBad[vi]);
+                for (int vi = 0; vi < vtFontBad.Count; vi++) Console.WriteLine("  [INFO]   字号随手值 → " + vtFontBad[vi]);
+            }
+
+            Check("⑭-1 · 业务文件里不出现散落 hex（白名单 = token 文件本身 " + vtTokenRel + " ✓ 例外见上方打印 ✓）",
+                vtGuiDir != null && vtHexBiz == 0 && vtHexBad.Count == 0);
+            Check("⑭-4b · 业务文件里没有 FontSize 随手值（✗ 11.5 / 12.5 之类 ✗ 例外见上方打印 ✓）",
+                vtGuiDir != null && vtRawFonts == 0 && vtFontBad.Count == 0);
+
+            // ⑭-6 token 表**唯一来源**：色值只在一个文件里定义 ✗ 业务文件不许自定义颜色常量 ✗
+            bool vtSingleSource = false;
+            if (vtGuiDir != null)
+            {
+                string vtPalettePath = System.IO.Path.Combine(vtGuiDir, "ViewModels", "SessionRowVm.cs");
+                string vtLightPath = System.IO.Path.Combine(vtGuiDir, "Design", "StatusLight.cs");
+                string vtPaletteTxt = System.IO.File.Exists(vtPalettePath) ? System.IO.File.ReadAllText(vtPalettePath) : "MISSING";
+                string vtLightTxt = System.IO.File.Exists(vtLightPath) ? System.IO.File.ReadAllText(vtLightPath) : "MISSING";
+                bool vtPaletteClean = vtPaletteTxt != "MISSING" && HexCount(vtPaletteTxt) == 0
+                    && vtPaletteTxt.IndexOf("Color.Parse(\"#", StringComparison.Ordinal) < 0;
+                bool vtLightClean = vtLightTxt != "MISSING" && HexCount(vtLightTxt) == 0;
+                Console.WriteLine("  [INFO] Palette（取色出口）里 hex " + HexCount(vtPaletteTxt) + " 处 · StatusLight（画法）里 hex " + HexCount(vtLightTxt) + " 处");
+                vtSingleSource = vtHexBiz == 0 && vtHexTok >= 10 && vtPaletteClean && vtLightClean;
+            }
+            Check("⑭-6 · token 表唯一来源：色值只在 " + vtTokenRel + " 里定义（✗ 业务文件不许自定义颜色常量 ✗）", vtSingleSource);
+
+            // ⑭-2 间距只用 4 的倍数（token 档 + 布局常量都来自 token 表 ✓）
+            bool vtSpacingOk = DesignTokens.SpacingSteps.Length >= 4;
+            for (int vi = 0; vi < DesignTokens.SpacingSteps.Length; vi++)
+                if (!DesignTokens.IsSpacingStep(DesignTokens.SpacingSteps[vi])) vtSpacingOk = false;
+            bool vtSpacingAlias = false;
+            if (vtGuiDir != null)
+            {
+                string vtShapePath = System.IO.Path.Combine(vtGuiDir, "ViewModels", "ShapeTokens.cs");
+                string vtShapeTxt = System.IO.File.Exists(vtShapePath) ? System.IO.File.ReadAllText(vtShapePath) : "";
+                List<string> vtPairs = TokenAliasPairs(vtShapeTxt, "S");
+                bool[] vtSeen = new bool[5];
+                string[] vtWant = { "S4", "S8", "S12", "S16", "S24" };
+                for (int vi = 0; vi < vtPairs.Count; vi++)
+                {
+                    string[] vtKv = vtPairs[vi].Split('=');
+                    for (int vj = 0; vj < vtWant.Length; vj++)
+                        if (vtKv[0] == vtWant[vj] && vtKv[1] == vtWant[vj]) vtSeen[vj] = true;
+                }
+                vtSpacingAlias = true;
+                for (int vi = 0; vi < vtSeen.Length; vi++) if (!vtSeen[vi]) vtSpacingAlias = false;
+                Console.WriteLine("  [INFO] 间距档 " + DesignTokens.SpacingSteps.Length + " 个 · ShapeTokens 里指向 token 表的布局常量 " + vtPairs.Count + " 个");
+            }
+            Check("⑭-2 · 间距只用 4 的倍数（token 档逐个取模 ✓ 且布局常量 S4/S8/S12/S16/S24 全部指向 token 表 ✓）",
+                vtSpacingOk && vtSpacingAlias);
+
+            // ⑭-4 字号档数 ≤3（含 ShapeTokens 的六个旧名字必须全部落在 3 档内 ✓）
+            int vtDistinctFonts = 0;
+            for (int vi = 0; vi < DesignTokens.FontSteps.Length; vi++)
+            {
+                bool vtDup = false;
+                for (int vj = 0; vj < vi; vj++)
+                    if (Math.Abs(DesignTokens.FontSteps[vi] - DesignTokens.FontSteps[vj]) < 0.0001) vtDup = true;
+                if (!vtDup) vtDistinctFonts++;
+            }
+            bool vtFontAliasOk = false;
+            if (vtGuiDir != null)
+            {
+                string vtShapePath = System.IO.Path.Combine(vtGuiDir, "ViewModels", "ShapeTokens.cs");
+                string vtShapeTxt = System.IO.File.Exists(vtShapePath) ? System.IO.File.ReadAllText(vtShapePath) : "";
+                List<string> vtFp = TokenAliasPairs(vtShapeTxt, "Fs");
+                vtFontAliasOk = vtFp.Count >= 6;
+                for (int vi = 0; vi < vtFp.Count; vi++)
+                {
+                    string vtTarget = vtFp[vi].Split('=')[1];
+                    if (vtTarget != "FontSm" && vtTarget != "FontMd" && vtTarget != "FontLg") vtFontAliasOk = false;
+                }
+                Console.WriteLine("  [INFO] 字号档 " + vtDistinctFonts + " 个 · ShapeTokens 六个旧名字 → 3 档的配对 " + vtFp.Count + " 个");
+            }
+            Check("⑭-4 · 字号只有 2~3 档（实测 " + vtDistinctFonts + " 档；✗ 11.5 / 12.5 不是档 ✗ 旧名字全部指向这 3 档 ✓）",
+                vtDistinctFonts >= 2 && vtDistinctFonts <= 3 && DesignTokens.FontSteps.Length <= 3
+                && !DesignTokens.IsFontStep(11.5) && !DesignTokens.IsFontStep(12.5)
+                && DesignTokens.IsFontStep(DesignTokens.FontSm) && DesignTokens.IsFontStep(DesignTokens.FontMd)
+                && DesignTokens.IsFontStep(DesignTokens.FontLg) && vtFontAliasOk);
+
+            // ⑭-5 动效时长 ≤200ms + "减少动效"读取点真的生效（开 ⇒ 0ms ✓）
+            bool vtMotionOk = DesignTokens.MotionMaxMs == 200;
+            for (int vi = 0; vi < DesignTokens.MotionDurations.Length; vi++)
+                if (DesignTokens.MotionDurations[vi] <= 0 || DesignTokens.MotionDurations[vi] > 200) vtMotionOk = false;
+            vtMotionOk = vtMotionOk && DesignTokens.Duration(DesignTokens.MotionBaseMs) <= 200 && DesignTokens.Duration(99999) == 200;
+            bool vtPrevReduced = DesignTokens.ReducedMotion;
+            DesignTokens.ReducedMotion = true;
+            bool vtReducedZero = DesignTokens.Duration(DesignTokens.MotionBaseMs) == 0;
+            DesignTokens.ReducedMotion = false;
+            bool vtNormalNonZero = DesignTokens.Duration(DesignTokens.MotionBaseMs) == DesignTokens.MotionBaseMs;
+            DesignTokens.ReducedMotion = vtPrevReduced;
+            string vtOldEnv = Environment.GetEnvironmentVariable(DesignTokens.ReduceMotionEnv);
+            Environment.SetEnvironmentVariable(DesignTokens.ReduceMotionEnv, "1");
+            bool vtEnvOn = DesignTokens.ReadReducedMotionFromEnvironment();
+            Environment.SetEnvironmentVariable(DesignTokens.ReduceMotionEnv, "0");
+            bool vtEnvOff = !DesignTokens.ReadReducedMotionFromEnvironment();
+            Environment.SetEnvironmentVariable(DesignTokens.ReduceMotionEnv, vtOldEnv);
+            DesignTokens.ReducedMotion = vtPrevReduced;
+            Check("⑭-5 · 动效 ≤200ms，且「减少动效」读取点真的生效（开 ⇒ 0ms 瞬变 ✓ 关 ⇒ 原时长 ✓ 环境变量 " + DesignTokens.ReduceMotionEnv + " 也认 ✓）",
+                vtMotionOk && vtReducedZero && vtNormalNonZero && vtEnvOn && vtEnvOff);
+
+            // ⑭-7 / ⑭-8 状态灯：去饱和底色 + 柔光晕 + 明暗四风格都过对比度（WCAG 1.4.11 的 3:1 ✓）
+            bool vtDesatOk = true;
+            double vtMinContrast = 99;
+            string vtMinWhere = "";
+            for (int vk = 0; vk < DesignTokens.StyleCount; vk++)
+            {
+                for (int vi = 0; vi < DesignTokens.Semantics.Length; vi++)
+                {
+                    DesignTokens.Semantic vtS = DesignTokens.Semantics[vi];
+                    string vtRaw = DesignTokens.Style(vk).SemanticOf(vtS);
+                    string vtBas = DesignTokens.StatusBase(vtS, vk);
+                    double vtC = DesignTokens.Contrast(vtBas, DesignTokens.StatusSurface(vk));
+                    if (vtC < vtMinContrast) { vtMinContrast = vtC; vtMinWhere = DesignTokens.Style(vk).Key + " · " + DesignTokens.SemanticName(vtS); }
+                    if (vtBas == vtRaw) vtDesatOk = false;                                   // 底色 == 原色 ⇒ 没去饱和 ✗
+                    DesignTokens.Rgb vtHalo = DesignTokens.Parse(DesignTokens.StatusHalo(vtS, vk));
+                    DesignTokens.Rgb vtRawRgb = DesignTokens.Parse(vtRaw);
+                    if (vtHalo.R != vtRawRgb.R || vtHalo.G != vtRawRgb.G || vtHalo.B != vtRawRgb.B) vtDesatOk = false;   // 光晕同色相 ✓
+                    if (vtHalo.A > 0x60) vtDesatOk = false;                                  // 光晕够"柔" ✓
+                    if (DesignTokens.Parse(DesignTokens.StatusRing(vtS, vk)).A >= 255) vtDesatOk = false;
+                }
+            }
+            Console.WriteLine("  [INFO] 状态灯底色 vs 卡片面：最低对比度 "
+                + vtMinContrast.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture) + "（" + vtMinWhere + "）· 下限 "
+                + DesignTokens.MinUiContrast.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + ":1");
+            Check("⑭-7 · 状态灯「柔光晕 + 去饱和底色」：底色 ≠ 语义原色 ✓ 光晕同色相且 alpha ≤ 0x60 ✓（✗ 不是纯饱和 RGB ✗）", vtDesatOk);
+            Check("⑭-8 · 状态灯明暗两套都过对比度：四风格 × 5 语义色 逐个算真值，全部 ≥ "
+                + DesignTokens.MinUiContrast.ToString("0.0", System.Globalization.CultureInfo.InvariantCulture) + ":1",
+                vtMinContrast >= DesignTokens.MinUiContrast);
+
+            // ⑭-9 / ⑭-10 四风格完整性 + 层级三档（色阶表达 ✗ 不靠 opacity ✗）
+            bool vtStylesOk = DesignTokens.Styles.Length == DesignTokens.StyleCount && DesignTokens.StyleCount == 4;
+            bool vtLevelsOk = true;
+            List<string> vtOverrideLog = new List<string>();
+            for (int vk = 0; vk < DesignTokens.Styles.Length; vk++)
+            {
+                DesignTokens.StyleSet vtSt = DesignTokens.Styles[vk];
+                if (string.IsNullOrEmpty(vtSt.Key) || string.IsNullOrEmpty(vtSt.Name)) vtStylesOk = false;
+                string[] vtFields = { vtSt.Accent, vtSt.AccentHover, vtSt.AccentSoft, vtSt.OnAccent, vtSt.PageBg, vtSt.SidebarBg,
+                                      vtSt.CardBg, vtSt.CardHover, vtSt.InsetBg, vtSt.Border, vtSt.BorderStrong, vtSt.Text, vtSt.TextDim,
+                                      vtSt.TextFaint, vtSt.BarTrack, vtSt.FormAcp, vtSt.Muted, vtSt.NormalSoft, vtSt.AttentionSoft, vtSt.AbnormalSoft };
+                for (int vi = 0; vi < vtFields.Length; vi++) if (!DesignTokens.IsHex(vtFields[vi])) vtStylesOk = false;
+                if (vtSt.CardShadow != "" && HexCount(vtSt.CardShadow) == 0) vtStylesOk = false;
+                for (int vi = 0; vi < DesignTokens.Semantics.Length; vi++)
+                {
+                    DesignTokens.Semantic vtS = DesignTokens.Semantics[vi];
+                    string vtV = vtSt.SemanticOf(vtS);
+                    if (!DesignTokens.IsHex(vtV)) vtStylesOk = false;
+                    string vtCanon = DesignTokens.SemanticColor(vtS, vtSt.Mode);
+                    bool vtDiffers = vtV != vtCanon;
+                    if (vtDiffers != vtSt.IsOverride(vtS)) vtStylesOk = false;      // 偏离基准必须登记 ✗ 偷偷偏色即红 ✓
+                    if (vtDiffers) vtOverrideLog.Add(vtSt.Key + "·" + DesignTokens.SemanticName(vtS) + " " + vtCanon + " → " + vtV);
+                }
+                string vtC1 = DesignTokens.LevelColor(vk, DesignTokens.Level.Primary);
+                string vtC2 = DesignTokens.LevelColor(vk, DesignTokens.Level.Secondary);
+                string vtC3 = DesignTokens.LevelColor(vk, DesignTokens.Level.Tertiary);
+                if (!DesignTokens.IsHex(vtC1) || !DesignTokens.IsHex(vtC2) || !DesignTokens.IsHex(vtC3)) vtLevelsOk = false;
+                if (vtC1 == vtC2 || vtC2 == vtC3 || vtC1 == vtC3) vtLevelsOk = false;
+                if (!DesignTokens.IsFontStep(DesignTokens.LevelFont(DesignTokens.Level.Primary))
+                    || !DesignTokens.IsFontStep(DesignTokens.LevelFont(DesignTokens.Level.Secondary))
+                    || !DesignTokens.IsFontStep(DesignTokens.LevelFont(DesignTokens.Level.Tertiary))) vtLevelsOk = false;
+            }
+            Console.WriteLine("  [INFO] 风格 " + DesignTokens.Styles.Length + " 个 · 登记的语义色偏离基准 " + vtOverrideLog.Count + " 条：" + string.Join("；", vtOverrideLog.ToArray()));
+            Check("⑭-9 · 四风格完整性 + 偏离明暗基准必须登记（✗ 没登记的偏色即红 ✓ 逐值校验 hex ✓）", vtStylesOk);
+            Check("⑭-10 · 层级三档（主 / 次 / 弱）用色阶表达：三档色值互不相同 ✓ 字号都落在 3 档内 ✓（✗ 不靠 opacity ✗）",
+                vtLevelsOk && DesignTokens.LevelCount == 3 && DesignTokens.Levels.Length == 3);
+
+            // ⑭-11 新增的**用户可见**文案（语义色名）也要过"零记号 / 零施工语气"不变量 ✓
+            string vtSemText = "";
+            for (int vi = 0; vi < DesignTokens.Semantics.Length; vi++) vtSemText += DesignTokens.SemanticName(DesignTokens.Semantics[vi]);
+            Check("⑭-11 · 语义色名（用户可见文案）零 ✓/✗ 记号、零施工语气（✗「本轮/改动/施工」之类 ✗）",
+                vtSemText.IndexOf('✓') < 0 && vtSemText.IndexOf('✗') < 0
+                && vtSemText.IndexOf("本轮", StringComparison.Ordinal) < 0 && vtSemText.IndexOf("改动", StringComparison.Ordinal) < 0
+                && vtSemText.IndexOf("施工", StringComparison.Ordinal) < 0 && vtSemText.IndexOf("落实", StringComparison.Ordinal) < 0);
+
             Console.WriteLine("== " + _pass + "/" + (_pass + _fail) + " passed, " + _fail + " failed ==");
             return _fail == 0 ? 0 : 1;
+        }
+        // VT-TOKENS-HELPERS-START  (ASCII marker: the patch runner rewrites this whole block idempotently)
+        // ==========================================================================================
+        //  ★ 视觉规范化（2026-10-26 · 提案 §12）六条可证伪断言的辅助
+        //    设计意图：**能判真假** —— 每条断言都指向一个"改坏就会红"的具体事实 ✓
+        //    （不是"看起来对"✗ 也不是"数量没变少"✗）
+        // ==========================================================================================
+
+        /// <summary>GUI 源码目录：从程序集目录逐级上溯找 `v3/gui/Dsht.Gui.Avalonia`（`dotnet run` 与
+        /// 发布布局都能命中 ✓）。找不到 ⇒ 返回 null ⇒ 断言**红** ✗ 不静默跳过 ✗
+        /// （静默跳过 = 没有断言 ✓ 本项目最忌讳的那种"绿"✗）。</summary>
+        private static string GuiSourceDir()
+        {
+            try
+            {
+                System.IO.DirectoryInfo d = new System.IO.DirectoryInfo(AppContext.BaseDirectory);
+                for (int i = 0; i < 12 && d != null; i++)
+                {
+                    string a = System.IO.Path.Combine(d.FullName, "v3", "gui", "Dsht.Gui.Avalonia");
+                    if (System.IO.File.Exists(System.IO.Path.Combine(a, "Dsht.Gui.Avalonia.csproj"))) return a;
+                    string b = System.IO.Path.Combine(d.FullName, "Dsht.Gui.Avalonia");
+                    if (System.IO.File.Exists(System.IO.Path.Combine(b, "Dsht.Gui.Avalonia.csproj"))) return b;
+                    d = d.Parent;
+                }
+                System.IO.DirectoryInfo c = new System.IO.DirectoryInfo(System.IO.Directory.GetCurrentDirectory());
+                for (int i = 0; i < 12 && c != null; i++)
+                {
+                    string a = System.IO.Path.Combine(c.FullName, "v3", "gui", "Dsht.Gui.Avalonia");
+                    if (System.IO.File.Exists(System.IO.Path.Combine(a, "Dsht.Gui.Avalonia.csproj"))) return a;
+                    c = c.Parent;
+                }
+            }
+            catch { }
+            return null;
+        }
+
+        /// <summary>递归列出 GUI 工程里的 .cs / .axaml（✗ 跳过 bin/obj ✗ 那是生成物不是源码 ✓）。</summary>
+        private static List<string> GuiSourceFiles(string root)
+        {
+            List<string> o = new List<string>();
+            try
+            {
+                string[] all = System.IO.Directory.GetFiles(root, "*.*", System.IO.SearchOption.AllDirectories);
+                for (int i = 0; i < all.Length; i++)
+                {
+                    string p = all[i];
+                    string low = p.ToLowerInvariant();
+                    if (low.Contains("\\bin\\") || low.Contains("\\obj\\")) continue;
+                    if (!(low.EndsWith(".cs") || low.EndsWith(".axaml"))) continue;
+                    o.Add(p);
+                }
+            }
+            catch { }
+            o.Sort(StringComparer.Ordinal);
+            return o;
+        }
+
+        /// <summary>源码里 `#RRGGBB` / `#RRGGBBAA` 的个数（散落 hex 的判据 ✓）。</summary>
+        private static int HexCount(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return 0;
+            return System.Text.RegularExpressions.Regex.Matches(text, "#[0-9A-Fa-f]{6}").Count;
+        }
+
+        /// <summary>源码里 `FontSize = <数字>` 的个数（字号随手值的判据 ✓）。</summary>
+        private static int RawFontSizeCount(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return 0;
+            return System.Text.RegularExpressions.Regex.Matches(text, @"FontSize\s*=\s*[0-9]").Count;
+        }
+
+        /// <summary>从 <c>ShapeTokens.cs</c> 里取"常量 = DesignTokens.常量"的配对（间距/字号单一来源的判据 ✓）。</summary>
+        private static List<string> TokenAliasPairs(string text, string prefix)
+        {
+            List<string> o = new List<string>();
+            if (string.IsNullOrEmpty(text)) return o;
+            System.Text.RegularExpressions.MatchCollection ms = System.Text.RegularExpressions.Regex.Matches(
+                text, @"public const double (" + prefix + @"[A-Za-z0-9]+)\s*=\s*DesignTokens\.([A-Za-z0-9]+);");
+            for (int i = 0; i < ms.Count; i++) o.Add(ms[i].Groups[1].Value + "=" + ms[i].Groups[2].Value);
+            return o;
+        }
+
+        /// <summary>某个文件的相对路径（打印用 ✓ 只到文件名两级，避免日志里出现长绝对路径 ✓）。</summary>
+        private static string ShortPath(string root, string full)
+        {
+            try
+            {
+                if (full.StartsWith(root, StringComparison.OrdinalIgnoreCase))
+                    return full.Substring(root.Length).TrimStart('\\', '/');
+            }
+            catch { }
+            return full;
         }
 
         /// <summary>收尾 (a) 的**可证伪**判据：程序集里还有没有"状态胶囊"的**界面构建器**。
