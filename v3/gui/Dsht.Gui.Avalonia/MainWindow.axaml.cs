@@ -74,6 +74,12 @@ namespace Dsht.Gui.Avalonia
         };
 
         private SessionsSnapshot _data;
+        /// <summary>看板数据时刻（★ 提案 §3① 要求界面标「数据时刻」✓）——
+        /// = **本机解析出这份 CLI 输出的时刻**（本地时间 ✓ 界面只显示 HH:mm:ss ✓）。
+        /// ✗ 不是"数据在 dsh 里产生的时刻"✗ —— 那要桥接快照自带时间戳，磁盘投影没有这项事实 ✓；
+        /// 还没取过数 ⇒ null ⇒ 界面显示「未知」✗ 绝不显示 00:00:00 ✓。</summary>
+        private System.DateTime? _dataAt;
+        public System.DateTime? DataAt { get { return _dataAt; } }
         private ProfilesSnapshot _profiles;
         private StatusSnapshot _status;
         private BackupSummary _backups;
@@ -1170,6 +1176,17 @@ namespace Dsht.Gui.Avalonia
             _boardHelpOpen = !_boardHelpOpen;
             RefreshLiveFields();
         }
+        /// <summary>★ 看板层级重整（2026-10-26 · 提案 §3⑤「一屏可读」✓✓）：次要指标的**折叠区**展开态。
+        /// 默认**收起** ⇒ 指标页首屏只留 4~5 个数字（状态胶囊 + KPI 四卡 + 今日用量）✓；
+        /// 纯视图态（✗ 不进 config ✗ 不影响 CLI 口径 ✓）：点入口 ⇒ 取反 + 字段刷新一拍 ⇒ 原地换 ✗ 不整页重建 ✓。</summary>
+        private bool _boardMoreOpen;
+        public bool BoardMoreOpen { get { return _boardMoreOpen; } set { _boardMoreOpen = value; } }
+        /// <summary>切换折叠区（点击入口）✓ —— 与「？口径差」同一套字段级刷新机制 ✓（✗ 不 BuildShell ✗）。</summary>
+        public void ToggleBoardMore()
+        {
+            _boardMoreOpen = !_boardMoreOpen;
+            RefreshLiveFields();
+        }
         /// <summary>看板侧的小提示（自定义区间本地校验失败等 ✓ 复用操作回执位 ✓ GUI 不另编 CLI 文案 ✓ 这只是本地校验原因 ✓）。</summary>
         public void NoteBoard(string text)
         {
@@ -1901,6 +1918,7 @@ namespace Dsht.Gui.Avalonia
             if (cli == null)
             {
                 _data = null;
+                _dataAt = null;   // ★ 没取到数 ⇒ 数据时刻**未知**（✗ 不显示旧时刻 ✗ 不显示 0 ✓）
                 _rawOutput = "未找到工具箱 CLI。请把 dsh-minato.exe（或 dsht.exe / dsht_v3.exe）放到本程序同目录，或设置环境变量 DSHT_CLI 指向它。";
                 return;
             }
@@ -1929,6 +1947,9 @@ namespace Dsht.Gui.Avalonia
                 _status = StatusMarkers.Parse(_rawOutput);
                 _profiles = ProfilesMarkers.Parse(_rawOutput);
                 _data = SessionsMarkers.Parse(_rawOutput);
+                // ★ 数据时刻：**只有真的读到会话投影（Ok）才算** ✓ —— 读失败 ⇒ 没有可用数据 ⇒ 时刻显示「未知」
+                //   ✗ 绝不显示 00:00:00 ✗ 也不拿"尝试的时刻"冒充"数据的时刻" ✓
+                _dataAt = _data.Ok ? (System.DateTime?)System.DateTime.Now : null;
                 _cost = Dsht.Gui.Avalonia.Markers.CostMarkers.Parse(_rawOutput);   // ★ 同一份输出里取 COST_* ✓ 零额外进程 ✓
                 _backups = SummaryMarkers.ParseBackups(_rawOutput);
                 EnsureBoardLevelAggs(cli);   // ★ 看板体验修复：指标页三档对比表的另外两档后台补齐（火忘 ✓ 只刷字段 ✓ 别页不花 ✓）
@@ -2009,6 +2030,7 @@ namespace Dsht.Gui.Avalonia
 
             string text = await System.Threading.Tasks.Task.Run(delegate { return RunCached(cli, "sessions" + BoardArgsSuffix()); });   // ★ 窗口档透传（看板第一批 ✓ 列表页自身仍显示全部 SESSION 行 ✓ 不受影响 ✓）
             _data = SessionsMarkers.Parse(text);
+            _dataAt = _data.Ok ? (System.DateTime?)System.DateTime.Now : null;   // ★ 数据时刻（同上 ✓ 失败 ⇒ 未知 ✓）
             _rawOutput = text;
             if (!_data.Ok)
             {

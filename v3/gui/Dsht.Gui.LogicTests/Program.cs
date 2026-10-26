@@ -926,13 +926,216 @@ namespace Dsht.Gui.LogicTests
                 && costCfg[2].Desc.Contains("缓存读") && costCfg[3].Desc.Contains("缓存写")
                 && costCfg[4].Desc.Contains("每日预算"));
 
+            // ================================================================================================
+            // 看板层级重整（2026-10-26 · 提案《看板优化与置顶悬浮窗》§3 五条）
+            //   本节断言全部**可证伪**（改坏即红 ✓）：未知不起 0 · 无预算不画进度条 · 活动流不含标题 ·
+            //   24h 口径脚注存在 · 胶囊数据时刻存在 ✓✓
+            // ================================================================================================
+
+            // —— ① 状态胶囊：三态 + **未知不许猜**（提案 §3① ✓✓）——
+            string capBridge =
+                "SESSIONS_OK 2\n" +
+                "SESSIONS_SOURCE snapshot\n" +
+                "SESSION aaaa1111 title=绝密标题XYZ created=2026-10-26T01:00:00Z last=2026-10-26T01:05:00Z turns=1 steps=2 in=100 out=10 cacheRead=0 hit=90.0 blank=0 live=1 active=1 lastActive=2026-10-26T01:05:10Z\n" +
+                "SESSION bbbb2222 title=另一个标题 created=2026-10-26T02:00:00Z last=2026-10-26T02:05:00Z turns=1 steps=2 in=200 out=20 cacheRead=0 hit=80.0 blank=0 live=1 active=0\n" +
+                "SESSIONS_TOTAL in=300 out=30 cacheRead=0 hit=85.0";
+            BoardHierarchy.Capsule cap1 = BoardHierarchy.CapsuleOf(SessionsMarkers.Parse(capBridge));
+            Check("层级·① 有桥接快照 + active=1 ⇒「在动（来自桥接快照 · 3 秒拍）」✓✓（来源逐字标清 ✓）",
+                cap1.Known && cap1.State == BoardHierarchy.StateActive && cap1.ActiveCount == 1 && cap1.LiveCount == 2
+                && BoardHierarchy.CapsuleStateLine(SessionsMarkers.Parse(capBridge))
+                    == "在动（" + BoardHierarchy.SrcBridge + "）");
+            Check("层级·① 有桥接快照 + active 全 0 但还有 live ⇒「停驻」✓（不是「无活动」✓）",
+                BoardHierarchy.CapsuleOf(SessionsMarkers.Parse(capBridge.Replace("active=1", "active=0"))).State == BoardHierarchy.StateParked);
+            Check("层级·① 有桥接快照 + 没有 live ⇒「无活动」✓",
+                BoardHierarchy.CapsuleOf(SessionsMarkers.Parse(capBridge.Replace("live=1", "live=0").Replace("active=1", "active=0"))).State == BoardHierarchy.StateIdle);
+            // ★★ 硬红线（提案 §3① 原话「无 Bridge ⇒ 未知（未装桥接）**不许猜成停驻**」✓✓）
+            string capNoBridge = capBridge.Replace("SESSIONS_SOURCE snapshot", "SESSIONS_SOURCE disk");
+            string capNoBridgeLine = BoardHierarchy.CapsuleStateLine(SessionsMarkers.Parse(capNoBridge));
+            Check("层级·① ★无桥接 ⇒「未知（未装桥接）」且 Known=false（✗ 绝不许猜成停驻/无活动 ✗✓）",
+                !BoardHierarchy.CapsuleOf(SessionsMarkers.Parse(capNoBridge)).Known
+                && capNoBridgeLine == "未知（" + BoardHierarchy.SrcNoBridge + "）"
+                && !capNoBridgeLine.Contains(BoardHierarchy.StateParked) && !capNoBridgeLine.Contains(BoardHierarchy.StateIdle));
+            Check("层级·① ★未知不起 0：无桥接 / 读不到数据两条胶囊主文案里**一个 0 都没有** ✓✓（硬红线 ✓）",
+                capNoBridgeLine.IndexOf('0') < 0
+                && BoardHierarchy.CapsuleStateLine(SessionsMarkers.Parse("SESSIONS_FAIL 没有可读的会话投影")).IndexOf('0') < 0);
+            Check("层级·① 看板数据不可用 ⇒「未知（看板数据不可用）」✗ 不猜 ✓；null 快照不抛 ✓",
+                BoardHierarchy.CapsuleOf(SessionsMarkers.Parse("SESSIONS_FAIL 没有可读的会话投影")).State == BoardHierarchy.StateUnknown
+                && BoardHierarchy.CapsuleOf(SessionsMarkers.Parse("SESSIONS_FAIL x")).Source == BoardHierarchy.SrcNoData
+                && BoardHierarchy.CapsuleOf(null).State == BoardHierarchy.StateUnknown);
+            Check("层级·① 旧版桥接（active=unknown）⇒「未知」+ 如实说快照里没有「在动」字段 ✓（✗ 不拿 live 冒充在动 ✗）",
+                !BoardHierarchy.CapsuleOf(SessionsMarkers.Parse(
+                    capBridge.Replace("active=1", "active=unknown").Replace("active=0", "active=unknown"))).Known
+                && BoardHierarchy.CapsuleOf(SessionsMarkers.Parse(
+                    capBridge.Replace("active=1", "active=unknown").Replace("active=0", "active=unknown"))).Source == BoardHierarchy.SrcOldBridge);
+            // ★ 数据时刻（提案 §3① 硬要求 ✓）
+            Check("层级·① 数据时刻 = HH:mm:ss ✓；取不到 ⇒「未知」（✗ 绝不显示 00:00:00 ✗）",
+                BoardHierarchy.ClockText(new DateTime(2026, 10, 26, 19, 4, 5)) == "19:04:05"
+                && BoardHierarchy.ClockText(null) == "未知"
+                && BoardHierarchy.CapsuleClockLine(null) == "数据时刻 未知"
+                && BoardHierarchy.CapsuleClockLine(new DateTime(2026, 10, 26, 9, 8, 7)) == "数据时刻 09:08:07");
+            Check("层级·① 胶囊细节行随态走（未知时只说原因 ✗ 不给数字 ✓）",
+                BoardHierarchy.CapsuleDetailLine(SessionsMarkers.Parse(capNoBridge)).Contains("没有「在动 / 停驻」这项事实")
+                && BoardHierarchy.CapsuleDetailLine(SessionsMarkers.Parse(capBridge)).Contains("在动 1")
+                && BoardHierarchy.CapsuleDetailLine(null).Contains("读不到会话投影"));
+
+            // —— ② 进度化：相对**用户自填预算** ✓ 未填 ⇒ **不画进度条** ✓（✗ 不预置阈值 ✗ 不造上限 ✓）——
+            string costHead =
+                "COST_META scope=today days=unknown priced=1 currency=USD truth=0 unknown_last=0\n" +
+                "COST_TOTAL scope=today uncached=100 cacheRead=50 cacheWrite=0 output=20 tokens=170 cost=0.42\n" +
+                "COST_META scope=window days=7 priced=1 currency=USD truth=0 unknown_last=0\n" +
+                "COST_TOTAL scope=window uncached=100 cacheRead=50 cacheWrite=0 output=20 tokens=170 cost=0.42\n";
+            CostSnapshot costNoBudget = CostMarkers.Parse(costHead + "COST_BUDGET limit=none spent=0.42 over=0");
+            BoardHierarchy.Gauge gNo = BoardHierarchy.GaugeOf(costNoBudget);
+            Check("层级·② ★未填预算 ⇒ HasBudget=false 且 **DrawBar=false（不画进度条）** ✓✓ 且金额照显（只显示数字 ✓）",
+                !gNo.HasBudget && !gNo.DrawBar && BoardHierarchy.GaugeOf(null).DrawBar == false
+                && BoardHierarchy.GaugeMoneyLine(costNoBudget).Contains("$0.42")
+                && BoardHierarchy.GaugeMoneyLine(costNoBudget).Contains(BoardHierarchy.NoBudgetText));
+            Check("层级·② 预算填 0 / 非数字 ⇒ 都**不当上限**（✗ 绝不自己造一个上限 ✗）",
+                !BoardHierarchy.GaugeOf(CostMarkers.Parse(costHead + "COST_BUDGET limit=0 spent=1 over=0")).HasBudget
+                && !BoardHierarchy.GaugeOf(CostMarkers.Parse(costHead + "COST_BUDGET limit=abc spent=1 over=0")).HasBudget
+                && !BoardHierarchy.GaugeOf(CostMarkers.Parse(costHead + "COST_BUDGET limit=unknown spent=1 over=0")).HasBudget);
+            CostSnapshot costBudget = CostMarkers.Parse(costHead + "COST_BUDGET limit=5 spent=1 over=0");
+            BoardHierarchy.Gauge gYes = BoardHierarchy.GaugeOf(costBudget);
+            Check("层级·② 填了预算 + 今日金额可算 ⇒ DrawBar=true 且百分比 = 金额 / 预算（1/5 = 20% ✓）",
+                gYes.HasBudget && gYes.DrawBar && Math.Abs(gYes.Percent - 20.0) < 0.001
+                && BoardHierarchy.PercentText(gYes) == "20%"
+                && BoardHierarchy.GaugeMoneyLine(costBudget).Contains("每日预算 $5.00")
+                && BoardHierarchy.GaugeMoneyLine(costBudget).Contains("已用 20%"));
+            Check("层级·② ★今日金额不可算（cost=none）⇒ **也不画条**（✗ 不假装 0 ✓）",
+                !BoardHierarchy.GaugeOf(CostMarkers.Parse(costHead + "COST_BUDGET limit=5 spent=none over=0")).DrawBar);
+            Check("层级·② 超预算：百分比**不钳**（1 → 200% ✓ 如实反映）+ 文案点明超限只提示 ✓",
+                Math.Abs(BoardHierarchy.GaugeOf(CostMarkers.Parse(costHead + "COST_BUDGET limit=1 spent=2 over=1")).Percent - 200.0) < 0.001
+                && BoardHierarchy.GaugeMoneyLine(CostMarkers.Parse(costHead + "COST_BUDGET limit=1 spent=2 over=1")).Contains("已超预算"));
+            Check("层级·② 真零 ≠ 未知：spent=0 ⇒ 画条（0%）+ 真零句；spent=none ⇒ 不画条 + 不可算句 ✓✓",
+                BoardHierarchy.GaugeOf(CostMarkers.Parse(costHead + "COST_BUDGET limit=5 spent=0 over=0")).DrawBar
+                && BoardHierarchy.GaugeMoneyLine(CostMarkers.Parse(costHead + "COST_BUDGET limit=5 spent=0 over=0")).Contains(CostMarkers.ZeroAmountText)
+                && BoardHierarchy.GaugeMoneyLine(CostMarkers.Parse(costHead + "COST_BUDGET limit=5 spent=none over=0")).Contains(CostMarkers.NotComputableText));
+            Check("层级·② ★极小非零绝不说成 0（0.01 / 10000 ⇒「<0.01%」✓ 与金额的「<$0.000001」同一条纪律 ✓）",
+                BoardHierarchy.PercentText(BoardHierarchy.GaugeOf(CostMarkers.Parse(costHead + "COST_BUDGET limit=10000 spent=0.01 over=0"))) == "<0.01%");
+            Check("层级·② 进度条脚注点明「你自填的预算」+ 键名 + 估算（✗ 不暗示官方账单 ✓）",
+                BoardHierarchy.GaugeFootnote.Contains("你自填的每日预算") && BoardHierarchy.GaugeFootnote.Contains("sessions_budget_usd_per_day")
+                && BoardHierarchy.GaugeFootnote.Contains("估算"));
+
+            // —— ③ 最近活动流：**只给 id 短码 + 时间 + token** ✗ 绝不含标题 / 正文 / 工具参数 ✗ ——
+            string actFix =
+                "SESSIONS_OK 5\n" +
+                "SESSIONS_SOURCE snapshot\n" +
+                "SESSION aaaa1111 title=绝密标题XYZ created=2026-10-26T01:00:00Z last=2026-10-26T01:05:00Z turns=1 steps=2 in=100 out=10 cacheRead=0 hit=90.0 blank=0 live=1 active=1\n" +
+                "SESSION bbbb2222 title=绝密标题XYZ created=2026-10-26T01:30:00Z last=2026-10-26T01:40:00Z turns=1 steps=2 in=300 out=20 cacheRead=0 hit=80.0 blank=0 live=1 active=1\n" +
+                "SESSION cccc3333 title=绝密标题XYZ created=2026-10-26T05:00:00Z last=2026-10-26T05:10:00Z turns=1 steps=2 in=500 out=30 cacheRead=0 hit=100.0 blank=0 live=1 active=1\n" +
+                "SESSION dddd4444 title=绝密标题XYZ created=unknown last=unknown turns=0 steps=0 in=700 out=0 cacheRead=0 hit=unknown blank=0 live=0\n" +
+                "SESSION eeee5555 title=绝密标题XYZ created=2026-10-26T01:00:00Z last=2026-10-26T01:20:00Z turns=1 steps=2 in=0 out=0 cacheRead=0 hit=unknown blank=0 live=1 active=1\n" +
+                "SESSAGG_SESSION aaaa1111 bucket=own turns=1 steps=2 uncached=100 cacheRead=0 cacheWrite=0 output=10 children=0 depth=0\n" +
+                "SESSAGG_SESSION bbbb2222 bucket=own turns=1 steps=2 uncached=100 cacheRead=200 cacheWrite=0 output=20 children=0 depth=0\n" +
+                "SESSAGG_SESSION cccc3333 bucket=own turns=1 steps=2 uncached=500 cacheRead=0 cacheWrite=0 output=30 children=0 depth=0\n" +
+                "SESSAGG_SESSION dddd4444 bucket=own turns=0 steps=0 uncached=700 cacheRead=0 cacheWrite=0 output=0 children=0 depth=0\n" +
+                "SESSAGG_SESSION eeee5555 bucket=own turns=unknown steps=unknown uncached=unknown cacheRead=unknown cacheWrite=unknown output=unknown children=0 depth=0\n" +
+                "SESSIONS_TOTAL in=1600 out=60 cacheRead=200 hit=85.0";
+            SessionsSnapshot act = SessionsMarkers.Parse(actFix);
+            List<BoardHierarchy.ActivityRow> actRows = BoardHierarchy.ActivityRows(act);
+            Check("层级·③ 活动行 = eligible（SESSAGG own）∩ 有 id 的 SESSION 行（5 个 ✓ 同一份输出 ⇒ 同源 ✓）",
+                actRows.Count == 5);
+            bool noTitle = true;
+            for (int ai = 0; ai < actRows.Count; ai++)
+            {
+                string line = BoardHierarchy.ActivityLine(actRows[ai]);
+                if (line.Contains("绝密标题XYZ") || line.Contains("title") || line.Contains("另一个标题")) noTitle = false;
+            }
+            Check("层级·③ ★活动流**绝不含会话标题**（夹具标题 = 绝密标题XYZ ⇒ 每行都不出现 ✓✓ 数据最小化 ✓）", noTitle);
+            Check("层级·③ 活动行只有 id 短码 + 时间 + token 三段（短码 8 位 ✓ 时间 MM-dd HH:mm ✓ token 带单位 ✓）",
+                BoardHierarchy.ActivityLine(BoardHierarchy.RecentActivity(act, 5)[0]).StartsWith("cccc3333　")
+                && BoardHierarchy.ActivityLine(BoardHierarchy.RecentActivity(act, 5)[0]).EndsWith(" token")
+                && BoardHierarchy.ActivityLine(BoardHierarchy.RecentActivity(act, 5)[0]).Split('　').Length == 3
+                && BoardHierarchy.ActivityLine(BoardHierarchy.RecentActivity(act, 5)[0]).Split('　')[1].Length == 11
+                && BoardHierarchy.ActivityLine(BoardHierarchy.RecentActivity(act, 5)[0]).Split('　')[1].IndexOf(':') == 8);
+            List<BoardHierarchy.ActivityRow> recent = BoardHierarchy.RecentActivity(act, 3);
+            Check("层级·③ 按时间降序取最近 N 条（并列按 id 字典序 ✓ 确定性 ✓）",
+                recent.Count == 3 && recent[0].Id == "cccc3333" && recent[1].Id == "bbbb2222" && recent[2].Id == "eeee5555");
+            Check("层级·③ 时间未知的会话**排在最后**（✗ 不猜时间 ✓ 但也绝不丢弃 ✓）",
+                BoardHierarchy.RecentActivity(act, 5)[4].Id == "dddd4444"
+                && !BoardHierarchy.RecentActivity(act, 5)[4].LastLocal.HasValue
+                && BoardHierarchy.ActivityLine(BoardHierarchy.RecentActivity(act, 5)[4]).Contains("时间未知"));
+            Check("层级·③ ★token 未知 ⇒「用量未知」（✗ 绝不显示 0 token ✗ 硬红线 ✓）",
+                BoardHierarchy.ActivityLine(BoardHierarchy.RecentActivity(act, 5)[2]).Contains("用量未知")
+                && BoardHierarchy.ActivityLine(BoardHierarchy.RecentActivity(act, 5)[2]).IndexOf("0 token") < 0
+                && !actRows[4].TokKnown && BoardHierarchy.RecentActivity(act, 5)[2].Id == "eeee5555");
+            Check("层级·③ **同源对账**：活动行的 token == 同一份输出里 SESSAGG_SESSION own 行的输入（差 0 ✓✓）",
+                actRows[0].In == 100 && actRows[1].In == 300 && actRows[2].In == 500 && actRows[3].In == 700
+                && actRows[0].Id == "aaaa1111" && actRows[2].Id == "cccc3333");
+            Check("层级·③ 活动流脚注点明数据最小化（不含标题/正文/工具参数 ✓）",
+                BoardHierarchy.ActivityFootnote.Contains("不含会话标题") && BoardHierarchy.ActivityFootnote.Contains("对话正文")
+                && BoardHierarchy.ActivityFootnote.Contains("工具参数"));
+            Check("层级·③ 数据不可用 / null ⇒ 空列表（✗ 不抛 ✗ 不编行 ✓）",
+                BoardHierarchy.ActivityRows(SessionsMarkers.Parse("SESSIONS_FAIL x")).Count == 0
+                && BoardHierarchy.ActivityRows(null).Count == 0
+                && BoardHierarchy.ActivityLine(null) == "");
+
+            // —— ④ 24 小时分布：★ 口径最易做假的一条（提案 §3④ ✓✓）——
+            BoardHierarchy.Hourly hy = BoardHierarchy.HourlyDistribution(act);
+            int hA = DateTime.SpecifyKind(new DateTime(2026, 10, 26, 1, 5, 0), DateTimeKind.Utc).ToLocalTime().Hour;
+            int hB = DateTime.SpecifyKind(new DateTime(2026, 10, 26, 5, 0, 0), DateTimeKind.Utc).ToLocalTime().Hour;
+            Check("层级·④ 会话活动数按**最后活动小时**归属（01:05/01:20/01:40 ⇒ 同一小时 3 个；05:10 ⇒ 另 1 个 ✓）",
+                hy.Hours[hA].Sessions == 3 && hy.Hours[hB].Sessions == 1 && hy.Sessions == 4 && hy.ActiveHours == 2);
+            Check("层级·④ ★token 按「最后活动小时」**整会话累计归属**（100+300 = 400 落 hA ✓ 500 落 hB ✓ 合计 900 ✓）",
+                hy.Hours[hA].In == 400 && hy.Hours[hB].In == 500 && hy.In == 900);
+            Check("层级·④ ★缓存命中率同一口径（按输入量加权：hA = (90×100+80×300)/400 = 82.5 ✓）",
+                hy.Hours[hA].HasHit && Math.Abs(hy.Hours[hA].HitPct - 82.5) < 0.001
+                && hy.Hours[hB].HasHit && Math.Abs(hy.Hours[hB].HitPct - 100.0) < 0.001);
+            Check("层级·④ ★token 未知的会话**不进求和**、单列计数（✗ 不假装 0 ✓）",
+                hy.Hours[hA].TokUnknown == 1 && hy.Hours[hA].TokKnownCount == 2 && hy.TokUnknown == 1
+                && hy.Hours[hA].In == 400);
+            Check("层级·④ 没有最后活动时间 ⇒ 归不进任何小时（✗ 不猜小时 ✓ 单列计数 ✓）",
+                hy.NoTime == 1 && hy.Sessions == 4 && hy.Hours[hA].Sessions + hy.Hours[hB].Sessions == 4);
+            Check("层级·④ 空小时显「—」（✗ 不显 0 免得与「未知」混淆 ✓）；token 全未知的小时显「未知」✓（界面用的就是这两个函数 ✓）",
+                BoardHierarchy.HourTokenText(hy.Hours[(hA + 7) % 24]) == "—"
+                && BoardHierarchy.HourHitText(hy.Hours[(hA + 7) % 24]) == "—"
+                && BoardHierarchy.HourTokenText(new BoardHierarchy.HourCell { Hour = 3, Sessions = 1, TokUnknown = 1 }) == "未知"
+                && BoardHierarchy.HourHitText(new BoardHierarchy.HourCell { Hour = 3, Sessions = 1, TokUnknown = 1 }) == "未知"
+                && BoardHierarchy.HourTokenText(new BoardHierarchy.HourCell { Hour = 3, Sessions = 1, TokKnownCount = 1, TokUnknown = 1, In = 5000 }).Contains("另有 1 个未知")
+                && BoardHierarchy.HourTokenText(new BoardHierarchy.HourCell { Hour = 3, Sessions = 1, TokUnknown = 1 }).IndexOf("0") < 0);
+            Check("层级·④ 汇总 / 峰值文案带**整会话累计**字样（✗ 不写成「每小时用量」✗）",
+                BoardHierarchy.HourlySummaryText(hy).Contains("整会话累计")
+                && BoardHierarchy.HourlySummaryText(hy).Contains("1 个会话没有最后活动时间")
+                && BoardHierarchy.HourlyPeakText(hy).Contains("活动最多的时段")
+                && BoardHierarchy.HourlyTitle.Contains("会话活动分布"));
+            // ★★ 口径脚注（提案 §3④ 硬要求：**必须带脚注**「整会话累计，非该小时增量」✓✓）
+            Check("层级·④ ★★口径脚注逐字含「整会话累计，非该小时增量」✓✓（提案 §3④ 硬要求 ✓ 改坏即红 ✓）",
+                BoardHierarchy.HourlyFootnote.Contains("整会话累计，非该小时增量"));
+            Check("层级·④ ★脚注**不许声称「真实增量」**（我们的投影只有会话级累计 ✓ 逐时真值拿不到 ✓）",
+                BoardHierarchy.HourlyFootnote.IndexOf("真实", StringComparison.Ordinal) < 0
+                && BoardHierarchy.HourlyFootnote.Contains("拿不到")
+                && BoardHierarchy.HourlyTitle.IndexOf("增量", StringComparison.Ordinal) < 0);
+            Check("层级·④ 数据不可用 ⇒ 只给「未知」句（✗ 绝不画一张全 0 的表 ✗✓ 硬红线 ✓）",
+                BoardHierarchy.HourlyUnknownText.Contains("未知") && BoardHierarchy.HourlyUnknownText.IndexOf('0') < 0
+                && BoardHierarchy.HourlyDistribution(SessionsMarkers.Parse("SESSIONS_FAIL x")).ActiveHours == 0
+                && BoardHierarchy.HourlyDistribution(null).Sessions == 0
+                && BoardHierarchy.HourlySummaryText(BoardHierarchy.HourlyDistribution(null)).Contains("0 个"));
+            Check("层级·④ 24 格齐全且确定性（同一份数据两次算 ⇒ 逐格相同 ✓）",
+                hy.Hours.Length == 24
+                && BoardHierarchy.HourlySummaryText(BoardHierarchy.HourlyDistribution(act)) == BoardHierarchy.HourlySummaryText(BoardHierarchy.HourlyDistribution(act))
+                && BoardHierarchy.HourlyPeakText(BoardHierarchy.HourlyDistribution(act)) == BoardHierarchy.HourlyPeakText(BoardHierarchy.HourlyDistribution(act)));
+
+            // —— 层级重整的**不变量**：用户可见文案零 ✓/✗ 与施工语气（提案 §6 ✓）——
+            string hierText = BoardHierarchy.StateActive + BoardHierarchy.StateParked + BoardHierarchy.StateIdle + BoardHierarchy.StateUnknown
+                + BoardHierarchy.SrcBridge + BoardHierarchy.SrcNoBridge + BoardHierarchy.SrcOldBridge + BoardHierarchy.SrcNoData
+                + BoardHierarchy.NoBudgetText + BoardHierarchy.GaugeFootnote + BoardHierarchy.ActivityFootnote
+                + BoardHierarchy.HourlyFootnote + BoardHierarchy.HourlyTitle + BoardHierarchy.HourlyUnknownText
+                + BoardHierarchy.CapsuleClockLine(null) + BoardHierarchy.CapsuleDetailLine(null);
+            Check("层级·不变量 用户可见文案零 ✓/✗ 记号、零施工语气（✗「改动/本轮/落实」之类 ✗）",
+                hierText.IndexOf('✓') < 0 && hierText.IndexOf('✗') < 0
+                && hierText.IndexOf("本轮", StringComparison.Ordinal) < 0
+                && hierText.IndexOf("施工", StringComparison.Ordinal) < 0);
+
             Console.WriteLine("== " + _pass + "/" + (_pass + _fail) + " passed, " + _fail + " failed ==");
             return _fail == 0 ? 0 : 1;
         }
 
         /// <summary>成本卡在**当前数据**下会渲染出来的全部文案（纯函数拼一遍 ✓）——
         /// 用来钉死两条最关键的验收：未配价「一个 $ 都没有」✓ / 配价「每个金额都带估算」✓。
-        /// 顺序与 BoardCostCard 一致（空态 / 超限条 / 今日 / 预算 / 窗口 / 明细 / 模型 / NOTE ✓）。</summary>
+        /// 顺序与 BoardCostCard 一致（空态 / 今日 / 预算 / 窗口 / 明细 / 模型 / NOTE ✓）。
+        /// ★ 看板层级重整（2026-10-26 ✓）：**超限提示条已搬到常显的「今天用了多少」卡**
+        /// （本卡现在收在折叠区里，默认收起 ⇒ 不能把警示藏起来 ✓）→ 这里不再拼它 ✓；
+        /// 超限文案本身仍由 `CostMarkers.OverBudgetText` 唯一产出（有专门断言 ✓）。</summary>
         private static string CardTextForTest(CostSnapshot cs)
         {
             if (cs == null) return CostMarkers.NotProvided;
@@ -943,7 +1146,6 @@ namespace Dsht.Gui.LogicTests
                 sb.Append(string.IsNullOrEmpty(cs.FailReason) ? CostMarkers.NotProvided : CostMarkers.FailPrefix + cs.FailReason).Append('\n');
                 return sb.ToString();
             }
-            sb.Append(CostMarkers.OverBudgetText(cs)).Append('\n');
             sb.Append(CostMarkers.TodayTokensLine(t)).Append('\n');
             sb.Append(CostMarkers.TodayMoneyLine(t)).Append('\n');
             if (t != null) sb.Append(CostMarkers.TodayFootnote(t.UnknownLast)).Append('\n');

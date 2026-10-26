@@ -158,7 +158,9 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 delegate { return "会话总数" + KpiTag(host); },
 
-                delegate { SessionsSnapshot d = host.Data; return d == null ? "—" : Agg(host).Count.ToString(); },
+                // ★ 看板层级重整（2026-10-26 ✓）：数据不可用（没取到 / SESSIONS_FAIL）⇒ **「未知」**，
+                //   ✗ 原来打 `0` —— 那是把"读不到"说成"没有"，正是硬红线要防的 ✓（口径没动 ✓ 只换降级文案 ✓）
+                delegate { SessionsSnapshot d = host.Data; return (d == null || !d.Ok) ? "未知" : Agg(host).Count.ToString(); },
 
                 delegate
 
@@ -166,11 +168,13 @@ namespace Dsht.Gui.Avalonia.Shells
 
                     SessionsSnapshot d = host.Data; KpiAgg a = Agg(host);
 
-                    return "非空 " + (d == null ? "—" : a.NonBlank.ToString()) + " · dsh 活跃 " + (d == null ? "—" : a.Live.ToString())
+                    if (d == null || !d.Ok) return "读不到会话投影，这几项都是未知。";
 
-                        + "（在动看每行状态；「挂着」= 还在 dsh 里但没动） · 子代理 " + (d == null ? "—" : a.Subs.ToString())
+                    return "非空 " + a.NonBlank.ToString() + " · dsh 活跃 " + a.Live.ToString()
 
-                        + " / 无父边 " + (d == null ? "—" : (a.Count - a.Subs).ToString());   // ★ 2026-10-26：原写"根"是**过度声称** ✗（无父边 ⇒ 无法证明是根 ✓）
+                        + "（在动看每行状态；「挂着」= 还在 dsh 里但没动） · 子代理 " + a.Subs.ToString()
+
+                        + " / 无父边 " + (a.Count - a.Subs).ToString();   // ★ 2026-10-26：原写"根"是**过度声称** ✗（无父边 ⇒ 无法证明是根 ✓）
 
                 }, Palette.Text, 0, null));
 
@@ -178,9 +182,14 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 delegate { return "缓存命中率" + KpiTag(host); },
 
-                delegate { return PctText(Agg(host).HitPct); },
+                delegate { SessionsSnapshot d = host.Data; return (d == null || !d.Ok) ? "未知" : PctText(Agg(host).HitPct); },
 
-                delegate { SessionsSnapshot d = host.Data; return "缓存读 " + (d == null ? "—" : SessionRow.Human(Agg(host).Cache)); },
+                delegate
+                {
+                    SessionsSnapshot d = host.Data;
+                    if (d == null || !d.Ok) return "读不到会话投影，这几项都是未知。";
+                    return "缓存读 " + SessionRow.Human(Agg(host).Cache);
+                },
 
                 Palette.Good, 1, delegate { return Agg(host).HitPct; }));
 
@@ -188,20 +197,20 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 delegate { return "解码速度" + KpiTag(host); },
 
-                delegate { return TpsText(Agg(host).Tps); },
+                delegate { SessionsSnapshot d = host.Data; return (d == null || !d.Ok) ? "未知" : TpsText(Agg(host).Tps); },
 
-                delegate { return "tok/s"; }, Palette.Accent, 2, null));
+                delegate { SessionsSnapshot d = host.Data; return (d == null || !d.Ok) ? "读不到会话投影，这几项都是未知。" : "tok/s"; }, Palette.Accent, 2, null));
 
             g.Children.Add(KpiCardLive(host, Symbol.DataUsage,
 
                 delegate { return "累计 token" + KpiTag(host); },
 
-                delegate { SessionsSnapshot d = host.Data; return d == null ? "—" : SessionRow.Human(Agg(host).In); },
+                delegate { SessionsSnapshot d = host.Data; return (d == null || !d.Ok) ? "未知" : SessionRow.Human(Agg(host).In); },
 
                 delegate
                 {
                     SessionsSnapshot d = host.Data; KpiAgg a = Agg(host);
-                    if (d == null) return "输出 —";
+                    if (d == null || !d.Ok) return "读不到会话投影，这几项都是未知。";
                     // ★ 口径拆开（用户反馈：400 亿这个数字太吓人 → 让它自我解释 ✓）
                     long uncached = a.In - a.Cache;
                     if (uncached < 0) uncached = 0;
@@ -428,7 +437,12 @@ namespace Dsht.Gui.Avalonia.Shells
         ///   主标签「指标」= KPI 四卡 → 筛选条 → 总计卡（固定总计块 + 窗口块合一 ✓ §2-5 ✓）→ 操作回执细条 ✓ **没有图** ✗（§2-7 ✓）
         ///     —— 1320×840 首屏顺序 = KPI → 筛选 → 总计（→ 回执细条），与 §2-9 一致 ✓；
         ///   子标签「图表」= 筛选条（同一口径入口 ✓ 两标签共享 ✓ C.4 脚注每屏恰好一次 ✓ §1 ✓）→ 七张图（同排两图等高 ✓ §2-8 ✓）。
-        ///   上方两段旧注释曾自相矛盾（指标/图表分标签 → 又合成单页）—— 现在是第二次拆分，以此段为准 ✓。</summary>
+        ///   上方两段旧注释曾自相矛盾（指标/图表分标签 → 又合成单页）—— 现在是第二次拆分，以此段为准 ✓。
+        /// ★★ 看板层级重整（2026-10-26 ✓✓ 提案《看板优化与置顶悬浮窗》§3 五条 ✓✓）——
+        ///   ① 状态胶囊（结论 + 数据时刻）在最上 ✓ ② 今日用量进度（相对**用户自填预算** ✓ ✗ 不预置阈值 ✓）
+        ///   ③ 最近活动流 ④ 24 小时分布（整会话累计口径 + 脚注 ✓）⑤ 一屏可读：③④ 与既有次要卡一起收进**折叠区**
+        ///   ⇒ 默认首屏只留 5 个数字：胶囊状态 + 数据时刻 + KPI 四卡 + 今日用量 ✓。
+        ///   ★ **只改呈现层级** ✗ 数据口径（窗口 / 三档 / 未知 / 估算 / 四桶）一个字没动 ✓✓。</summary>
         private static Control BoardContent(MainWindow host)
         {
             StackPanel s = new StackPanel { Margin = new Thickness(24, 8, 24, 8), Spacing = ShapeTokens.S16 };   // ★ 体验修复：看板页纵向边距压半（一屏 ✓ 横向不变 ✓ 别页不动 ✓）
@@ -436,17 +450,22 @@ namespace Dsht.Gui.Avalonia.Shells
             //   ✗ 原来「指标/图表」切换 = 只建一棵子树 + `BuildShell()` 整页重建 → 闪 160ms ✗ 滚动回顶 ✗✗
             //   ✓ 现在两棵子树**都建好**、切换只切 `IsVisible` ✓ 零重建 ✓ 零闪烁 ✓ 不跳滚动 ✓✓
             //   （CLI 数据照旧按原节奏刷 ✗ 不降刷新频率 ✓；两棵树同一时刻只有一棵可见 ✗ 没有双份 CLI 开销 ✓）
-            // —— 子标签「指标」✓✓ 顺序 = KPI → 筛选 → 总计 → 三档对比 → Top5 → 回执细条（§2-9 + 体验修复 ✓）——
+            // —— 子标签「指标」✓✓ 顺序（层级重整后）= 状态胶囊 → KPI → 今日用量 → 筛选 → 折叠区 → 回执细条 ——
             StackPanel metrics = new StackPanel { Spacing = ShapeTokens.S12 };   // 12px ✓（规格：卡间距 12~16 ✓ 一屏放下 ✓）
-            // ★ 成本卡（2026-10-16 v3.2 ✓ 规格 §3/§3.1 ✓）：**指标页顶部** ✓（维护者已确认位置 ✓ 高频信息优先 ✓）
-            metrics.Children.Add(BoardCostCard(host));
+            // ① 状态胶囊（提案 §3① ✓）：一屏之内先给结论 —— 在动 / 停驻 / 无活动 + **数据时刻**（HH:mm:ss ✓）；
+            //   ★ 状态来源必须标清：有桥接快照 ⇒「来自桥接快照 · 3 秒拍」✓；无桥接 ⇒「未知（未装桥接）」✗ **不许猜成停驻** ✗✓
+            metrics.Children.Add(BoardStatusCapsule(host));
+            // KPI 四卡（首屏 4 个数字 ✓ §3⑤）
             metrics.Children.Add(KpiStrip(host));
+            // ② 进度化（提案 §3② ✓）：把「今天用了多少」做成进度条 —— 相对**用户自填预算**（sessions_budget_usd_per_day ✓）
+            //   ✗ 不许预置阈值 ✗；未填预算 ⇒ **不画进度条** ✓ 只显示数字 ✓
+            metrics.Children.Add(BoardTodayGaugeCard(host));
             // 筛选条：窗口档 + 「自定义…」+ 口径 chips + fork 口径差「?」入口（B.5 ✓ §2-4 ✓）+ C.4 固定脚注（本屏唯一一次 ✓ §1 ✓）
             metrics.Children.Add(BoardFilterBar(host));
-            // 总计卡（§2-5 ✓✓ 文案逐字保留 ✓ 字段级刷新 ✓）；三档对比表 + Top5（体验修复 ✓✓ 一屏放下 ✓）
-            metrics.Children.Add(BoardTotalsCard(host));
-            metrics.Children.Add(BoardLevelCompareCard(host));
-            metrics.Children.Add(BoardTop5Card(host));
+            // ⑤ 一屏可读（提案 §3⑤ ✓）：③④ 与其余次要指标（总计卡 / 成本明细 / 三档对比 / Top 5）收进**折叠区**
+            //   —— 默认**收起** ✓ 首屏只留上面那几个数字 ✓；展开走字段级刷新 ✗ 不整页重建 ✓
+            metrics.Children.Add(BoardMoreToggle(host));
+            metrics.Children.Add(BoardMoreBody(host));
             // 操作回执细条**常显**（§2-6 ✓ 体验修复 ✓✓）：空也要占住高度 ✗ 不许整卡消失 ✓
             metrics.Children.Add(ReceiptStrip(host));
             // —— 子标签「图表」（§2-7 ✓✓）：筛选条（同一口径入口 ✓ 两标签共享 ✓）+ 范围档卡 + 七张图 ✓
@@ -473,6 +492,366 @@ namespace Dsht.Gui.Avalonia.Shells
             });
             return s;
         }
+
+        // ================================================================ ① 状态胶囊（提案 §3①）
+
+        /// <summary>状态胶囊（2026-10-26 · 提案 §3① ✓✓）：**指标页顶部一条** ✓
+        /// 左：状态点 + 「在动 / 停驻 / 无活动 / 未知（来源）」✓；右：**数据时刻 HH:mm:ss** ✓；下方：判据一行 ✓。
+        /// 状态来源逐字标清（有桥接 ⇒「来自桥接快照 · 3 秒拍」✓；无桥接 ⇒「未知（未装桥接）」✗ 不猜停驻 ✓）；
+        /// 判定与文案全在 <see cref="BoardHierarchy.CapsuleOf"/>（纯函数 ✓ LogicTests 钉死 ✓）。
+        /// 刷新走**字段级** Live / LiveText ✓（✗ 不整页重建 ✓）；未知时状态点是**中性色** ✗ 不用绿点误导 ✓。</summary>
+        private static Control BoardStatusCapsule(MainWindow host)
+        {
+            StackPanel c = new StackPanel { Spacing = 5 };
+            Grid row = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto") };
+            Ellipse dot = new Ellipse { Width = 11, Height = 11, Fill = CapsuleBrush(host.Data), VerticalAlignment = VerticalAlignment.Center };
+            Grid.SetColumn(dot, 0);
+            row.Children.Add(dot);
+            TextBlock state = host.LiveText(BoardHierarchy.CapsuleStateLine(host.Data),
+                delegate { return BoardHierarchy.CapsuleStateLine(host.Data); });
+            state.FontSize = 15.5; state.FontWeight = FontWeight.SemiBold; state.Foreground = Palette.Text;
+            state.VerticalAlignment = VerticalAlignment.Center; state.Margin = new Thickness(9, 0, 12, 0);
+            state.TextWrapping = TextWrapping.Wrap;
+            Grid.SetColumn(state, 1);
+            row.Children.Add(state);
+            // ★ 数据时刻（提案 §3① 硬要求 ✓）：HH:mm:ss ✓；取不到 ⇒「未知」✗ 绝不显示 00:00:00 ✓
+            TextBlock clock = host.LiveText(BoardHierarchy.CapsuleClockLine(host.DataAt),
+                delegate { return BoardHierarchy.CapsuleClockLine(host.DataAt); });
+            clock.FontSize = 11.5; clock.Foreground = Palette.TextDim;
+            clock.VerticalAlignment = VerticalAlignment.Center;
+            Grid.SetColumn(clock, 2);
+            row.Children.Add(clock);
+            c.Children.Add(row);
+            TextBlock detail = host.LiveText(BoardHierarchy.CapsuleDetailLine(host.Data),
+                delegate { return BoardHierarchy.CapsuleDetailLine(host.Data); });
+            detail.FontSize = 11.5; detail.Foreground = Palette.TextFaint; detail.TextWrapping = TextWrapping.Wrap;
+            c.Children.Add(detail);
+            host.Live(delegate
+            {
+                IBrush br = CapsuleBrush(host.Data);
+                if (!ReferenceEquals(dot.Fill, br)) dot.Fill = br;
+            });
+            return Card(c, new Thickness(0), new Thickness(16, 10));
+        }
+
+        /// <summary>胶囊状态点颜色：已知在动 = Good ✓ / 已知停驻 = Warn ✓ / 已知无活动 = Idle ✓；
+        /// **未知 = Muted（中性）** ✗ —— 绝不用"绿=在跑"的颜色去替一个我们并不知道的状态背书 ✓。</summary>
+        private static IBrush CapsuleBrush(SessionsSnapshot d)
+        {
+            BoardHierarchy.Capsule cap = BoardHierarchy.CapsuleOf(d);
+            if (!cap.Known) return Palette.Muted;
+            if (cap.State == BoardHierarchy.StateActive) return Palette.Good;
+            if (cap.State == BoardHierarchy.StateParked) return Palette.Warn;
+            return Palette.Idle;
+        }
+
+        // ================================================================ ② 今日用量进度（提案 §3②）
+
+        /// <summary>今日用量卡（2026-10-26 · 提案 §3② ✓✓）：把「今天用了多少」做成进度条 ——
+        /// **相对用户自填预算**（`sessions_budget_usd_per_day` ✓ 已有键 ✓）✗ 不预置任何阈值 ✗；
+        /// 未填预算 ⇒ `GaugeOf(...).DrawBar=false` ⇒ **这一格不出现** ✓ 只显示数字 ✓（✗ 绝不自己造一个上限 ✓）；
+        /// 超限提示条也搬到这里（**常显卡** ✓ 折叠区收起时也不会把警示藏起来 ✓）——文案仍走
+        /// `CostMarkers.OverBudgetText`（唯一出处 ✓ 只提示 ✗ 不阻止任何操作 ✓）。
+        /// 全部字段级刷新 ✓（进度条只在比例真变时重建那一个小控件 ✗ 不整页重建 ✓）。</summary>
+        private static Control BoardTodayGaugeCard(MainWindow host)
+        {
+            StackPanel c = new StackPanel { Spacing = 6 };
+            Grid head = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto") };
+            TextBlock title = T("今天用了多少", 13, Palette.Text, FontWeight.Bold);
+            Grid.SetColumn(title, 0);
+            head.Children.Add(title);
+            TextBlock tag = host.LiveText(GaugeTagText(host), delegate { return GaugeTagText(host); });
+            tag.FontSize = 11.5; tag.Foreground = Palette.TextFaint;
+            tag.VerticalAlignment = VerticalAlignment.Center; tag.HorizontalAlignment = HorizontalAlignment.Right;
+            Grid.SetColumn(tag, 2);
+            head.Children.Add(tag);
+            c.Children.Add(head);
+
+            // 超限提示条（仅真超限 ✓ 只提示 ✗ 不阻止 ✓ 与成本卡共用同一文案函数 ✓）
+            TextBlock over = host.LiveText(CostMarkers.OverBudgetText(host.Cost), delegate { return CostMarkers.OverBudgetText(host.Cost); });
+            over.FontSize = 12; over.Foreground = Palette.Bad; over.TextWrapping = TextWrapping.Wrap;
+            Border overBar = new Border
+            {
+                Background = Palette.BadSoft,
+                CornerRadius = new CornerRadius(ShapeTokens.RCtrl),
+                Padding = new Thickness(10, 6),
+                Child = over
+            };
+            overBar.IsVisible = over.Text != null && over.Text.Length > 0;
+            host.Live(delegate { overBar.IsVisible = over.Text != null && over.Text.Length > 0; });
+            c.Children.Add(overBar);
+
+            // 金额行（有预算 ⇒ 进度句 ✓ 没预算 ⇒ 数字 + 如实说未设预算 ✓）
+            TextBlock money = LvLine(host, 12.5, Palette.Text, FontWeight.SemiBold,
+                delegate { return BoardHierarchy.GaugeMoneyLine(host.Cost); });
+            money.TextWrapping = TextWrapping.Wrap;
+            c.Children.Add(money);
+
+            // ★ 进度条：**只有**「用户填了正数预算」且「今日金额可算」时才出现 ✓（✗ 未填预算不画 ✗ 未知不画 ✓）
+            BoardHierarchy.Gauge g0 = BoardHierarchy.GaugeOf(host.Cost);
+            Border barHost = new Border
+            {
+                IsVisible = g0.DrawBar,
+                Child = g0.DrawBar ? Meter(g0.Percent, GaugeBrush(g0), 6) : null
+            };
+            double lastPct = g0.DrawBar ? g0.Percent : double.MinValue;
+            bool lastOver = g0.Over;
+            host.Live(delegate
+            {
+                BoardHierarchy.Gauge g = BoardHierarchy.GaugeOf(host.Cost);
+                if (barHost.IsVisible != g.DrawBar) barHost.IsVisible = g.DrawBar;
+                if (!g.DrawBar) { lastPct = double.MinValue; return; }
+                if (Math.Abs(g.Percent - lastPct) > 0.05 || g.Over != lastOver)
+                {
+                    lastPct = g.Percent; lastOver = g.Over;
+                    barHost.Child = Meter(g.Percent, GaugeBrush(g), 6);   // ✗ 只换这一格 ✗ 不整页重建 ✓
+                }
+            });
+            c.Children.Add(barHost);
+
+            // 数字（token 行：未配价也照常显示 ✓ ✗ 不用窗口数冒充今日 ✓）
+            TextBlock tok = LvLine(host, 11.5, Palette.TextDim, FontWeight.Normal,
+                delegate { return CostMarkers.TodayTokensLine(CostToday(host)); });
+            tok.TextWrapping = TextWrapping.Wrap;
+            c.Children.Add(tok);
+
+            TextBlock fn = T(BoardHierarchy.GaugeFootnote, 10.5, Palette.TextFaint);
+            fn.TextWrapping = TextWrapping.Wrap;
+            c.Children.Add(fn);
+            return Card(c, new Thickness(0), new Thickness(16, 10));
+        }
+
+        /// <summary>进度条颜色：超预算 = Bad ✓ 其余 = Accent ✓（✗ 不给"安全阈值"配色 —— 我们没有阈值 ✓）。</summary>
+        private static IBrush GaugeBrush(BoardHierarchy.Gauge g)
+        {
+            return g != null && g.Over ? Palette.Bad : Palette.Accent;
+        }
+
+        /// <summary>右上角小字：有预算 ⇒「相对你自填的每日预算」✓；没预算 ⇒「未设置每日预算」✓（✗ 不暗示有上限 ✓）；
+        /// ★ 成本数据本身没读到（没有 COST_* 块 / 没有 today 块）⇒ 说「成本数据未提供」✗
+        ///   —— ✗ 不许在这种时候断言「未设置每日预算」（那是我们并不知道的事 ✗✓）。</summary>
+        private static string GaugeTagText(MainWindow host)
+        {
+            CostSnapshot cs = host.Cost;
+            if (cs == null || !cs.HasCost || cs.Today == null) return "成本数据未提供";
+            BoardHierarchy.Gauge g = BoardHierarchy.GaugeOf(cs);
+            if (!g.HasBudget) return "未设置每日预算";
+            return "相对你自填的每日预算";
+        }
+
+        // ================================================================ ⑤ 折叠区（提案 §3⑤）
+
+        /// <summary>折叠区入口（提案 §3⑤ ✓）：默认收起 ⇒ 首屏只留 4~5 个数字 ✓；
+        /// 文案/无障碍名随状态走 ✓ 点击只改本地视图态 + 字段刷新一拍 ✗ 不整页重建 ✓。</summary>
+        private static Control BoardMoreToggle(MainWindow host)
+        {
+            StackPanel col = new StackPanel { Spacing = 4 };
+            TextBlock label = host.LiveText(MoreLabel(host.BoardMoreOpen), delegate { return MoreLabel(host.BoardMoreOpen); });
+            label.FontSize = 11.5; label.Foreground = Palette.Accent;
+            Button b = new Button
+            {
+                Content = label,
+                Background = Palette.CardHover,
+                BorderBrush = Palette.Accent,          // 描边强调：这是"展开次要指标"的唯一入口 ✓ 一眼能看见 ✓
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(ShapeTokens.RCtrl),
+                Padding = new Thickness(12, 5),
+                HorizontalAlignment = HorizontalAlignment.Left
+            };
+            b.Click += delegate { host.ToggleBoardMore(); };
+            global::Avalonia.Automation.AutomationProperties.SetName(b, "更多指标");
+            global::Avalonia.Automation.AutomationProperties.SetHelpText(b, "展开或收起次要指标（总计 / 成本明细 / 三档对比 / Top 5 / 24 小时分布 / 最近活动）");
+            host.Live(delegate
+            {
+                string an = host.BoardMoreOpen ? "更多指标（展开中，点击收起）" : "更多指标（点击展开）";
+                if (global::Avalonia.Automation.AutomationProperties.GetName(b) != an)
+                {
+                    global::Avalonia.Automation.AutomationProperties.SetName(b, an);
+                }
+            });
+            col.Children.Add(b);
+            TextBlock hint = T("展开后：总计 · 成本明细 · 三档口径对比 · 输入 Top 5 · 24 小时分布 · 最近活动", 10.5, Palette.TextFaint);
+            hint.TextWrapping = TextWrapping.Wrap;
+            col.Children.Add(hint);
+            return col;
+        }
+
+        private static string MoreLabel(bool open)
+        {
+            return open ? "收起更多指标" : "更多指标（展开）";
+        }
+
+        /// <summary>折叠区本体（提案 §3⑤ ✓）：既有次要卡 + 新增的 ③④ 一起收在这里。
+        /// 默认收起 ✓（`host.BoardMoreOpen=false`）；显隐走字段级刷新 ✓ ✗ 不整页重建 ✓。</summary>
+        private static Control BoardMoreBody(MainWindow host)
+        {
+            StackPanel body = new StackPanel { Spacing = ShapeTokens.S12 };
+            body.Children.Add(BoardTotalsCard(host));
+            body.Children.Add(BoardCostCard(host));
+            body.Children.Add(BoardLevelCompareCard(host));
+            body.Children.Add(BoardTop5Card(host));
+            body.Children.Add(BoardHourlyCard(host));     // ④ 24 小时分布
+            body.Children.Add(BoardActivityCard(host));   // ③ 最近活动流
+            body.IsVisible = host.BoardMoreOpen;
+            host.Live(delegate
+            {
+                bool o = host.BoardMoreOpen;
+                if (body.IsVisible != o) body.IsVisible = o;
+            });
+            return body;
+        }
+
+        // ================================================================ ④ 24 小时分布（提案 §3④）
+
+        /// <summary>24 小时分布卡（2026-10-26 · 提案 §3④ ✓✓ —— **这条最容易做假，口径严格照 §3④** ✓）：
+        /// 能做①每小时的**会话活动数**（按会话最后提问时间归属 ✓ 这是逐时真值 ✓）；
+        /// 能做②token 与缓存命中率按**最后活动小时整会话累计归属** ✓ —— ★ 因此**必须带脚注**
+        /// 「整会话累计，非该小时增量」✓✓（`BoardHierarchy.HourlyFootnote` 唯一出处 ✓ 逐字断言 ✓）；
+        /// ✗ **不许**声称"每小时真实 token 增量"✗（我们的投影只有会话级累计 ✓ 逐时真值须解原始 zstd ✓ 拿不到 ✓）。
+        /// 数据不可用 ⇒ 整卡只显示「未知」✗ 绝不画一张全 0 的表 ✓。</summary>
+        private static Control BoardHourlyCard(MainWindow host)
+        {
+            StackPanel c = new StackPanel { Spacing = 4 };
+            c.Children.Add(T(BoardHierarchy.HourlyTitle, 13, Palette.Text, FontWeight.Bold));
+            TextBlock sum = LvLine(host, 11.5, Palette.TextDim, FontWeight.Normal, delegate
+            {
+                SessionsSnapshot d = host.Data;
+                if (d == null || !d.Ok) return BoardHierarchy.HourlyUnknownText;
+                return BoardHierarchy.HourlySummaryText(BoardHierarchy.HourlyDistribution(d));
+            });
+            sum.TextWrapping = TextWrapping.Wrap;
+            c.Children.Add(sum);
+            TextBlock peak = LvLine(host, 11.5, Palette.TextDim, FontWeight.Normal, delegate
+            {
+                SessionsSnapshot d = host.Data;
+                if (d == null || !d.Ok) return "";
+                return BoardHierarchy.HourlyPeakText(BoardHierarchy.HourlyDistribution(d));
+            });
+            peak.TextWrapping = TextWrapping.Wrap;
+            c.Children.Add(peak);
+            // 24 行固定表格（列 = 小时 / 会话活动数 / 整会话累计 token 条形 / 输入 token / 缓存命中率）
+            //   ★ 列头**必须写明** token 与命中率是整会话累计口径 ✓（✗ 不写成"每小时用量"✗）
+            Grid g = new Grid { ColumnDefinitions = new ColumnDefinitions("44,54,*,120,92") };
+            g.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
+            AddLvCell(g, T("小时", 11, Palette.TextFaint), 0, 0);
+            AddLvCell(g, T("会话", 11, Palette.TextFaint), 0, 1);
+            AddLvCell(g, T("整会话累计 token", 11, Palette.TextFaint), 0, 2);
+            AddLvCell(g, T("输入 token", 11, Palette.TextFaint), 0, 3);
+            AddLvCell(g, T("缓存命中率", 11, Palette.TextFaint), 0, 4);
+            for (int h = 0; h < 24; h++)
+            {
+                int hh = h;
+                g.RowDefinitions.Add(new RowDefinition(GridLength.Auto));
+                int row = hh + 1;
+                AddLvCell(g, LvLine(host, 11, Palette.TextDim, FontWeight.Normal,
+                    delegate { return BoardHierarchy.Two(hh) + " 时"; }), row, 0);
+                AddLvCell(g, LvLine(host, 11, Palette.Text, FontWeight.Normal,
+                    delegate { return HourCellOf(host, hh).Sessions.ToString(); }), row, 1);
+                Border bar = new Border { Height = 8, VerticalAlignment = VerticalAlignment.Center };
+                bar.Child = new Border { Background = Palette.BarTrack, CornerRadius = new CornerRadius(4) };
+                double lastP = double.MinValue;
+                host.Live(delegate
+                {
+                    BoardHierarchy.Hourly hy = host.Data != null && host.Data.Ok ? BoardHierarchy.HourlyDistribution(host.Data) : null;
+                    double p = hy == null ? -1 : HourBarPercent(hy, hh);
+                    if (Math.Abs(p - lastP) < 0.05) return;
+                    lastP = p;
+                    bar.Child = p < 0
+                        ? (Control)new Border { Background = Palette.BarTrack, CornerRadius = new CornerRadius(4) }
+                        : Meter(p, Palette.Accent, 8);   // ✗ 只换这一格 ✗ 不整页重建 ✓
+                });
+                AddLvCell(g, bar, row, 2);
+                AddLvCell(g, LvLine(host, 11, Palette.TextDim, FontWeight.Normal,
+                    delegate { return BoardHierarchy.HourTokenText(HourCellOf(host, hh)); }), row, 3);
+                AddLvCell(g, LvLine(host, 11, Palette.TextDim, FontWeight.Normal,
+                    delegate { return BoardHierarchy.HourHitText(HourCellOf(host, hh)); }), row, 4);
+            }
+            // ★★ 数据不可用 ⇒ **整张表不出现**（只留上面的「未知」句 ✓）——
+            //   ✗ 否则会摆出 24 行 0，那正是「未知一律显示未知、绝不显示 0」这条硬红线要防的 ✗✓
+            //   ★ 注意：表格只挂到 gHost 上（✗ 不能先挂进 c 再挂进 gHost —— 一个控件只能有一个父 ✗✓）
+            Border gHost = new Border { Child = g };
+            SessionsSnapshot d0h = host.Data;
+            gHost.IsVisible = d0h != null && d0h.Ok;
+            host.Live(delegate
+            {
+                SessionsSnapshot dh = host.Data;
+                bool v = dh != null && dh.Ok;
+                if (gHost.IsVisible != v) gHost.IsVisible = v;
+            });
+            c.Children.Add(gHost);
+            // ★ 口径脚注（唯一出处 ✓ 逐字含「整会话累计，非该小时增量」✓✓）
+            TextBlock fn = T(BoardHierarchy.HourlyFootnote, 10.5, Palette.TextFaint);
+            fn.TextWrapping = TextWrapping.Wrap;
+            c.Children.Add(fn);
+            return Card(c, new Thickness(0), new Thickness(18, 8));
+        }
+
+        /// <summary>该小时格（数据不可用 ⇒ 全 0 的空格 —— 但**卡片在那种情况下只显示「未知」** ✓
+        /// 由 `HourlyUnknownText` 与空表格的显隐把守 ✗ 不会把 0 当成事实摆出来 ✓）。</summary>
+        private static BoardHierarchy.HourCell HourCellOf(MainWindow host, int h)
+        {
+            SessionsSnapshot d = host.Data;
+            if (d == null || !d.Ok) return new BoardHierarchy.HourCell { Hour = h };
+            return BoardHierarchy.HourlyDistribution(d).Hours[h];
+        }
+
+        /// <summary>条形比例（相对本窗口内最大的那一小时 ✓ 纯呈现 ✓ &lt;0 = 该小时没有活动 ⇒ 不画条 ✓）。</summary>
+        private static double HourBarPercent(BoardHierarchy.Hourly hy, int h)
+        {
+            if (hy == null) return -1;
+            long max = 0;
+            for (int i = 0; i < 24; i++) if (hy.Hours[i].Sessions > max) max = hy.Hours[i].Sessions;
+            if (max <= 0) return -1;
+            if (hy.Hours[h].Sessions <= 0) return -1;
+            return hy.Hours[h].Sessions * 100.0 / max;
+        }
+
+        /// <summary>该小时输入 token 文案（**整会话累计** ✓ 全未知 ⇒「未知」✗ 绝不显 0 ✓）。
+        /// 取值住在 <see cref="BoardHierarchy.HourTokenText"/>（纯函数 ✓ LogicTests 钉死 ✓ 界面只调它 ✓）。</summary>
+
+        // ================================================================ ③ 最近活动流（提案 §3③）
+
+        /// <summary>最近活动流（2026-10-26 · 提案 §3③ ✓✓）：按时间列最近 N 条会话活动 ✓
+        /// **只给 id 短码 + 时间 + token** ✗ —— ✗ **绝不含会话标题 / 对话正文 / 工具参数** ✗（数据最小化 ✓）。
+        /// 数据源与总计卡 / 三档表 / Top 5 **同一集合**（eligible ∩ SESSION 行 ✓ 同一次 CLI 取数 ⇒ 同源 ✓ 差 0 ✓）；
+        /// 用量未知 ⇒「用量未知」✗ 绝不显 0 ✓；固定 N 行 ⇒ 字段级原地换字 ✗ 不整页重建 ✓。</summary>
+        private static Control BoardActivityCard(MainWindow host)
+        {
+            StackPanel c = new StackPanel { Spacing = 4 };
+            c.Children.Add(T("最近活动（当前窗口）", 13, Palette.Text, FontWeight.Bold));
+            TextBlock state = LvLine(host, 11.5, Palette.Warn, FontWeight.Normal, delegate
+            {
+                SessionsSnapshot d = host.Data;
+                return (d == null || !d.Ok) ? "会话活动：未知（读不到会话投影）" : "";
+            });
+            state.IsVisible = state.Text != null && state.Text.Length > 0;
+            host.Live(delegate { state.IsVisible = state.Text != null && state.Text.Length > 0; });
+            c.Children.Add(state);
+            StackPanel rows = new StackPanel { Spacing = 2 };
+            for (int i = 0; i < ActivityCardRows; i++)
+            {
+                int idx = i;
+                TextBlock row = LvLine(host, 11.5, Palette.TextDim, FontWeight.Normal,
+                    delegate { return ActivityLineAt(host, idx); });
+                rows.Children.Add(row);
+            }
+            c.Children.Add(rows);
+            TextBlock fn = T(BoardHierarchy.ActivityFootnote, 10.5, Palette.TextFaint);
+            fn.TextWrapping = TextWrapping.Wrap;
+            c.Children.Add(fn);
+            return Card(c, new Thickness(0), new Thickness(18, 8));
+        }
+
+        /// <summary>活动流固定列几行（固定行数 ⇒ 字段级刷新能原地换字 ✓ ✗ 不整页重建 ✓）。</summary>
+        private const int ActivityCardRows = 8;
+
+        /// <summary>活动流第 idx 行（建树即算 ✓ 之后每拍重算 ✓ 单一出处 ✓）。</summary>
+        private static string ActivityLineAt(MainWindow host, int idx)
+        {
+            List<BoardHierarchy.ActivityRow> r = BoardHierarchy.RecentActivity(host.Data, ActivityCardRows);
+            return idx >= 0 && idx < r.Count ? BoardHierarchy.ActivityLine(r[idx]) : "";
+        }
+
 
         /// <summary>看板结构签名：数据 ok 态 + 血缘态（决定口径 chips 可点/静态两形态 ✓）。没变 = 纯字段刷新就够 ✓。</summary>
         private static string BoardStructSig(SessionsSnapshot d)
@@ -866,19 +1245,9 @@ namespace Dsht.Gui.Avalonia.Shells
             body.IsVisible = cs0 != null && cs0.HasCost;
             host.Live(delegate { CostSnapshot cs = host.Cost; body.IsVisible = cs != null && cs.HasCost; });
 
-            // ① 超限提示条（仅真超限 ✓ 只提示 ✗ 不阻止任何操作 ✓）
-            TextBlock over = host.LiveText(CostMarkers.OverBudgetText(host.Cost), delegate { return CostMarkers.OverBudgetText(host.Cost); });
-            over.FontSize = 12; over.Foreground = Palette.Bad; over.TextWrapping = TextWrapping.Wrap;
-            Border overBar = new Border
-            {
-                Background = Palette.BadSoft,
-                CornerRadius = new CornerRadius(ShapeTokens.RCtrl),
-                Padding = new Thickness(10, 6),
-                Child = over
-            };
-            overBar.IsVisible = over.Text != null && over.Text.Length > 0;
-            host.Live(delegate { overBar.IsVisible = over.Text != null && over.Text.Length > 0; });
-            body.Children.Add(overBar);
+            // ★ 看板层级重整（2026-10-26 ✓）：超限提示条**已搬到常显的「今天用了多少」卡** ✓
+            //   ✗ 原来它只在本卡里，而本卡现在收在折叠区（默认收起）⇒ 会把警示藏起来 ✗✓
+            //   文案仍走 `CostMarkers.OverBudgetText`（唯一出处 ✓ 只提示 ✗ 不阻止任何操作 ✓）
 
             // ② 今日（scope=today ✓ 含预算 ✓）
             body.Children.Add(T("今日", 12, Palette.Text, FontWeight.SemiBold));
