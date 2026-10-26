@@ -363,6 +363,50 @@ namespace Dsht.Gui.Avalonia.Design
         public static string StatusSurface(int styleKind) { return Style(styleKind).CardBg; }
 
         // =====================================================================================
+        //  ⑦b 状态灯的**尺寸 / 光晕 / 描边 / 透明**（画法文件只许读它 ✗ 不许自造 ✗）
+        //     值与本轮之前逐值一致 ✗ 本轮不改观感 ✗（只是把画法文件里的字面量搬进 token 表 ✓）
+        // =====================================================================================
+
+        /// <summary>状态灯直径（默认档 / 强调档 ✓ 与间距网格 4 的倍数同源：8 / 12 ✓）。</summary>
+        public const double LightSizeSm = 8;
+        public const double LightSizeMd = 12;
+
+        /// <summary>柔光晕的**模糊半径**（越大越柔 ✓ 只用到 8 ✓ ✗ 不做发光循环 ✗）。</summary>
+        public const double LightGlowBlur = 8;
+
+        /// <summary>柔光晕的**扩散**（极小 ✓ ⇒ 它是"晕"不是"实心块" ✓）。</summary>
+        public const double LightGlowSpread = 1;
+
+        /// <summary>灯环的**粗细**（发丝 ✓）。</summary>
+        public const double LightRingStroke = 1;
+
+        /// <summary>「什么都不画」的**唯一取值**（窗口底 / 光晕底 ✓ 它不是语义色 ✓ 但也不许
+        /// 在业务文件里写 `Brushes.Transparent` / `Color.FromArgb(0,…)` 这类命名颜色 ✗ 断言盯着 ✓）。</summary>
+        public const string TransparentHex = "#00000000";
+
+        // =====================================================================================
+        //  ⑦c 悬边状态灯的**几何**（厚度 / 长度 / 透明余量 / 圆点 ✓）
+        //     三档下标 = 配置 `overlay_scale`（0 紧凑 / 1 标准 / 2 大 ✓ 越界回落标准档 ✓）
+        //     ★ 取值与本轮之前**逐值一致** ✗ 本轮不改观感 ✗ —— 只是从 `OverlayWindow` 搬进 token 表
+        //       （断言：业务文件里不许再出现这些自造数值 ✓ 改回去即红 ✓）
+        // =====================================================================================
+
+        /// <summary>灯体**厚度**（贴边方向的宽度 ✓ 三档 8 / 11 / 14）。</summary>
+        public static double LampThicknessOf(int scale) { return scale == 0 ? 8 : (scale == 2 ? 14 : 11); }
+
+        /// <summary>灯体**长度**（沿边方向 ✓ 三档 56 / 74 / 92）。</summary>
+        public static double LampLengthOf(int scale) { return scale == 0 ? 56 : (scale == 2 ? 92 : 74); }
+
+        /// <summary>灯四周的**透明余量** ✓ —— 它就是"灯以外的区域"：必须点击穿透 ✓（三档 4 / 5 / 7）。</summary>
+        public static double LampMarginOf(int scale) { return scale == 0 ? 4 : (scale == 2 ? 7 : 5); }
+
+        /// <summary>灯体**圆点直径**（= 厚度 − 4 ✓ 下限 6 ⇒ 三档 6 / 7 / 10）。</summary>
+        public static double LampDotOf(double thickness) { return Math.Max(6, thickness - 4); }
+
+        /// <summary>展开列表**每行**的灯直径（9 ✓ 与悬边灯同一套画法 ✓）。</summary>
+        public const double LampRowDot = 9;
+
+        // =====================================================================================
         //  ⑧ 纯色math（不依赖任何图形库 ⇒ 断言可在无图形环境里算对比度 ✓）
         // =====================================================================================
 

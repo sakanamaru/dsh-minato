@@ -2,12 +2,12 @@ using System;
 using System.Collections.Generic;
 using Avalonia;
 using Avalonia.Controls;
-using Avalonia.Controls.Shapes;
 using Avalonia.Input;
 using Avalonia.Layout;
 using Avalonia.Media;
 using Avalonia.Platform;
 using Avalonia.Threading;
+using Dsht.Gui.Avalonia.Design;
 using Dsht.Gui.Avalonia.Markers;
 using Dsht.Gui.Avalonia.ViewModels;
 
@@ -40,6 +40,10 @@ namespace Dsht.Gui.Avalonia
     /// <para>· 只读 ✓ 不写盘（除窗口位置/尺寸配置键 ✓ 走既有 `config-set` ✓）· 不新增进程（数据来自主窗口**同一次取数** ✓）。</para>
     /// <para>· 未知一律「未知」✓ **绝不显示 `0`** ✗（灯为灰 ✓ 计划拿不到 ⇒ 不显示数字 ✓）。</para>
     /// <para>· 四风格（A/B/C/D 含暗色）全部走 <see cref="Palette"/> ✓ 不硬编码任何颜色 ✓。</para>
+    /// <para>· ★ 状态灯的**画法与取色只有一条路**（2026-10-26 接进设计 token 表 ✓）：灯色 → 语义色
+    ///   <see cref="OverlayLight.SemanticOf"/>（纯判定 ✓）→ <see cref="StatusLight.Create"/>（**唯一画法**：
+    ///   柔光晕 + 去饱和底色 + 半透明灯环 ✓ 提案 §12⑥ ✓）→ 色值/透明度/尺寸全部来自 <see cref="DesignTokens"/> ✓。
+    ///   ✗ 本文件里没有 hex ✗ 没有 `Color.FromArgb` ✗ 没有命名颜色常量 ✗（源码级断言盯着 ✓ 改坏即红 ✓）。</para>
     /// <para>· 名称默认 = **项目/目录名 + id 短码**（来自 cwd ✓ 非对话内容 ✓）· 标题默认屏蔽 ✓
     ///   开关开启时明示「标题可能由你的对话内容派生」✓ 且**绝不写盘/写日志** ✗。</para>
     /// </summary>
@@ -56,7 +60,8 @@ namespace Dsht.Gui.Avalonia
 
         // —— 视觉树 ——
         private Border _lamp;
-        private Ellipse _dot;
+        /// <summary>悬边灯**当前**的灯色（✗ 只有判定结果，没有色值 ✗）—— 尺寸/风格变了要按它重画一次 ✓。</summary>
+        private LightColor _lampColor = LightColor.Unknown;
         private Border _panel;
         private StackPanel _rows;
         private TextBlock _head, _clock, _state, _foot;
@@ -87,7 +92,7 @@ namespace Dsht.Gui.Avalonia
             WindowStartupLocation = WindowStartupLocation.Manual;
             // ★ 透明底 + 无边框：卡片外的区域必须是**透明的**（配合下面的命中测试开关 ⇒ 点击穿透 ✓）
             TransparencyLevelHint = new WindowTransparencyLevel[] { WindowTransparencyLevel.Transparent };
-            Background = Brushes.Transparent;
+            Background = Palette.Transparent;   // ★ 值来自 token 表 ✓（✗ 不写 Brushes.Transparent ✗ 断言盯着 ✓）
             Title = "dsh-minato 置顶进度窗";
             BuildContent();
             ApplyPlacementFromHost(true);
@@ -164,6 +169,21 @@ namespace Dsht.Gui.Avalonia
             catch { }
         }
 
+        // ================================================================ 灯的画法（★ 唯一出处）
+
+        /// <summary>★ 悬边灯的**唯一画法**：<see cref="StatusLight.Create"/>（柔光晕 + 去饱和底色 + 半透明灯环 ✓
+        /// 提案 §12⑥ ✓）。本文件 ✗ 不自己画灯 ✗ 也不自己取色 ✗ ——
+        /// 灯色 → 语义色走 <see cref="OverlayLight.SemanticOf"/>（纯判定 ✓）；色值 / 透明度 / 尺寸 / 光晕
+        /// 全部来自 <see cref="DesignTokens"/> ✓（✗ 本文件里没有 hex、没有 `Color.FromArgb`、没有命名颜色 ✗ 断言盯着 ✓）。
+        /// <para>灯色变了（每拍刷新）/ 风格变了（A/B/C/D）/ 档位变了（`overlay_scale`）⇒ 重画一次 ✓
+        /// （幂等 ✓ 不重算判定 ✓ —— 判定结果就是 <see cref="_lampColor"/> 本身 ✓）。</para></summary>
+        private void ApplyLampLight()
+        {
+            if (_lamp == null) return;
+            _lamp.Child = StatusLight.Create(OverlayLight.SemanticOf(_lampColor), Palette.StyleKind,
+                DesignTokens.LampDotOf(DesignTokens.LampThicknessOf(_scale)));
+        }
+
         // ================================================================ 视觉树
 
         private void BuildContent()
@@ -182,8 +202,7 @@ namespace Dsht.Gui.Avalonia
                 CornerRadius = new CornerRadius(ShapeTokens.RPill),
                 BoxShadow = string.IsNullOrEmpty(Palette.CardShadow) ? default(BoxShadows) : BoxShadows.Parse(Palette.CardShadow)
             };
-            _dot = new Ellipse { HorizontalAlignment = HorizontalAlignment.Center, VerticalAlignment = VerticalAlignment.Center };
-            _lamp.Child = _dot;
+            ApplyLampLight();   // ★ 灯 = 唯一画法 StatusLight（柔光晕 + 去饱和 ✓）✗ 不在这里自己画 ✗
             _lamp.PointerEntered += delegate { Expand(true); };
             _lamp.PointerPressed += OnLampPressed;
             _lamp.PointerMoved += OnLampMoved;
@@ -276,7 +295,7 @@ namespace Dsht.Gui.Avalonia
             {
                 double w = _panel.Width > 0 ? _panel.Width : (_scale == 0 ? 320 : (_scale == 2 ? 430 : 380));
                 _panel.Measure(new Size(w, double.PositiveInfinity));
-                double want = _panel.DesiredSize.Height + 2 * LampMargin();
+                double want = _panel.DesiredSize.Height + 2 * DesignTokens.LampMarginOf(_scale);
                 if (want > 40) _panelHeight = want;
             }
             catch { }
@@ -382,10 +401,8 @@ namespace Dsht.Gui.Avalonia
             if (changed) { ApplySize(); ApplyPosition(); }
         }
 
-        private double LampThickness() { return _scale == 0 ? 8 : (_scale == 2 ? 14 : 11); }
-        private double LampLength() { return _scale == 0 ? 56 : (_scale == 2 ? 92 : 74); }
-        /// <summary>灯四周的**透明余量** ✓ —— 它就是"灯以外的区域"：必须点击穿透 ✓（实测证据见施工记录）。</summary>
-        private double LampMargin() { return _scale == 0 ? 4 : (_scale == 2 ? 7 : 5); }
+        // ★ 灯的几何（厚度 / 长度 / 透明余量 / 圆点）**全部来自 token 表** ✗ 本文件不再自造这些数值 ✗
+        //   （断言：这里若再出现 `_scale == 0 ? 8 : …` 这类字面量 ⇒ 红 ✓）
 
         private void ApplySize()
         {
@@ -395,19 +412,18 @@ namespace Dsht.Gui.Avalonia
                 Width = _scale == 0 ? 320 : (_scale == 2 ? 430 : 380);
                 Height = Math.Max(96, _panelHeight);
                 // 面板宽度随档位变 ⇒ 让内容自己量一次高度（下一拍 UpdateFromHost 会写回 _panelHeight ✓）
-                _panel.Width = Width - 2 * LampMargin();
+                _panel.Width = Width - 2 * DesignTokens.LampMarginOf(_scale);
                 _panel.Height = double.NaN;
             }
             else
             {
                 _panel.Width = double.NaN;
                 _panel.Height = double.NaN;
-                double t = LampThickness(), l = LampLength(), m = LampMargin();
+                double t = DesignTokens.LampThicknessOf(_scale), l = DesignTokens.LampLengthOf(_scale), m = DesignTokens.LampMarginOf(_scale);
                 bool vert = _edge == "left" || _edge == "right";
                 _lamp.Width = vert ? t : l;
                 _lamp.Height = vert ? l : t;
-                _dot.Width = Math.Max(6, t - 4);
-                _dot.Height = Math.Max(6, t - 4);
+                ApplyLampLight();   // 档位/边变了 ⇒ 按 token 的圆点直径重画一次（唯一画法 ✓）
                 Width = (vert ? t : l) + 2 * m;
                 Height = (vert ? l : t) + 2 * m;
             }
@@ -501,7 +517,8 @@ namespace Dsht.Gui.Avalonia
             OverlayContext ctx = _host.OverlayContextOf(d);
             Light edge = OverlayLight.EdgeLight(ctx, rows, _memory);
 
-            _dot.Fill = Palette.LightBrush(edge.Color);
+            _lampColor = edge.Color;   // ★ 判定结果（✗ 不是色值 ✗）⇒ 下面按它重画一次灯
+            ApplyLampLight();
             _lamp.BorderBrush = Palette.BorderStrong;
             _lamp.Background = Palette.CardBg;
             _state.Text = OverlayLight.EdgeSummary(edge);
@@ -568,11 +585,14 @@ namespace Dsht.Gui.Avalonia
                 _titleToggle.Background = Palette.CardHover;
                 _titleToggle.BorderBrush = Palette.Border;
                 if (_titleToggle.Content is TextBlock tt) tt.Foreground = Palette.TextDim;
+                ApplyLampLight();   // 风格变了 ⇒ 悬边灯按新风格重画一次（唯一画法 ✓ 不重算判定 ✓）
                 for (int i = 0; i < _rows.Children.Count; i++)
                 {
                     Grid g = _rows.Children[i] as Grid;
                     if (g == null || g.Children.Count < 4) continue;
-                    Ellipse e = g.Children[0] as Ellipse; if (e != null) e.Fill = Palette.LightBrush(g.Tag is LightColor ? (LightColor)g.Tag : LightColor.Unknown);
+                    // ★ 每行的灯与悬边灯**同一处画法**（StatusLight ✓）✗ 不在这里内联画 ✗
+                    LightColor lc = g.Tag is LightColor ? (LightColor)g.Tag : LightColor.Unknown;
+                    g.Children[0] = StatusLight.Create(OverlayLight.SemanticOf(lc), Palette.StyleKind, DesignTokens.LampRowDot);
                     TextBlock nm = g.Children[1] as TextBlock; if (nm != null) nm.Foreground = Palette.Text;
                     TextBlock pl = g.Children[2] as TextBlock; if (pl != null) pl.Foreground = Palette.TextDim;
                     TextBlock ck = g.Children[3] as TextBlock; if (ck != null) ck.Foreground = Palette.TextFaint;
@@ -587,7 +607,9 @@ namespace Dsht.Gui.Avalonia
             Light one = OverlayLight.RowLight(r, ctx, _memory.PriorActive(r.Id));
             Grid g = new Grid { ColumnDefinitions = new ColumnDefinitions("12,*,Auto,Auto"), Height = _scale == 0 ? 18 : 21 };
             g.Tag = one.Color;   // 重上色用（风格切换 ✓ 不重算判定 ✓）
-            Ellipse dot = new Ellipse { Width = 9, Height = 9, Fill = Palette.LightBrush(one.Color), VerticalAlignment = VerticalAlignment.Center };
+            // ★ 每盏灯都走**同一处画法**（`Design/StatusLight.cs` ✓ 柔光晕 + 去饱和底色 ✓）
+            //   ✗ 不在这里 `new Ellipse` 另画一套 ✗；直径取 token 表（`DesignTokens.LampRowDot` ✓）
+            Control dot = StatusLight.Create(OverlayLight.SemanticOf(one.Color), Palette.StyleKind, DesignTokens.LampRowDot);
             Grid.SetColumn(dot, 0);
             g.Children.Add(dot);
             TextBlock name = new TextBlock

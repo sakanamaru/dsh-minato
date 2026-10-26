@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using Dsht.Gui.Avalonia.Markers;
 using Dsht.Gui.Avalonia.Design;
@@ -1669,6 +1669,148 @@ namespace Dsht.Gui.LogicTests
                 && vtSemText.IndexOf("本轮", StringComparison.Ordinal) < 0 && vtSemText.IndexOf("改动", StringComparison.Ordinal) < 0
                 && vtSemText.IndexOf("施工", StringComparison.Ordinal) < 0 && vtSemText.IndexOf("落实", StringComparison.Ordinal) < 0);
 
+            // VT-LAMP-BLOCK-START  (ASCII marker: the patch runner rewrites this whole block idempotently)
+            // ========== ⑮ 状态灯接进设计 token 表（2026-10-26）：四条可证伪断言 ==========
+            //  ④ 条各指向一个"改坏就红"的具体事实 ✓（反例实验见施工记录 ✓）
+            //  局部名一律 lt 前缀 ✓ 免得与外层既有局部变量重名（✗ CS0136 ✗）
+            Console.WriteLine();
+            Console.WriteLine("== 状态灯：取色点 / 画法唯一性 / 明暗取值来源 ==");
+
+            string ltWinPath = vtGuiDir == null ? null : System.IO.Path.Combine(vtGuiDir, "OverlayWindow.cs");
+            string ltLogicPath = vtGuiDir == null ? null : System.IO.Path.Combine(vtGuiDir, "Markers", "OverlayLight.cs");
+            string ltLightPath = vtGuiDir == null ? null : System.IO.Path.Combine(vtGuiDir, "Design", "StatusLight.cs");
+            string ltWinTxt = ReadIfExists(ltWinPath);
+            string ltLogicTxt = ReadIfExists(ltLogicPath);
+            string ltLightTxt = ReadIfExists(ltLightPath);
+            // ★ 扫的是**代码**（行注释已去掉 ✓）：注释里点名"不许写某种颜色"是好事 ✓
+            //   ✗ 不该被自己的断言判红 ✗（边界：本仓库这两个文件里没有 `/* */` 块注释、也没有含 `//` 的字符串字面量 ✓ 如实登记 ✓）
+            string ltWinCode = CodeOnly(ltWinTxt);
+            string ltLogicCode = CodeOnly(ltLogicTxt);
+            string ltLightCode = CodeOnly(ltLightTxt);
+            bool ltFilesFound = ltWinCode.Length > 0 && ltLogicCode.Length > 0 && ltLightCode.Length > 0;
+
+            // ⑮-1 悬边灯的两个文件里**零自造色值**（✗ hex ✗ Color.FromArgb/FromRgb ✗ Brushes./Colors. 命名颜色 ✗）
+            int ltWinHex = HexCount(ltWinCode), ltLogicHex = HexCount(ltLogicCode);
+            int ltWinColor = ColorValueCount(ltWinCode), ltLogicColor = ColorValueCount(ltLogicCode);
+            Console.WriteLine("  [INFO] 取色点扫描（去注释后）：OverlayWindow.cs hex " + ltWinHex + " 处 · 色值构造/命名颜色 " + ltWinColor
+                + " 处；Markers/OverlayLight.cs hex " + ltLogicHex + " 处 · 色值构造/命名颜色 " + ltLogicColor + " 处");
+            Check("⑮-1 · 悬边状态灯的两个文件里**零自造色值**（✗ hex ✗ Color.FromArgb/FromRgb ✗ Brushes./Colors. 命名颜色常量 ✗）",
+                ltFilesFound && ltWinHex == 0 && ltLogicHex == 0 && ltWinColor == 0 && ltLogicColor == 0);
+
+            // ⑮-2 状态灯**画法只有一处**（两处灯都调 StatusLight.Create ✓ 界面文件里 0 处内联画灯 ✗）
+            int ltCreateSites = CountOf(ltWinCode, "StatusLight.Create(");
+            bool ltNoInlineDraw = ltWinCode.IndexOf("new Ellipse", StringComparison.Ordinal) < 0
+                && ltWinCode.IndexOf("LightBrush", StringComparison.Ordinal) < 0
+                && ltWinCode.IndexOf("BoxShadows(new", StringComparison.Ordinal) < 0;
+            bool ltLogicPure = ltLogicCode.IndexOf("StatusLight", StringComparison.Ordinal) < 0
+                && ltLogicCode.IndexOf("new Ellipse", StringComparison.Ordinal) < 0
+                && ltLogicCode.IndexOf("SolidColorBrush", StringComparison.Ordinal) < 0
+                && ltLogicCode.IndexOf("BoxShadows", StringComparison.Ordinal) < 0;
+            // 第二份配色出口（`Palette.LightBrush`：按灯色直接给一个纯饱和实心色）在**全 GUI 源码**里已不存在 ✓
+            int ltLightBrushLeft = 0;
+            if (vtGuiDir != null)
+            {
+                List<string> ltFiles = GuiSourceFiles(vtGuiDir);
+                for (int li = 0; li < ltFiles.Count; li++)
+                    if (CodeOnly(System.IO.File.ReadAllText(ltFiles[li])).IndexOf("LightBrush", StringComparison.Ordinal) >= 0) ltLightBrushLeft++;
+            }
+            int ltLightHex = HexCount(ltLightCode), ltLightColor = ColorValueCount(ltLightCode);
+            Console.WriteLine("  [INFO] OverlayWindow 调 StatusLight.Create 的处数 = " + ltCreateSites
+                + " · 全 GUI 源码里 `LightBrush`（第二份配色出口）残留文件数 = " + ltLightBrushLeft
+                + " · Design/StatusLight.cs（画法）hex " + ltLightHex + " 处 · 色值构造/命名颜色 " + ltLightColor + " 处");
+            Check("⑮-2 · 状态灯**画法只有一处**：悬边灯与展开列表每行灯都调 `StatusLight.Create`（≥2 处 ✓）·"
+                + " 界面文件里 0 处内联画灯 ✗ · 纯判定文件里 0 个绘制 API ✗ · 第二份配色出口 `LightBrush` 已全库不存在 ✓",
+                ltFilesFound && ltCreateSites >= 2 && ltNoInlineDraw && ltLogicPure && ltLightBrushLeft == 0
+                && ltLightHex == 0 && ltLightColor == 0);
+
+            // ⑮-3 灯的**明暗两套取值全部来自 DesignTokens**：四色灯 → 5 语义色（一色一个 ✓ 互不相同 ✓）
+            //      且四风格 × 5 语义色的 底色/光晕/灯环 都是 token 表产出、alpha 就是 token 里的常量 ✓
+            DesignTokens.Semantic ltBad = OverlayLight.SemanticOf(LightColor.Bad);
+            DesignTokens.Semantic ltAsk = OverlayLight.SemanticOf(LightColor.Asking);
+            DesignTokens.Semantic ltRun = OverlayLight.SemanticOf(LightColor.Running);
+            DesignTokens.Semantic ltDone = OverlayLight.SemanticOf(LightColor.Done);
+            DesignTokens.Semantic ltUnk = OverlayLight.SemanticOf(LightColor.Unknown);
+            bool ltMapOk = ltBad == DesignTokens.Semantic.Abnormal && ltAsk == DesignTokens.Semantic.Attention
+                && ltRun == DesignTokens.Semantic.Accent && ltDone == DesignTokens.Semantic.Normal
+                && ltUnk == DesignTokens.Semantic.Unknown
+                && ltBad != ltAsk && ltAsk != ltRun && ltRun != ltDone && ltDone != ltUnk && ltBad != ltUnk;
+            bool ltTokenOk = true;
+            int ltCases = 0;
+            for (int lk = 0; lk < DesignTokens.StyleCount; lk++)
+            {
+                for (int li = 0; li < DesignTokens.Semantics.Length; li++)
+                {
+                    DesignTokens.Semantic ls = DesignTokens.Semantics[li];
+                    string ltRaw = DesignTokens.Style(lk).SemanticOf(ls);
+                    string ltBas = DesignTokens.StatusBase(ls, lk);
+                    string ltHalo = DesignTokens.StatusHalo(ls, lk);
+                    string ltRing = DesignTokens.StatusRing(ls, lk);
+                    if (!DesignTokens.IsHex(ltBas) || !DesignTokens.IsHex(ltHalo) || !DesignTokens.IsHex(ltRing)) ltTokenOk = false;
+                    if (ltBas == ltRaw) ltTokenOk = false;                                        // 去饱和 ⇒ 底色 ≠ 原色 ✓
+                    if (DesignTokens.Parse(ltHalo).A != DesignTokens.HaloAlpha) ltTokenOk = false;  // 光晕 alpha = token ✓
+                    if (DesignTokens.Parse(ltRing).A != DesignTokens.RingAlpha) ltTokenOk = false;  // 灯环 alpha = token ✓
+                    ltCases++;
+                }
+            }
+            Console.WriteLine("  [INFO] 四色灯 → 语义色：异常=" + DesignTokens.SemanticName(ltBad) + " 询问=" + DesignTokens.SemanticName(ltAsk)
+                + " 进行中=" + DesignTokens.SemanticName(ltRun) + " 完成=" + DesignTokens.SemanticName(ltDone) + " 未知=" + DesignTokens.SemanticName(ltUnk));
+            Console.WriteLine("  [INFO] 四风格 × 5 语义色 = " + ltCases + " 组 底色/光晕/灯环 全部由 token 表算出（光晕 alpha 0x"
+                + DesignTokens.HaloAlpha.ToString("X2", System.Globalization.CultureInfo.InvariantCulture) + " · 灯环 alpha 0x"
+                + DesignTokens.RingAlpha.ToString("X2", System.Globalization.CultureInfo.InvariantCulture) + "）");
+            Check("⑮-3 · 灯的明暗两套取值**全部来自 token 表**：四色灯 → 5 语义色一一对应（红=异常/黄=注意/蓝=强调/绿=正常/灰=未知 ✓）"
+                + "· 四风格 × 5 语义色的底色/光晕/灯环都是 token 表产出、alpha 就是 token 常量 ✓",
+                ltMapOk && ltTokenOk && ltCases == DesignTokens.StyleCount * DesignTokens.SemanticCount);
+
+            // ⑮-4 灯的**尺寸 / 间距 / 光晕 / 描边 / 透明**也来自 token 表（画法文件与界面文件里 0 个自造数值 ✓）
+            bool ltLightParams = ltLightCode.IndexOf("SizeSm = DesignTokens.LightSizeSm;", StringComparison.Ordinal) >= 0
+                && ltLightCode.IndexOf("SizeMd = DesignTokens.LightSizeMd;", StringComparison.Ordinal) >= 0
+                && ltLightCode.IndexOf("GlowBlur = DesignTokens.LightGlowBlur;", StringComparison.Ordinal) >= 0
+                && ltLightCode.IndexOf("Blur = DesignTokens.LightGlowBlur", StringComparison.Ordinal) >= 0
+                && ltLightCode.IndexOf("Spread = DesignTokens.LightGlowSpread", StringComparison.Ordinal) >= 0
+                && ltLightCode.IndexOf("StrokeThickness = DesignTokens.LightRingStroke", StringComparison.Ordinal) >= 0
+                && ltLightCode.IndexOf("DesignTokens.TransparentHex", StringComparison.Ordinal) >= 0
+                && ltLightCode.IndexOf("Brushes.", StringComparison.Ordinal) < 0;
+            bool ltLampGeom = ltWinCode.IndexOf("DesignTokens.LampThicknessOf(_scale)", StringComparison.Ordinal) >= 0
+                && ltWinCode.IndexOf("DesignTokens.LampLengthOf(_scale)", StringComparison.Ordinal) >= 0
+                && ltWinCode.IndexOf("DesignTokens.LampMarginOf(_scale)", StringComparison.Ordinal) >= 0
+                && ltWinCode.IndexOf("DesignTokens.LampDotOf(", StringComparison.Ordinal) >= 0
+                && ltWinCode.IndexOf("DesignTokens.LampRowDot", StringComparison.Ordinal) >= 0
+                && ltWinCode.IndexOf("_scale == 0 ? 8 :", StringComparison.Ordinal) < 0
+                && ltWinCode.IndexOf("_scale == 0 ? 56 :", StringComparison.Ordinal) < 0
+                && ltWinCode.IndexOf("_scale == 0 ? 4 :", StringComparison.Ordinal) < 0
+                && ltWinCode.IndexOf("Math.Max(6,", StringComparison.Ordinal) < 0;
+            Console.WriteLine("  [INFO] 灯的几何：厚度 " + DesignTokens.LampThicknessOf(0) + "/" + DesignTokens.LampThicknessOf(1) + "/" + DesignTokens.LampThicknessOf(2)
+                + " · 长度 " + DesignTokens.LampLengthOf(0) + "/" + DesignTokens.LampLengthOf(1) + "/" + DesignTokens.LampLengthOf(2)
+                + " · 透明余量 " + DesignTokens.LampMarginOf(0) + "/" + DesignTokens.LampMarginOf(1) + "/" + DesignTokens.LampMarginOf(2)
+                + " · 悬边圆点 " + DesignTokens.LampDotOf(DesignTokens.LampThicknessOf(1)) + " · 列表每行灯 " + DesignTokens.LampRowDot
+                + "（全部来自 token 表 ✓ 与本轮之前逐值一致 ✓）");
+            Check("⑮-4 · 灯的尺寸/间距/光晕/描边/透明也来自 token 表（画法文件 0 个自造数值 ✓ 界面文件里 0 个自造灯几何 ✗ 改回字面量即红 ✓）",
+                ltFilesFound && ltLightParams && ltLampGeom);
+
+            // ⑮-5 ★ 色值口径一致：token 的 8 位色值是 `#RRGGBBAA`，Avalonia 的 `Color.Parse` 把 8 位当
+            //      `#AARRGGBB` ⇒ 画法文件里**不许**把 token 直接交给 `Color.Parse`
+            //      （真机实测：灯环 / 光晕变**紫色** ✗ —— 色相被当成了 alpha ✓ 冒烟才抓到 ✗）
+            bool ltChannelOk = ltLightCode.IndexOf("Color.Parse(", StringComparison.Ordinal) < 0
+                && ltLightCode.IndexOf("Color.FromArgb(", StringComparison.Ordinal) >= 0
+                && ltLightCode.IndexOf("DesignTokens.Parse(", StringComparison.Ordinal) >= 0
+                && ltLightCode.IndexOf("(byte)c.A, (byte)c.R", StringComparison.Ordinal) >= 0;
+            // 口径本身也再钉一次：8 位 token 的 alpha 恰是 token 常量（✗ 不是色相 ✗ 换回去即红 ✓）
+            bool ltAlphaOk = DesignTokens.StyleCount > 0 && DesignTokens.SemanticCount > 0;
+            for (int lk = 0; lk < DesignTokens.StyleCount && ltAlphaOk; lk++)
+            {
+                for (int li = 0; li < DesignTokens.Semantics.Length; li++)
+                {
+                    DesignTokens.Semantic ls2 = DesignTokens.Semantics[li];
+                    if (DesignTokens.Parse(DesignTokens.StatusHalo(ls2, lk)).A != DesignTokens.HaloAlpha) { ltAlphaOk = false; break; }
+                    if (DesignTokens.Parse(DesignTokens.StatusRing(ls2, lk)).A != DesignTokens.RingAlpha) { ltAlphaOk = false; break; }
+                }
+            }
+            Console.WriteLine("  [INFO] 色值口径：token 8 位 = #RRGGBBAA ✓ 画法里经 DesignTokens.Parse → Color.FromArgb(A,R,G,B) 组装 ✓"
+                + "（✗ 不走 Avalonia 的 Color.Parse：实测会把色相当成 alpha ⇒ 紫色 ✗）");
+            Check("⑮-5 · 色值口径一致：画法文件里 0 处 `Color.Parse(`（8 位 hex 的 alpha 在前陷阱 ✗ 实测灯环变紫 ✗）·"
+                + " 一律经 DesignTokens.Parse 后按 (A,R,G,B) 组装 ✓ · 8 位 token 的 alpha 恰为 token 常量 ✓",
+                ltFilesFound && ltChannelOk && ltAlphaOk);
+
             Console.WriteLine("== " + _pass + "/" + (_pass + _fail) + " passed, " + _fail + " failed ==");
             return _fail == 0 ? 0 : 1;
         }
@@ -1751,6 +1893,61 @@ namespace Dsht.Gui.LogicTests
                 text, @"public const double (" + prefix + @"[A-Za-z0-9]+)\s*=\s*DesignTokens\.([A-Za-z0-9]+);");
             for (int i = 0; i < ms.Count; i++) o.Add(ms[i].Groups[1].Value + "=" + ms[i].Groups[2].Value);
             return o;
+        }
+
+        /// <summary>读文件（不存在 / 读不了 ⇒ 空串 ✓ 断言那边会因此判红 ✗ 不静默跳过 ✗）。</summary>
+        private static string ReadIfExists(string path)
+        {
+            try
+            {
+                if (path != null && System.IO.File.Exists(path)) return System.IO.File.ReadAllText(path);
+            }
+            catch { }
+            return "";
+        }
+
+        /// <summary>★ 去掉**行注释**后的源码 —— 状态灯那几条断言扫的是**代码**，不是注释里的说明文字 ✓
+        /// （注释里点名"不许写某种颜色 / 不许内联画灯"是好事 ✓ ✗ 不该被自己的断言判红 ✗）。
+        /// <para>边界（如实登记 ✓）：只处理 `//` 行注释；本仓库被扫的这三个文件里既没有 `/* */` 块注释，
+        /// 也没有含 `//` 的字符串字面量 ⇒ 不会误删代码 ✓。</para></summary>
+        private static string CodeOnly(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return "";
+            string[] ls = text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
+            System.Text.StringBuilder o = new System.Text.StringBuilder();
+            for (int i = 0; i < ls.Length; i++)
+            {
+                string l = ls[i];
+                int at = l.IndexOf("//", StringComparison.Ordinal);
+                if (at >= 0) l = l.Substring(0, at);
+                o.Append(l).Append('\n');
+            }
+            return o.ToString();
+        }
+
+        /// <summary>★ "自造色值"的判据（`#RRGGBB` 之外的两条路 ✓）：`Color.FromArgb` / `Color.FromRgb`（**只认数值字面量通道**
+        /// `Color.FromUInt32` 之类 —— `Color.FromArgb(60, 0, 0, 0)` 算 ✗；从 token 解析出来的通道（`(byte)c.A`）不算 ✓ ·，
+        /// 以及**命名颜色常量**（`Brushes.Xxx` / `Colors.Xxx` ✓）。</summary>
+        private static int ColorValueCount(string text)
+        {
+            if (string.IsNullOrEmpty(text)) return 0;
+            return System.Text.RegularExpressions.Regex.Matches(
+                text, @"Color\.From[A-Za-z0-9]*\s*\(\s*[0-9]|Brushes\.[A-Za-z0-9]+|Colors\.[A-Za-z0-9]+").Count;
+        }
+
+        /// <summary>子串出现次数（"两处灯都调了同一处画法"这种判据用它 ✓）。</summary>
+        private static int CountOf(string text, string needle)
+        {
+            if (string.IsNullOrEmpty(text) || string.IsNullOrEmpty(needle)) return 0;
+            int n = 0, at = 0;
+            while (true)
+            {
+                int i = text.IndexOf(needle, at, StringComparison.Ordinal);
+                if (i < 0) break;
+                n++;
+                at = i + needle.Length;
+            }
+            return n;
         }
 
         /// <summary>某个文件的相对路径（打印用 ✓ 只到文件名两级，避免日志里出现长绝对路径 ✓）。</summary>

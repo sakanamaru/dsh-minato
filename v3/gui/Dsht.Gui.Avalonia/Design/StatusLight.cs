@@ -16,7 +16,11 @@ namespace Dsht.Gui.Avalonia.Design
     /// ③ 细灯环（半透明语义色 ✓ 深色底上也有轮廓 ✓）。</para>
     ///
     /// <para>【色值一律来自 <see cref="DesignTokens"/>】本文件**没有**任何 `#RRGGBB`
-    /// ✗（源码扫描断言盯着 ✓）—— 它只负责"把 token 变成画刷/控件" ✓。</para>
+    /// ✗（源码扫描断言盯着 ✓）—— 它只负责"把 token 变成画刷/控件" ✓。
+    /// ★ 尺寸 / 光晕模糊与扩散 / 灯环粗细 / 透明 也一律读 <see cref="DesignTokens"/> ✗ 本文件不留自造数值 ✗。</para>
+    ///
+    /// <para>★ **本文件是全项目唯一的"状态灯画法"** ✗ 不许有第二处 ✗：悬边灯与展开列表每行的灯
+    /// 都调 <see cref="Create"/> ✓（断言盯着：界面文件里不许再 `new Ellipse` 画灯 ✗）。</para>
     ///
     /// <para>【明暗都要过对比度】底色 vs 卡片面的对比度由断言守住（WCAG 1.4.11 的 3:1 ✓
     /// 四风格逐个算 ✓ 缺一个即红 ✓）；✗ 不靠"看起来还行" ✗。</para>
@@ -25,12 +29,32 @@ namespace Dsht.Gui.Avalonia.Design
     /// 且跟随"减少动效"⇒ 为 0 时**瞬变** ✗ 不播动画 ✗）。</para></summary>
     public static class StatusLight
     {
-        /// <summary>灯体直径（默认档 ✓ 与间距网格 4 的倍数同源：4 / 8 / 12 ✓）。</summary>
-        public const double SizeSm = 8;
-        public const double SizeMd = 12;
+        /// <summary>灯体直径（默认档 ✓ 与间距网格 4 的倍数同源：8 / 12 ✓）。**值来自 token 表** ✓。</summary>
+        public const double SizeSm = DesignTokens.LightSizeSm;
+        public const double SizeMd = DesignTokens.LightSizeMd;
 
-        /// <summary>柔光晕的模糊半径（越大越柔 ✓ 我们只用到 8~10 ✓ 不做发光循环 ✗）。</summary>
-        public const double GlowBlur = 8;
+        /// <summary>柔光晕的模糊半径（越大越柔 ✓ 我们只用到 8 ✓ 不做发光循环 ✗）。**值来自 token 表** ✓。</summary>
+        public const double GlowBlur = DesignTokens.LightGlowBlur;
+
+        /// <summary>★ token 色值 → Avalonia 颜色（**唯一转换点** ✓）。
+        /// <para>★★ 这里有个真机冒烟抓到的坑（2026-10-26 ✗✓）：token 表的 8 位色值是 **`#RRGGBBAA`**
+        /// （本项目的口径 ✓ 见 <see cref="DesignTokens.Parse"/>），而 Avalonia 的 `Color.Parse` 把 8 位
+        /// 当成 **`#AARRGGBB`**（alpha 在前 ✓）⇒ 直接把 token 喂给它，**色相会被当成 alpha**：
+        /// 实测灯环/光晕变成**紫色**（8 位里那四个字节被整体错位：色相 R/G/B 落到了 alpha/R/G 上 ✗）。
+        /// 这个缺陷在"画法还没接进界面"时是隐性的（画法文件自己单测不到渲染 ✗）——接进悬边灯后截图才看出来 ✓。
+        /// ⇒ 一律先过 <see cref="DesignTokens.Parse"/>（按本项目的口径解析 ✓）再按 **(A,R,G,B)** 组装 ✓
+        /// （✗ 本文件不许再出现 `Color.Parse(` ✗ 断言盯着 ✓）。</para></summary>
+        private static Color ColorOf(string hex)
+        {
+            DesignTokens.Rgb c = DesignTokens.Parse(hex);
+            return Color.FromArgb((byte)c.A, (byte)c.R, (byte)c.G, (byte)c.B);
+        }
+
+        /// <summary>「什么都不画」的透明画刷（✗ 不写 `Brushes.Transparent` ✗ 值仍来自 token 表 ✓）。</summary>
+        public static IBrush TransparentBrush()
+        {
+            return new SolidColorBrush(ColorOf(DesignTokens.TransparentHex));
+        }
 
         /// <summary>去饱和底色（`#RRGGBB` 字符串 ✓ 需要字符串时用它 ✓ 断言也读它 ✓）。</summary>
         public static string BaseHex(DesignTokens.Semantic s, int styleKind)
@@ -41,19 +65,19 @@ namespace Dsht.Gui.Avalonia.Design
         /// <summary>去饱和底色画刷。</summary>
         public static IBrush BaseBrush(DesignTokens.Semantic s, int styleKind)
         {
-            return new SolidColorBrush(Color.Parse(BaseHex(s, styleKind)));
+            return new SolidColorBrush(ColorOf(BaseHex(s, styleKind)));
         }
 
         /// <summary>灯环画刷（语义色 + 中低 alpha ✓）。</summary>
         public static IBrush RingBrush(DesignTokens.Semantic s, int styleKind)
         {
-            return new SolidColorBrush(Color.Parse(DesignTokens.StatusRing(s, styleKind)));
+            return new SolidColorBrush(ColorOf(DesignTokens.StatusRing(s, styleKind)));
         }
 
         /// <summary>柔光晕色（语义色 + 低 alpha ✓ 8 位 hex ✓）。</summary>
         public static Color GlowColor(DesignTokens.Semantic s, int styleKind)
         {
-            return Color.Parse(DesignTokens.StatusHalo(s, styleKind));
+            return ColorOf(DesignTokens.StatusHalo(s, styleKind));
         }
 
         /// <summary>柔光晕投影（模糊 + 极小扩散 ✓ 不是实心块 ✓）。</summary>
@@ -61,8 +85,8 @@ namespace Dsht.Gui.Avalonia.Design
         {
             return new BoxShadows(new BoxShadow
             {
-                Blur = GlowBlur,
-                Spread = 1,
+                Blur = DesignTokens.LightGlowBlur,
+                Spread = DesignTokens.LightGlowSpread,
                 OffsetX = 0,
                 OffsetY = 0,
                 Color = GlowColor(s, styleKind)
@@ -81,7 +105,7 @@ namespace Dsht.Gui.Avalonia.Design
                 Width = size,
                 Height = size,
                 CornerRadius = new CornerRadius(size / 2),
-                Background = Brushes.Transparent,
+                Background = TransparentBrush(),
                 BoxShadow = Glow(s, styleKind),
                 IsHitTestVisible = false
             };
@@ -93,7 +117,7 @@ namespace Dsht.Gui.Avalonia.Design
                 Height = size,
                 Fill = BaseBrush(s, styleKind),
                 Stroke = RingBrush(s, styleKind),
-                StrokeThickness = 1,
+                StrokeThickness = DesignTokens.LightRingStroke,
                 IsHitTestVisible = false
             };
 

@@ -16,6 +16,8 @@ namespace Dsht.Gui.Avalonia.ViewModels
         public static bool Compact;
 
         // —— 品牌 ——
+        /// <summary>「什么都不画」（窗口底 / 光晕底 ✓ 值来自 token 表 ✓ ✗ 业务文件不许写 `Brushes.Transparent` ✗）。</summary>
+        public static IBrush Transparent = B(DesignTokens.TransparentHex);
         public static IBrush Accent = Brushes.Transparent;      // 主强调色（链接、激活态、主按钮）
         public static IBrush AccentHover = Brushes.Transparent; // 主按钮悬停
         public static IBrush AccentSoft = Brushes.Transparent;  // accent 的浅色底（选中 pill、徽章底）
@@ -99,17 +101,11 @@ namespace Dsht.Gui.Avalonia.ViewModels
         public static IBrush HitBrush(int level) { return level >= 3 ? Good : (level == 2 ? Warn : (level == 1 ? Bad : Muted)); }
         public static IBrush CtxBrush(int level) { return level == 1 ? Good : (level == 2 ? Warn : (level >= 3 ? Bad : Muted)); }
         public static IBrush StatusBrush(int kind) { return kind == 0 ? Good : (kind == 2 ? Muted : Idle); }
-        /// <summary>★ 悬边状态灯（2026-10-26 · 提案 §11 ✓）：四色灯的**唯一配色出口** ——
-        /// 红=Bad ✓ 黄=Warn ✓ 蓝=Accent（四风格里都是冷色主色 ✓）✓ 绿=Good ✓ 灰=Muted（**未知用中性色** ✗
-        /// 绝不用"绿=正常"的颜色去替一个我们并不知道的状态背书 ✓）。四风格各自的深浅由 Apply 给出 ✓ 这里只做映射 ✓。</summary>
-        public static IBrush LightBrush(LightColor c)
-        {
-            if (c == LightColor.Bad) return Bad;
-            if (c == LightColor.Asking) return Warn;
-            if (c == LightColor.Running) return Accent;
-            if (c == LightColor.Done) return Good;
-            return Muted;
-        }
+        // ★ 2026-10-26 状态灯接 token 表：原来的 `LightBrush(LightColor)`（四色灯的**第二份配色出口**，
+        //   直接给纯饱和色 ✓）已**删除** ✗ —— 四色灯现在只有一条路：
+        //   `OverlayLight.SemanticOf(c)`（语义色 ✓）→ `Design/StatusLight.Create(…)`（**唯一画法**：
+        //   柔光晕 + 去饱和底色 + 半透明灯环 ✓）→ 色值全部来自 `DesignTokens` ✓。
+        //   ✗ 不许在这里再加回"按灯色直接给一个实心色"的映射 ✗（源码级断言盯着 `LightBrush` 这个名字 ✓）。
         public static IBrush FormBrush(int kind) { return kind == 0 ? Accent : (kind == 1 ? Idle : (kind == 2 ? FormAcp : Warn)); }
         /// <summary>语义色的软底（徽章/光环用）。</summary>
         public static IBrush SoftOf(IBrush b)

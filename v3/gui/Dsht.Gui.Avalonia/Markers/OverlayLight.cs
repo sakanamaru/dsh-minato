@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Globalization;
+using Dsht.Gui.Avalonia.Design;
 
 namespace Dsht.Gui.Avalonia.Markers
 {
@@ -232,6 +233,24 @@ namespace Dsht.Gui.Avalonia.Markers
         {
             if (!at.HasValue) return "未知";
             return at.Value.ToString("HH:mm:ss", CultureInfo.InvariantCulture);
+        }
+
+        /// <summary>★ 四色灯 → **token 表的语义色**（"这一色是什么意思"那一步 ✓ 一色一信号的口径 ✓）。
+        /// <para>🔴 异常 → <see cref="DesignTokens.Semantic.Abnormal"/> · 🟡 询问 → <see cref="DesignTokens.Semantic.Attention"/>
+        /// · 🔵 进行中 → <see cref="DesignTokens.Semantic.Accent"/>（四风格里都是冷色主色 ✓）
+        /// · 🟢 完成 → <see cref="DesignTokens.Semantic.Normal"/> · ⚪ 未知 → <see cref="DesignTokens.Semantic.Unknown"/>
+        /// （**中性灰** ✓ ✗ 绝不用"绿=正常"的颜色去替一个我们并不知道的状态背书 ✗）。</para>
+        /// <para>★ 这里只回答"是哪个语义色" ✗ 不回答"是什么色值" ✗ —— 色值由 token 表给
+        /// （<see cref="DesignTokens.StatusBase"/> / <see cref="DesignTokens.StatusHalo"/> /
+        /// <see cref="DesignTokens.StatusRing"/> ✓）；**画法只有 `Design/StatusLight.cs` 一处** ✓。</para>
+        /// <para>纯函数 ✓ 不碰 IO ✗ 不读时钟 ✗（LogicTests 直接钉死 ✓ 改坏即红 ✓）。</para></summary>
+        public static DesignTokens.Semantic SemanticOf(LightColor c)
+        {
+            if (c == LightColor.Bad) return DesignTokens.Semantic.Abnormal;
+            if (c == LightColor.Asking) return DesignTokens.Semantic.Attention;
+            if (c == LightColor.Running) return DesignTokens.Semantic.Accent;
+            if (c == LightColor.Done) return DesignTokens.Semantic.Normal;
+            return DesignTokens.Semantic.Unknown;
         }
 
         /// <summary>四色灯的中文名（界面用 ✓ 唯一出处 ✓）。</summary>

@@ -23,6 +23,33 @@ function Src([string]$rel) {
     if (-not (Test-Path -LiteralPath $p)) { return $null }
     return (Get-Content -LiteralPath $p -Raw -Encoding UTF8)
 }
+# ★ 状态灯那几条断言扫的是**代码**（去掉 `//` 行注释 ✓）：注释里点名"不许写某种颜色 / 不许内联画灯"是好事 ✓
+#   ✗ 不该被自己的断言判红 ✗（边界：只处理行注释；被扫的文件里没有块注释、也没有含 `//` 的字符串字面量 ✓）
+function CodeOf([string]$txt) {
+    if ($null -eq $txt) { return '' }
+    $sb = New-Object System.Text.StringBuilder
+    foreach ($l in ($txt -split "`r?`n")) {
+        $i = $l.IndexOf('//')
+        if ($i -ge 0) { $l = $l.Substring(0, $i) }
+        [void]$sb.Append($l).Append("`n")
+    }
+    return $sb.ToString()
+}
+# 自造色值的判据：`#RRGGBB(AA)` · `Color.FromArgb/FromRgb/…` · 命名颜色常量（`Brushes.` / `Colors.`）
+function HasRawColor([string]$code) {
+    if ([string]::IsNullOrEmpty($code)) { return $true }   # 拿不到源码 ⇒ 判红 ✗ 不静默放过 ✗
+    if ([regex]::IsMatch($code, '#[0-9A-Fa-f]{6}')) { return $true }
+    # 只认"手工色值"：Color.FromArgb(60, 0, 0, 0) 这种**数值字面量**通道 ✗
+    # （从 token 解析出来的通道，如 Color.FromArgb((byte)c.A, …) 不算 ✗ 那是把 token 变成画刷 ✓）
+    if ([regex]::IsMatch($code, 'Color\.From[A-Za-z0-9]*\s*\(\s*[0-9]')) { return $true }
+    if ([regex]::IsMatch($code, 'Brushes\.[A-Za-z0-9]+')) { return $true }
+    if ([regex]::IsMatch($code, 'Colors\.[A-Za-z0-9]+')) { return $true }
+    return $false
+}
+function CountOf([string]$code, [string]$needle) {
+    if ([string]::IsNullOrEmpty($code) -or [string]::IsNullOrEmpty($needle)) { return 0 }
+    return ([regex]::Matches($code, [regex]::Escape($needle))).Count
+}
 
 $overview = Src 'v3\gui\Dsht.Gui.Avalonia\Shells\Shells.Pages.Overview.cs'
 $main = Src 'v3\gui\Dsht.Gui.Avalonia\MainWindow.axaml.cs'
@@ -31,6 +58,11 @@ $light = Src 'v3\gui\Dsht.Gui.Avalonia\Markers\OverlayLight.cs'
 $hier = Src 'v3\gui\Dsht.Gui.Avalonia\Markers\BoardHierarchy.cs'
 $tk = Src 'v3\src\Dsht.Domain\Model\ToolkitConfig.cs'
 $sess = Src 'v3\gui\Dsht.Gui.Avalonia\Markers\SessionsMarkers.cs'
+$statusLight = Src 'v3\gui\Dsht.Gui.Avalonia\Design\StatusLight.cs'
+$paletteSrc = Src 'v3\gui\Dsht.Gui.Avalonia\ViewModels\SessionRowVm.cs'
+$ovCode = CodeOf $overlay
+$lightCode = CodeOf $light
+$statusLightCode = CodeOf $statusLight
 
 Write-Host "== 悬边状态灯接线（源码级，可证伪） =="
 
@@ -55,7 +87,7 @@ Check '★ 点击穿透：靠 **Win32 窗口区域**（SetWindowRgn + CreateRect
 Check '★ 点击穿透：CreateRectRgn 必须来自 **gdi32.dll**（写成 user32 ⇒ EntryPointNotFoundException ⇒ 区域静默失效，实测踩过 ✗）' ($overlay -ne $null -and $overlay.Contains('DllImport("gdi32.dll")') -and $overlay.Contains('CreateRectRgn'))
 Check '★ 点击穿透：**不再**靠根节点 IsHitTestVisible=false（Avalonia 会连子树一起剪掉 ⇒ 灯收不到悬停/点击，实测踩过 ✗）' ($overlay -ne $null -and -not $overlay.Contains('IsHitTestVisible = false,') -and $overlay.Contains('Grid root = new Grid { Background = null };'))
 Check '★ 点击穿透：区域只在 Windows 上应用（✗ 非 Windows 整段空转 ✗ 不破坏跨平台可构建 ✓）' ($overlay -ne $null -and $overlay.Contains('OperatingSystem.IsWindows()'))
-Check '视觉透明仍保留（画出来的透明 ✓ 但它**不提供**点击穿透 ⇒ 穿透归窗口区域 ✓）' ($overlay -ne $null -and $overlay.Contains('Background = Brushes.Transparent') -and $overlay.Contains('WindowTransparencyLevel.Transparent'))
+Check '视觉透明仍保留（画出来的透明 ✓ 但它**不提供**点击穿透 ⇒ 穿透归窗口区域 ✓；透明值本身也来自 token 表 ✓）' ($overlay -ne $null -and $overlay.Contains('Background = Palette.Transparent') -and $overlay.Contains('WindowTransparencyLevel.Transparent'))
 Check '置顶小窗的其它硬属性齐全（Topmost / 不在任务栏 / 无边框 / 不可缩放）' ($overlay -ne $null -and $overlay.Contains('Topmost = true') -and $overlay.Contains('ShowInTaskbar = false') -and $overlay.Contains('SystemDecorations = SystemDecorations.None') -and $overlay.Contains('CanResize = false'))
 
 # ---- ⑤ 一色一信号：造灯的唯一入口拒绝"没有来源的灯" ----
@@ -71,6 +103,29 @@ Check '★ 排序 = lastPromptAt 倒序（提案 §11 逐字：会话按先后�
 Check '红灯②的信号 = CLI 已有的 SESSIONS_SNAPSHOT_STALE 诊断行（不新增标记行）' ($sess -ne $null -and $sess.Contains('SESSIONS_SNAPSHOT_STALE'))
 Check '红灯③的信号 = update-center 的 state=content-mismatch（复用既有判定，不重算哈希）' ($main -ne $null -and $main.Contains('state=content-mismatch'))
 Check '六个 overlay_* 键在主窗口被读到（与设置页 / CONFIG 打印同一批键）' ($main -ne $null -and $main.Contains('CONFIG overlay_enabled ') -and $main.Contains('CONFIG overlay_edge ') -and $main.Contains('CONFIG overlay_offset ') -and $main.Contains('CONFIG overlay_scale ') -and $main.Contains('CONFIG overlay_screen ') -and $main.Contains('CONFIG overlay_show_title '))
+
+# ---- ⑧ ★ 状态灯接进设计 token 表（2026-10-26）：取色点 / 画法唯一性 / 明暗取值来源 ----
+#   为什么这条要在这里钉：GUI 逻辑测试能断言 token 表本身（⑮-3/⑮-4），
+#   但"界面文件里真的没有第二处取色 / 第二套画法"只能对源码文本断言 —— 就是这一段 ✓
+Check '★ 状态灯画法**只有一处**：悬边灯与展开列表每行灯都调 StatusLight.Create（≥2 处 ✓ ✗ 界面文件里不自己 new Ellipse 画 ✗）' `
+    ($overlay -ne $null -and (CountOf $ovCode 'StatusLight.Create(') -ge 2 -and $ovCode.IndexOf('new Ellipse') -lt 0)
+Check '★ 悬边灯的两个文件里**零自造色值**（✗ hex ✗ Color.FromArgb/FromRgb ✗ Brushes./Colors. 命名颜色常量 ✗）' `
+    ($overlay -ne $null -and $light -ne $null -and -not (HasRawColor $ovCode) -and -not (HasRawColor $lightCode))
+Check '★ 第二份配色出口已删除：`Palette.LightBrush`（按灯色直接给一个纯饱和实心色）在取色出口里已不存在（✗ 加回来即红 ✗）' `
+    ($paletteSrc -ne $null -and (CodeOf $paletteSrc).IndexOf('LightBrush') -lt 0)
+Check '★ 画法文件 `Design/StatusLight.cs` 里也零自造色值（色值只从 token 表取 ✓ 柔光晕 + 去饱和 ✓）' `
+    ($statusLight -ne $null -and -not (HasRawColor $statusLightCode) -and $statusLightCode.Contains('DesignTokens.StatusBase') -and $statusLightCode.Contains('DesignTokens.StatusHalo') -and $statusLightCode.Contains('DesignTokens.StatusRing'))
+Check '★ 灯的尺寸 / 光晕 / 描边 / 透明也来自 token 表（StatusLight 里 0 个自造数值 ✗ 改回字面量即红 ✓）' `
+    ($statusLight -ne $null -and $statusLightCode.Contains('SizeSm = DesignTokens.LightSizeSm;') -and $statusLightCode.Contains('GlowBlur = DesignTokens.LightGlowBlur;') -and $statusLightCode.Contains('Spread = DesignTokens.LightGlowSpread') -and $statusLightCode.Contains('StrokeThickness = DesignTokens.LightRingStroke') -and $statusLightCode.Contains('DesignTokens.TransparentHex'))
+Check '★ 灯的几何（厚度 / 长度 / 透明余量 / 圆点）也来自 token 表（✗ 界面文件里不再有 `_scale == 0 ? 8/56/4` 这类自造数值 ✗）' `
+    ($overlay -ne $null -and $overlay.Contains('DesignTokens.LampThicknessOf(_scale)') -and $overlay.Contains('DesignTokens.LampLengthOf(_scale)') -and $overlay.Contains('DesignTokens.LampMarginOf(_scale)') -and $overlay.Contains('DesignTokens.LampDotOf(') -and $overlay.Contains('DesignTokens.LampRowDot') -and $ovCode.IndexOf('_scale == 0 ? 8 :') -lt 0 -and $ovCode.IndexOf('_scale == 0 ? 56 :') -lt 0 -and $ovCode.IndexOf('_scale == 0 ? 4 :') -lt 0)
+Check '★ 四色灯 → 语义色的映射在**纯判定文件**里（`OverlayLight.SemanticOf` ✓ 可单测 ✓ 界面只消费 ✓）' `
+    ($light -ne $null -and $light.Contains('public static DesignTokens.Semantic SemanticOf(LightColor c)') -and $overlay -ne $null -and $overlay.Contains('OverlayLight.SemanticOf('))
+Check '★ 一色一语义（口径不变）：红=异常 · 黄=注意 · 蓝=强调 · 绿=正常 · 灰=未知（改坏即红）' `
+    ($light -ne $null -and $light.Contains('if (c == LightColor.Bad) return DesignTokens.Semantic.Abnormal;') -and $light.Contains('if (c == LightColor.Asking) return DesignTokens.Semantic.Attention;') -and $light.Contains('if (c == LightColor.Running) return DesignTokens.Semantic.Accent;') -and $light.Contains('if (c == LightColor.Done) return DesignTokens.Semantic.Normal;') -and $light.Contains('return DesignTokens.Semantic.Unknown;'))
+
+Check '★ 色值口径一致：token 的 8 位是 #RRGGBBAA，不许把 token 直接交给 Avalonia 的 Color.Parse（8 位会被当 #AARRGGBB ⇒ 实测灯环变紫 ✗）' `
+    ($statusLight -ne $null -and $statusLightCode.IndexOf('Color.Parse(') -lt 0 -and $statusLightCode.Contains('Color.FromArgb(') -and $statusLightCode.Contains('DesignTokens.Parse('))
 
 Write-Host ("== " + $pass + "/" + ($pass + $fail) + " passed, " + $fail + " failed ==")
 if ($fail -gt 0) { exit 1 }
