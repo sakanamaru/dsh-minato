@@ -422,7 +422,11 @@ namespace Dsht.Cli
                     //   `active` 才是"真在动"（插件相邻两拍之间 seq 变过 ✓）；未知 → unknown ✗ 不假装 0 ✓
                     + " live=" + (s.Live ? "1" : "0")
                     + " active=" + (s.HasActive ? (s.Active ? "1" : "0") : "unknown")
-                    + " lastActive=" + (string.IsNullOrEmpty(s.LastActiveAt) ? "unknown" : MarkerText.Encode(s.LastActiveAt)));
+                    + " lastActive=" + (string.IsNullOrEmpty(s.LastActiveAt) ? "unknown" : MarkerText.Encode(s.LastActiveAt))
+                    // ★ 2026-10-26：在既有 `SESSION` 行上**追加一个字段** `cwd=` ✗ 不新增标记行 ✗（老解析器按 `键=值` 读 ✓
+                    //   多出的键被忽略 ✓）。= 该会话的 `identity.cwd`（**路径派生** ✓ 榜单「项目名」用它 ✓ ✗ 非对话内容 ✗）。
+                    //   取不到 ⇒ `cwd=` 空值（GUI 侧读成空串 ⇒ 显示名退化成短码 ✓ 不编 ✓）
+                    + " cwd=" + MarkerText.Encode(s.Cwd));
             }
             Console.WriteLine("SESSIONS_TOTAL in=" + (tot.UncachedInputTokens + tot.CacheReadTokens)
                 + " out=" + tot.OutputTokens

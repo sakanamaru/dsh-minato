@@ -38,6 +38,10 @@ namespace Dsht.Gui.Avalonia.Markers
         public bool Active;
         public bool ActiveKnown;
         public string LastActive = "";
+        /// <summary>会话的工作目录（来自 `SESSION` 行的 `cwd=` ✓ = 投影/聚合里的 `identity.cwd` ✓
+        /// **路径派生** ✓ ✗ 不是对话内容 ✗）。空 = CLI 没给这个事实（老 CLI）⇒ 榜单显示名退化成只有短码 ✓
+        /// 不编 ✓（消费方 = `BoardMetrics.DisplayName` ✓）。</summary>
+        public string Cwd = "";
 
         /// <summary>相对最大输入量的条形长度（0–100，由 SessionsView.AttachBars 计算）</summary>
         public int TokenBar;
@@ -737,6 +741,8 @@ namespace Dsht.Gui.Avalonia.Markers
             r.Active = act == "1";
             r.ActiveKnown = act == "1" || act == "0";
             r.LastActive = Decode(Clean(Get(kv, "lastActive")));
+            // ★ 2026-10-26：会话工作目录（路径派生 ✓）。老 CLI 的 SESSION 行没有 `cwd=` ⇒ Get 返回空 ⇒ 空串 ✓ 不编 ✓
+            r.Cwd = Decode(Clean(Get(kv, "cwd")));
             return r;
         }
 
