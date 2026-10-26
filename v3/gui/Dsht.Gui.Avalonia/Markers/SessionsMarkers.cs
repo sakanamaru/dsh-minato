@@ -22,7 +22,9 @@ namespace Dsht.Gui.Avalonia.Markers
         public long TtftMs = -1;           // 首 token（dsh 投影原值，多步累计；未知 = -1）
         public double CtxPercent = -1;     // 上下文压力（%）
         public bool Blank;
-        /// <summary>父会话 id（空 = 它是根会话 ✓）。来自 CLI 的 `SESSION_CHILD <父> <子>` ✓✓
+        /// <summary>父会话 id（**空 = 没有父边** ✗ —— ✗ **不是**「已知它是根会话」✗：父边缺失可能是根、
+        /// 也可能是 fork/子会话未记录父边，**二者不可区分** ✓ 2026-10-26 更正原措辞的过度声称）。
+        /// 来自 CLI 的 `SESSION_CHILD <父> <子>` ✓✓
         /// —— dsh 把子会话 id 记在父会话文件的 "childId" 字段里 ✓（2026-09-30 实测 98 组 ✓）</summary>
         public string ParentId = "";
         /// <summary>它的子会话 id 列表（子代理 ✓）。</summary>
@@ -242,7 +244,8 @@ namespace Dsht.Gui.Avalonia.Markers
         public double TotalHitPercent = -1;
         public double TotalDecodeTps = -1;
         public List<SessionRow> Rows = new List<SessionRow>();
-        /// <summary>子代理（有父会话的）数量 ✓；RootCount = 其余（根会话/普通会话 ✓）。</summary>
+        /// <summary>子代理（有父边的）数量 ✓；RootCount = 其余（**没有父边** ✓ ✗ 不叫"根会话"✗ ——
+        /// 父边缺失 ⇒ **无法证明**是根 ✓ 2026-10-26 更正措辞）。</summary>
         public int SubAgentCount;
         public int RootCount;
 

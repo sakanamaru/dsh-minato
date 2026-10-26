@@ -132,8 +132,8 @@ dsh-minato profilepatch --profile web --id shio-bridge --yes
 
 | 依赖 | 已实测 ✓ | 说明 |
 |---|---|---|
-| DSH | **0.2.0-rc.2**（nightly 桌面版） | 装载 + 启动：2026-09-28 隔离 `$DSH_HOME` + 端口 3999 ✓（见文末验证记录）；端到端血缘快照：2026-10-09 真实桌面实例，与 node 独立扫描器对拍 MATCH ✓。其它版本**未验证**；`0.1.5-rc.2` 判定**不兼容**（见下） |
-| Node.js | **v24.19.0**（本插件测试机）· **24.21.0**（DSH 0.2.0-rc.2 桌面版内嵌运行时） | `engines`：`>=22.15.0 <23.0.0 \|\| >=23.8.0` —— 下限 = 血缘段使用的 `node:zlib.zstdDecompressSync` 的引入版本（官方 API 文档「Added in: v22.15.0 / v23.8.0」：[v22 文档](https://nodejs.org/docs/latest-v22.x/api/zlib.html#zlibzstddecompresssyncbuffer-options) · [v23 文档](https://nodejs.org/docs/latest-v23.x/api/zlib.html#zlibzstddecompresssyncbuffer-options)；v20 无此 API，23.0–23.7 也没有，所以范围故意绕开这段空窗）。更老的 Node **不是装不上，而是血缘段会降级**（见下），其余功能照常 |
+| DSH | **0.2.1-rc.3**（nightly 桌面版） | **版本身份 2026-10-26 本机实测**：`…\resources\runtime\primary-runtime\runtime.json` 的 `desktopVersion` ＋ 桌面 exe `FileVersion` **双证** ✓（桌面 asar 内 `@deepseek-ai/dsh-client-ui-*` 实测 **55 个** ✓）。功能验证按日期归属：装载 + 启动 2026-09-28 在**当时的**桌面版（文档早先记为 `0.2.0-rc.2`，现已被上游升级覆盖）上、以隔离 `$DSH_HOME` + 端口 3999 验过 ✓；端到端血缘快照 2026-10-09 真实桌面实例，与 node 独立扫描器对拍 MATCH ✓。其它版本**未验证**；`0.1.5-rc.2` 判定**不兼容**（见下） |
+| Node.js | **v24.19.0**（本插件测试机）· **24.21.0**（DSH 0.2.1-rc.3 桌面版内嵌运行时，2026-10-26 实测 `resources\runtime\versions.json` ✓） | `engines`：`>=22.15.0 <23.0.0 \|\| >=23.8.0` —— 下限 = 血缘段使用的 `node:zlib.zstdDecompressSync` 的引入版本（官方 API 文档「Added in: v22.15.0 / v23.8.0」：[v22 文档](https://nodejs.org/docs/latest-v22.x/api/zlib.html#zlibzstddecompresssyncbuffer-options) · [v23 文档](https://nodejs.org/docs/latest-v23.x/api/zlib.html#zlibzstddecompresssyncbuffer-options)；v20 无此 API，23.0–23.7 也没有，所以范围故意绕开这段空窗）。更老的 Node **不是装不上，而是血缘段会降级**（见下），其余功能照常 |
 
 **`0.1.5-rc.2`（旧版全局 CLI）：不兼容（静默不工作）。** 2026-10-11 探针（临时 `$DSH_HOME` + 端口 3997，只读，未改动任何安装）：插件**装得上、宿主起得来、无报错**，但 0.1.5 的依赖树里**找不到 `sessionQuery` / `sessionProjections` 的 provide 方**（只有 `sessions`）→ 插件声明的 inject 凑不齐 → `apply()` 不执行 → 永远不写快照、也不报错。这正是「Known limits」说的「dsh 改内部接口时静默降级」—— 所以判定不兼容、不计入已实测。
 
@@ -152,6 +152,7 @@ dsh-minato profilepatch --profile web --id shio-bridge --yes
 | 2026-10-09 | 真实桌面端到端：血缘边 283 = 199 subagent + 18 fork + 66 root | errors=0；node 独立扫描器 vs 桥插件**双引擎对拍 MATCH ×2** |
 | 2026-10-11 | 真实库血缘不变量 I1–I9（只读脚本复跑） | **全 PASS**（290 投影；26 条未认领按既有降级方案走） |
 | 2026-10-11 | 真实库血缘扫描（插件自身 `scanSessionsLineage`，只读） | 293 个会话目录 / 326 个 zstd 文件 / **290 个 header 成功 / 3 个无 header 如实计 / 0 解码错误** / 83 ms |
+| 2026-10-26 | 本机 dsh **版本身份**复核（只读，未改动任何安装） | `resources\runtime\primary-runtime\runtime.json` 的 `desktopVersion` = **`0.2.1-rc.3`** ＋ 桌面 `DeepSeek Harness.exe` 的 `FileVersion` = **`0.2.1-rc.3`**（**双证** ✓）；asar 内 `@deepseek-ai/dsh-client-ui-*` = **55 个** ✓。⇒ 本表早先写的 `0.2.0-rc.2` 是**过期信息**（dsh 在本项目进行期间升过级 ✓） |
 
 ### 不涉及（只读承诺，与上文「What it reads / writes」一致）
 
@@ -188,8 +189,10 @@ dsh-minato profilepatch --profile web --id shio-bridge --yes
 - 缺数据时**整个字段不写**（工具箱用「字段存在性」判 `Has*`）—— 不写 `0`，不假装有数据
 - `formatVersion` 不匹配时工具箱**不解析**（诚实降级，不猜）
 - `lineage` 段（2026-10-09 第三批，**纯增量** —— `formatVersion` 仍是 2）：由原始日志**首帧 header** 解码而来
-  （只解首帧、正文帧一帧不解）；`origin`/`parent`/`createdAt` 缺哪个就省哪个；纯根会话是**空对象 `{}`**
-  （= 血缘**已知**且无父，别与「无血缘」混淆）；段缺失/字段不符 ⇒ 工具箱血缘口径如实降级，绝不猜
+  （只解首帧、正文帧一帧不解）；`origin`/`parent`/`createdAt` 缺哪个就省哪个；**父字段缺失**的会话是**空对象 `{}`**
+  （= 这条日志没写父字段 ✗ —— **不是**「已知它是根」✗。上游 v4 header 的 `parentSession` 是**可选字段**，
+  没有它可能是根、也可能是 fork/子会话未写，**二者不可区分** ✓ 2026-10-26 更正原措辞的过度声称）；
+  它仍与「无血缘」（段缺失 / 解码失败 ⇒ `errors` 计数 ✓）严格区分；段缺失/字段不符 ⇒ 工具箱血缘口径如实降级，绝不猜
 
 ## Self-test / 自测（零依赖，不需要 dsh）
 

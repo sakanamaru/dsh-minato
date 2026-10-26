@@ -465,12 +465,12 @@ await check("**decodeFirstFrameHeader：超大首帧（>1MiB）→ maxOutputLeng
 	assert.throws(() => decodeFirstFrameHeader(huge), "超大首帧 ⇒ 解压失败 ⇒ 抛 ⇒ errors++ ✓");
 });
 
-await check("**extractLineageEntry：形状防御**（字符串/{id}/{sessionId}/前缀剥离/纯根/null ✓）", async () => {
+await check("**extractLineageEntry：形状防御**（字符串/{id}/{sessionId}/前缀剥离/父字段缺失/null ✓）", async () => {
 	assert.deepEqual(extractLineageEntry({ origin: "subagent", parentSession: "session-p1", createdAt: 1759900000000 }),
 		{ origin: "subagent", parent: "p1", createdAt: 1759900000000 }, "标准形状 + session- 前缀剥离 ✓");
 	assert.deepEqual(extractLineageEntry({ parentSession: { id: "p2" } }), { parent: "p2" }, "{id} 形态 ✓");
 	assert.deepEqual(extractLineageEntry({ parentSession: { sessionId: "p3" } }), { parent: "p3" }, "{sessionId} 形态 ✓");
-	assert.deepEqual(extractLineageEntry({}), {}, "纯根 = 空条目 ✓（血缘**已知** ✓ 与「无血缘」严格区分 ✓✓）");
+	assert.deepEqual(extractLineageEntry({}), {}, "父字段缺失 = 空条目 ✓（✗ **不等于**「已知是根」✗ 与「无血缘」严格区分 ✓✓）");
 	assert.deepEqual(extractLineageEntry({ createdAt: 0 }), {}, "createdAt=0 不写 ✓（0 不是有效时间 ✗ 不假装 ✓）");
 	assert.equal(extractLineageEntry(null), null, "null header ⇒ null ✓");
 	assert.equal(extractLineageEntry("oops"), null, "非对象 ⇒ null ✓");
@@ -521,14 +521,14 @@ await check("**scanSessionsLineage：无代际旧版 session.jsonl.zstd 兜底 +
 	fs.rmSync(root, { recursive: true, force: true });
 });
 
-await check("**scanSessionsLineage：纯根/子代理/孤儿父各归各位 + 垃圾帧诚实计数**", async () => {
+await check("**scanSessionsLineage：父字段缺失/子代理/孤儿父各归各位 + 垃圾帧诚实计数**", async () => {
 	const { root, sessionsRoot } = makeSessionsTree();
 	putSession(sessionsRoot, "r1", [[1, frameOf({})]]);
 	putSession(sessionsRoot, "c1", [[1, frameOf({ origin: "subagent", parentSession: "session-r1" })]]);
 	putSession(sessionsRoot, "bad1", [[1, Buffer.alloc(400, 0x41)]]);   // 垃圾帧 ✓
 	putSession(sessionsRoot, "empty1", []);                              // 连 zstd 都没有 ✓
 	const r = scanSessionsLineage(sessionsRoot, new Map());
-	assert.deepEqual(r.sessions.r1, {}, "纯根 = 空条目 ✓");
+	assert.deepEqual(r.sessions.r1, {}, "父字段缺失 = 空条目 ✓（✗ 不是「已知根」✗）");
 	assert.deepEqual(r.sessions.c1, { origin: "subagent", parent: "r1" }, "子代理 + 前缀剥离 ✓");
 	assert.equal("bad1" in r.sessions, false, "解码失败 ⇒ 无条目 ✓");
 	assert.equal("empty1" in r.sessions, false, "没有帧文件 ⇒ 无条目 ✓（CLI 侧走 NOHEADER ✓）");

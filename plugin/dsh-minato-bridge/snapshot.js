@@ -181,8 +181,16 @@ export function decodeFirstFrameHeader(buf) {
 
 /**
  * 首帧 header → 血缘条目（**纯函数** ✓ F5：只写有值的字段 ✓）。
- * 形状防御：`parentSession` 实测是字符串 id ✓ 但容忍 `{id}` / `{sessionId}` 形态 ✓（哪种都没有 ⇒ 无 parent = 根 ✓）。
- * @returns {object|null} header 不是对象 ⇒ null；否则条目（可能是空对象 = 纯根 ✓ 血缘**已知** ✓ 与「无血缘」严格区分 ✓✓）
+ * 形状防御：`parentSession` 实测是字符串 id ✓ 但容忍 `{id}` / `{sessionId}` 形态 ✓。
+ * ★★ 父字段缺失 ≠ 已知根 ✗（2026-10-26 更正：原措辞「哪种都没有 ⇒ 无 parent = 根」是**过度声称** ✗）
+ *   上游 v4 header 里 `parentSession` 是**可选字段** —— 必填只有 version/id/createdAt/isSeeded/delegationDepth
+ *   （`dsh-session-format-v3-to-v4/lib/index.js:948-961` ✓ 且 :971 只校验"若存在必须是字符串" ✓）；
+ *   header 构造器也是"没有就省"（`dsh-session/lib/index.js:1823` ✓ `...meta?.parentSession === undefined ? {} : {...}`）。
+ *   ⇒ **没有父字段**只说明"这条日志没写父" ✓ 它可能是根 ✓ 也可能是 fork / 子会话**没写父字段** ✓ 二者**不可区分** ✗
+ *   （上游迁移代码把「origin=subagent 且无 parentSession」当**可达状态**并明确拒绝 ✓ 同文件 :873 ✓）。
+ *   所以本函数只回答"有没有写父字段" ✓ 不回答"它是不是根" ✗。
+ * @returns {object|null} header 不是对象 ⇒ null；否则条目（可能是空对象 = **父字段缺失** ✓ —— 只表示"这条日志没写父"
+ *   ✗ 不表示"已知是根" ✗；仍与「无血缘」（整段缺失 / 解码失败 ⇒ 调用方 errors++ ✓）严格区分 ✓✓）
  */
 export function extractLineageEntry(header) {
 	if (!header || typeof header !== "object") return null;

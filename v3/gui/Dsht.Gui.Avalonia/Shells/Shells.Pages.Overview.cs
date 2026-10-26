@@ -170,7 +170,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
                         + "（在动看每行状态；「挂着」= 还在 dsh 里但没动） · 子代理 " + (d == null ? "—" : a.Subs.ToString())
 
-                        + " / 根 " + (d == null ? "—" : (a.Count - a.Subs).ToString());
+                        + " / 无父边 " + (d == null ? "—" : (a.Count - a.Subs).ToString());   // ★ 2026-10-26：原写"根"是**过度声称** ✗（无父边 ⇒ 无法证明是根 ✓）
 
                 }, Palette.Text, 0, null));
 

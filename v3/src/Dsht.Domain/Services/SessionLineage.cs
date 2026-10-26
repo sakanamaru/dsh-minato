@@ -7,7 +7,10 @@ namespace Dsht.Domain.Services
     /// 判定口径写死（看板施工规格 §B / §11.7-B）：
     ///   · 子代理 ⟺ Origin=="subagent"（首帧 header origin ✓ 283/283 与投影 identity 等价已验 ✓）
     ///   · fork = 有 Parent 且 Origin!="subagent"（dsh fork 复制会话 ✓ 实测 18 个 ✓）
-    ///   · 根 = Parent 为空
+    ///   · 根 = Parent 为空 —— ★ 2026-10-26 更正措辞：这是**口径定义**（"无父边 ⇒ 按根对待"）
+    ///     ✗ 不是"已证明它是根" ✗ —— 上游 v4 header 的 `parentSession` 是**可选字段**
+    ///     （`dsh-session-format-v3-to-v4/lib/index.js:948-961` ✓ 必填只有 version/id/createdAt/isSeeded/delegationDepth），
+    ///     没有它可能是根、也可能是 fork/子会话**未写父字段**，**二者不可区分** ✓（同款更正见 plugin/dsh-minato-bridge/snapshot.js）
     ///   ✗ delegationDepth 禁判层级（实测 113/282 不一致 ✓）—— depth 一律自走链计算（根=0）。</summary>
     public sealed class LineageEdge
     {
@@ -83,7 +86,7 @@ namespace Dsht.Domain.Services
                 if (e == null || e.Id.Length == 0 || e.Multiparent || !g.Nodes.ContainsKey(e.Id)) continue;
                 if (byId.ContainsKey(e.Id)) continue;
                 byId[e.Id] = e;
-                if (e.Parent.Length == 0) continue;   // 根 ✓
+                if (e.Parent.Length == 0) continue;   // 无父边 ⇒ 按根对待（✗ 不等于"已证是根"✗ 见类头口径）
                 bool parentKnown = knownIds != null && knownIds.Contains(e.Parent);
                 if (!parentKnown)
                 {
@@ -229,7 +232,7 @@ namespace Dsht.Domain.Services
             if (level == "parents") return edge.Parent.Length == 0;
             if (level == "parents_sub")
             {
-                if (edge.Parent.Length == 0) return true;                                   // 根 ✓
+                if (edge.Parent.Length == 0) return true;                                   // 无父边 ⇒ 按根对待（✗ 不等于"已证是根"✗）
                 if (node != null && node.IsOrphan) return false;                            // 孤儿 ⇒ 只进全局 ✓
                 return IsSubAgentOrigin(edge.Origin);                                       // 非孤儿子代理 ✓（fork ✗）
             }
