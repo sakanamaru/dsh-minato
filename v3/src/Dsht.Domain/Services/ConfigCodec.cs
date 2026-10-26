@@ -115,6 +115,34 @@ namespace Dsht.Domain.Services
             else if (t.StartsWith("sessions_price_out_per_mtok=", StringComparison.Ordinal)) c.SessionsPriceOutPerMTok = ParsePrice(t.Substring("sessions_price_out_per_mtok=".Length));
             // ★ 成本面板 v3.2（2026-10-16 ✓ 维护者已确认键名 ✓）：每日预算上限，同样 ≥0 的十进制、同样的 0 = 未设语义 ✓
             else if (t.StartsWith("sessions_budget_usd_per_day=", StringComparison.Ordinal)) c.SessionsBudgetUsdPerDay = ParsePrice(t.Substring("sessions_budget_usd_per_day=".Length));
+            // ——— 悬边状态灯悬浮窗（2026-10-26 · 提案 §11 ✓）：六个纯 GUI 偏好键 ✓ 规则与既有键同款（越界保持默认 ✗ 不猜 ✓）———
+            else if (t.StartsWith("overlay_enabled=", StringComparison.Ordinal))
+            {
+                string v = t.Substring("overlay_enabled=".Length).Trim().ToLowerInvariant();
+                if (v.Length > 0) c.OverlayEnabled = v != "off";
+            }
+            else if (t.StartsWith("overlay_edge=", StringComparison.Ordinal))
+            {
+                string v = t.Substring("overlay_edge=".Length).Trim().ToLowerInvariant();
+                if (v == "left" || v == "right" || v == "top" || v == "bottom") c.OverlayEdge = v;
+            }
+            else if (t.StartsWith("overlay_offset=", StringComparison.Ordinal))
+            {
+                // 与白名单同一条规则 ✓：0~1 之外不认（保持默认 0.5 ✓ 不猜 ✗）
+                decimal off;
+                if (decimal.TryParse(t.Substring("overlay_offset=".Length).Trim(), System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out off) && off >= 0m && off <= 1m) c.OverlayOffset = off;
+            }
+            else if (t.StartsWith("overlay_scale=", StringComparison.Ordinal))
+            {
+                int n;
+                if (int.TryParse(t.Substring("overlay_scale=".Length).Trim(), out n) && n >= 0 && n <= 2) c.OverlayScale = n;
+            }
+            else if (t.StartsWith("overlay_screen=", StringComparison.Ordinal)) c.OverlayScreen = t.Substring("overlay_screen=".Length).Trim();
+            else if (t.StartsWith("overlay_show_title=", StringComparison.Ordinal))
+            {
+                string v = t.Substring("overlay_show_title=".Length).Trim().ToLowerInvariant();
+                if (v.Length > 0) c.OverlayShowTitle = v != "off";
+            }
             }
             return c;
         }
@@ -156,6 +184,13 @@ namespace Dsht.Domain.Services
             sb.Append("sessions_price_cache_write_per_mtok=").Append(c.SessionsPriceCacheWritePerMTok.ToString(System.Globalization.CultureInfo.InvariantCulture)).Append("\r\n");
             sb.Append("sessions_price_out_per_mtok=").Append(c.SessionsPriceOutPerMTok.ToString(System.Globalization.CultureInfo.InvariantCulture)).Append("\r\n");
             sb.Append("sessions_budget_usd_per_day=").Append(c.SessionsBudgetUsdPerDay.ToString(System.Globalization.CultureInfo.InvariantCulture)).Append("\r\n");
+            // —— 悬边状态灯悬浮窗（2026-10-26 · 提案 §11 ✓）——
+            sb.Append("overlay_enabled=").Append(c.OverlayEnabled ? "on" : "off").Append("\r\n");
+            sb.Append("overlay_edge=").Append(c.OverlayEdge).Append("\r\n");
+            sb.Append("overlay_offset=").Append(c.OverlayOffset.ToString(System.Globalization.CultureInfo.InvariantCulture)).Append("\r\n");
+            sb.Append("overlay_scale=").Append(c.OverlayScale).Append("\r\n");
+            sb.Append("overlay_screen=").Append(c.OverlayScreen == null ? "" : c.OverlayScreen).Append("\r\n");
+            sb.Append("overlay_show_title=").Append(c.OverlayShowTitle ? "on" : "off").Append("\r\n");
             return sb.ToString();
         }
 

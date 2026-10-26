@@ -38,10 +38,22 @@ namespace Dsht.Gui.Avalonia.Markers
         public bool Active;
         public bool ActiveKnown;
         public string LastActive = "";
-        /// <summary>会话的工作目录（来自 `SESSION` 行的 `cwd=` ✓ = 投影/聚合里的 `identity.cwd` ✓
-        /// **路径派生** ✓ ✗ 不是对话内容 ✗）。空 = CLI 没给这个事实（老 CLI）⇒ 榜单显示名退化成只有短码 ✓
-        /// 不编 ✓（消费方 = `BoardMetrics.DisplayName` ✓）。</summary>
+
+        // ——— 悬边状态灯（2026-10-26 · 提案 §11 ✓✓）：SESSION 行上追加的三个字段 ———
+        /// <summary>会话的工作目录（`identity.cwd` ✓ **路径派生** ✓ 悬浮窗与榜单的「项目名」用它 ✓
+        /// ✗ 不是对话内容 ✗）。空 = CLI 没给这个事实（老 CLI / 投影没有 identity）⇒ 名称退化成只有短码 ✓ 不编 ✓。</summary>
         public string Cwd = "";
+        /// <summary>计划已完成项数 / 总项数（来自投影 `todos` 行 ✓ **形状先验**：CLI 认不出就写 `unknown` ✓）。</summary>
+        public long PlanDone;
+        public long PlanTotal;
+        /// <summary>计划数字**可显示** ✓（CLI 给的是 `n/N` 而不是 `unknown` ✓）。
+        /// false ⇒ 界面**一个数字都不显示** ✗（✗ 不显示 `0/0` ✓ 不编 ✓ —— 硬红线 ✓ 有断言 ✓）。</summary>
+        public bool PlanKnown;
+        /// <summary>`questions.active` 的非空条目数（**有待回答** ✓ 真信号 ✓）。</summary>
+        public long QuestionActive;
+        /// <summary>`questions.active` 的形状被认出 ⇒ 「询问」这一路**有信号** ✓；
+        /// false ⇒ 黄灯**不亮**（灰 ✓）✗ 绝不猜成"没有问题" ✗。</summary>
+        public bool QuestionKnown;
 
         /// <summary>相对最大输入量的条形长度（0–100，由 SessionsView.AttachBars 计算）</summary>
         public int TokenBar;
@@ -323,6 +335,13 @@ namespace Dsht.Gui.Avalonia.Markers
         }
 
         public bool IsLiveSource { get { return Source == "snapshot" || Source == "snapshot+disk"; } }
+
+        /// <summary>★ 悬边状态灯（2026-10-26 · 提案 §11 ✓）：「桥接快照陈旧」这一路**红灯信号**。
+        /// 来源 = CLI 已有的 stderr 诊断行 `SESSIONS_SNAPSHOT_STALE`（`Program.Sessions.cs:187` ✓
+        /// 它在"快照已超过 max(30 秒, 3×interval) 未刷新 **且**确有 live 行需要置 false"时打印 ✓）。
+        /// ★ 诚实边界：CLI **只在真要清理时才打**这行 ⇒ 我们只会在**真有这条信号**时点亮红灯 ✓
+        ///   —— ✗ 绝不因为"没看到这行"就断言快照是新鲜的 ✗（那会是**过度声称** ✓ 所以这一位只作"有信号"用 ✓）。</summary>
+        public bool SnapshotStale;
     }
 
     /// <summary>列表的过滤与排序（纯函数，供界面调用；也可单测）。</summary>
@@ -537,6 +556,9 @@ namespace Dsht.Gui.Avalonia.Markers
                     if (line.StartsWith("SESSIONS_LIVE", StringComparison.Ordinal)) { s.Live = (int)Num(Tail(line, "SESSIONS_LIVE"), 0); continue; }
                     if (line.StartsWith("SESSIONS_SOURCE", StringComparison.Ordinal)) { s.Source = Tail(line, "SESSIONS_SOURCE").Trim(); continue; }
                     if (line.StartsWith("SESSIONS_ROOT", StringComparison.Ordinal)) { s.Root = Tail(line, "SESSIONS_ROOT").Trim(); continue; }
+                    // ★ 悬边状态灯（2026-10-26 · 提案 §11 ✓）：CLI 的 stderr 诊断行（GUI 侧 `Run` 会带 `[stderr] ` 前缀 ✓
+                    //   所以这里按**子串**认，不要求行首 ✓）。它存在 ⇒ 「桥接快照陈旧」这一路**有信号** ✓
+                    if (line.IndexOf("SESSIONS_SNAPSHOT_STALE", StringComparison.Ordinal) >= 0) { s.SnapshotStale = true; continue; }
                     if (line.StartsWith("SESSIONS_TOTAL", StringComparison.Ordinal))
                     {
                         Dictionary<string, string> kv = Pairs(Tail(line, "SESSIONS_TOTAL"));
@@ -741,8 +763,25 @@ namespace Dsht.Gui.Avalonia.Markers
             r.Active = act == "1";
             r.ActiveKnown = act == "1" || act == "0";
             r.LastActive = Decode(Clean(Get(kv, "lastActive")));
-            // ★ 2026-10-26：会话工作目录（路径派生 ✓）。老 CLI 的 SESSION 行没有 `cwd=` ⇒ Get 返回空 ⇒ 空串 ✓ 不编 ✓
+            // ★ 悬边状态灯（2026-10-26 · 提案 §11 ✓）：追加三字段（老 CLI 没有 ⇒ 全部保持"未知" ✓ 不编 ✓）
             r.Cwd = Decode(Clean(Get(kv, "cwd")));
+            string plan = Get(kv, "plan");
+            r.PlanKnown = false;
+            if (!string.IsNullOrEmpty(plan) && plan != "unknown")
+            {
+                int sl = plan.IndexOf('/');
+                long dn, tt;
+                if (sl > 0
+                    && long.TryParse(plan.Substring(0, sl), NumberStyles.Integer, CultureInfo.InvariantCulture, out dn)
+                    && long.TryParse(plan.Substring(sl + 1), NumberStyles.Integer, CultureInfo.InvariantCulture, out tt)
+                    && dn >= 0 && tt > 0 && dn <= tt)
+                {
+                    r.PlanKnown = true; r.PlanDone = dn; r.PlanTotal = tt;
+                }
+            }
+            string q = Get(kv, "q");
+            r.QuestionKnown = !string.IsNullOrEmpty(q) && q != "unknown";
+            r.QuestionActive = r.QuestionKnown ? Num(q, 0) : 0;
             return r;
         }
 

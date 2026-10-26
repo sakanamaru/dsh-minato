@@ -195,14 +195,43 @@ namespace Dsht.Cli
             RowGateReport rep = new RowGateReport();   // ★ R5/R6 丢弃计数 → stderr SESSAGG_ROWDROP ✓（2026-10-08 ✓ 只进 stderr ✗ 不污染 stdout 标记面 ✓）
             int fromDisk = 0;
             string[] files = src.ListSessionFiles();
+            // ★★ 悬边状态灯（2026-10-26 · 提案 §11 ✓）：快照行也要能拿到「计划 `完成/总数`」与「有待回答」——
+            //   快照（插件写的那一份）**没有** `todos` / `userQuestions` 这两段 ✗（它只转述 dsh 给的实时字段 ✓）
+            //   而这两段的唯一来源是**磁盘投影** ✓ ⇒ 对快照覆盖到的 id，**再读一次它的投影文件，只补这两个追加字段** ✗
+            //   ★ 纪律：**一个既有数字都不动** ✓（turns / token / live / active 仍以快照为准 ✓ 口径不变 ✓）
+            //     · 不把它加进 list ✓ 不动 fromDisk ✓ ⇒ `SESSIONS_SOURCE` 与所有既有计数**逐字不变** ✓
+            //     · 解析时 rep 传 null ⇒ **不进 R5/R6 丢弃计数** ✓（否则快照路径的 SESSAGG_ROWDROP 会凭空变多 ✗）
+            //     · 文件文本照常进 textCache ✓（后面那段 childId 扫描直接复用 ✓ 不多读一遍 ✓）
+            System.Collections.Generic.Dictionary<string, SessionStat> snapById = null;
+            if (source == "snapshot")
+            {
+                snapById = new System.Collections.Generic.Dictionary<string, SessionStat>(StringComparer.Ordinal);
+                for (int i = 0; i < list.Count; i++)
+                    if (list[i] != null && !string.IsNullOrEmpty(list[i].Id) && !snapById.ContainsKey(list[i].Id)) snapById[list[i].Id] = list[i];
+            }
             // ★★ 第 2 轮审查抓到：下面那段 childId 扫描**又把每个文件读了一遍** ✗✗
             //   → N 个会话文件 = 2N 次全文件读 ✓（197 个会话时第二遍约 200 ms ✓ 线性增长 ✓）
             // ✓ 现在：**第一遍读到的文本缓存下来，第二遍直接复用** ✓✓（只读一遍 ✓）
             var textCache = new System.Collections.Generic.Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
             for (int i = 0; i < files.Length; i++)
             {
-                string id = SessionStats.NormalizeSessionId(System.IO.Path.GetFileNameWithoutExtension(files[i]));   // ★ 与快照/聚合/血缘同一归一入口（2026-10-16 数据正确性修复 ✓ 否则快照那条与磁盘这条去重不上 ⇒ 重复计入 ✗）
-                if (id != null && have.Contains(id)) continue;
+                string id = SessionStats.NormalizeSessionId(System.IO.Path.GetFileNameWithoutExtension(files[i]));   // ★ 与快照/磁盘/血缘同一归一入口（2026-10-16 数据正确性修复 ✓ 否则快照那条与磁盘这条去重不上 ⇒ 重复计入 ✗）
+                if (id != null && have.Contains(id))
+                {
+                    SessionStat target;
+                    if (snapById != null && snapById.TryGetValue(id, out target) && target != null)
+                    {
+                        string tx = src.ReadText(files[i]);
+                        if (!string.IsNullOrEmpty(tx)) textCache[files[i]] = tx;
+                        SessionStat ds = SessionStats.ParseSessionProjection(tx, id, null);
+                        if (ds != null)
+                        {
+                            if (ds.HasPlan) { target.HasPlan = true; target.PlanDone = ds.PlanDone; target.PlanTotal = ds.PlanTotal; }
+                            if (ds.HasQuestions) { target.HasQuestions = true; target.QuestionActive = ds.QuestionActive; }
+                        }
+                    }
+                    continue;
+                }
                 string txt1 = src.ReadText(files[i]);
                 if (!string.IsNullOrEmpty(txt1)) textCache[files[i]] = txt1;
                 SessionStat s = SessionStats.ParseSessionProjection(txt1, id, rep);
@@ -423,10 +452,14 @@ namespace Dsht.Cli
                     + " live=" + (s.Live ? "1" : "0")
                     + " active=" + (s.HasActive ? (s.Active ? "1" : "0") : "unknown")
                     + " lastActive=" + (string.IsNullOrEmpty(s.LastActiveAt) ? "unknown" : MarkerText.Encode(s.LastActiveAt))
-                    // ★ 2026-10-26：在既有 `SESSION` 行上**追加一个字段** `cwd=` ✗ 不新增标记行 ✗（老解析器按 `键=值` 读 ✓
-                    //   多出的键被忽略 ✓）。= 该会话的 `identity.cwd`（**路径派生** ✓ 榜单「项目名」用它 ✓ ✗ 非对话内容 ✗）。
-                    //   取不到 ⇒ `cwd=` 空值（GUI 侧读成空串 ⇒ 显示名退化成短码 ✓ 不编 ✓）
-                    + " cwd=" + MarkerText.Encode(s.Cwd));
+                    // ——— 悬边状态灯（2026-10-26 · 提案 §11 ✓✓）：**在既有 SESSION 行上追加三个字段** ———
+                    //   ✗ 不新增标记行 ✗（沿用 `SESSION` 这一个行头 ✓ 老解析器按 `键=值` 读 ✓ 多出的键被忽略 ✓）
+                    //   · cwd = 该会话的 `identity.cwd`（**路径派生** ✓ 悬浮窗/榜单的「项目名」用它 ✓ 非对话内容 ✓）
+                    //   · plan = `完成/总数`（来自 `todos` 行 ✓ **形状先验**：认不出就写 `unknown` ✗ 绝不 `0/0` ✓）
+                    //   · q = `questions.active` 的非空条目数（**有待回答** ✓ 形状认不出写 `unknown` ✗ 不猜成 0 ✓）
+                    + " cwd=" + MarkerText.Encode(s.Cwd)
+                    + " plan=" + (s.HasPlan ? (s.PlanDone.ToString(System.Globalization.CultureInfo.InvariantCulture) + "/" + s.PlanTotal.ToString(System.Globalization.CultureInfo.InvariantCulture)) : "unknown")
+                    + " q=" + (s.HasQuestions ? s.QuestionActive.ToString(System.Globalization.CultureInfo.InvariantCulture) : "unknown"));
             }
             Console.WriteLine("SESSIONS_TOTAL in=" + (tot.UncachedInputTokens + tot.CacheReadTokens)
                 + " out=" + tot.OutputTokens

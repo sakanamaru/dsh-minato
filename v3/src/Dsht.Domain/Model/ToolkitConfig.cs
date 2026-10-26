@@ -66,6 +66,24 @@ namespace Dsht.Domain.Model
         /// ★ **零写入**：每次由会话重算 ✓ 不记累计 ✓ 不写任何运行时状态 ✓（勘察 §7.2 ✓）。</summary>
         public decimal SessionsBudgetUsdPerDay = 0m;
 
+        // —— 悬边状态灯悬浮窗（2026-10-26 · 提案 §11 ✓✓ 维护者定案：「悬边状态灯 + 按需展开」）——
+        /// <summary>是否显示置顶悬浮窗。**默认 off** ✓（提案 §9：突然冒出个悬浮窗很烦 ✗ 不默认开 ✓）。
+        /// 纯 GUI 偏好 ✓（CLI 自己不消费它，只替 GUI 存 —— 与 gui_style 同类 ✓）。</summary>
+        public bool OverlayEnabled = false;
+        /// <summary>贴屏幕哪一边：left / right / top / bottom（默认 right ✓ 右侧竖条 ✓）。</summary>
+        public string OverlayEdge = "right";
+        /// <summary>沿那条边离屏幕起点的比例 0~1（默认 0.5 = 居中 ✓）。**相对位置** ⇒ 换分辨率也落在同一相对处 ✓。</summary>
+        public decimal OverlayOffset = 0.5m;
+        /// <summary>尺寸档：0=紧凑 / 1=标准（默认）/ 2=宽松（只缩放灯与面板的字号/厚度 ✓ 不改信息层级 ✓）。</summary>
+        public int OverlayScale = 1;
+        /// <summary>记住的显示器（`Screen.DisplayName` ✓ 拿不到就存 `#<序号>` ✓）。空 = 主屏 ✓。
+        /// ★ 显示器拔掉 / 认不出 ⇒ **回落主屏** ✓ 且位置一律**钳进该屏工作区** ✗ 不许跑到屏幕外 ✗（提案 §4 ✓）。</summary>
+        public string OverlayScreen = "";
+        /// <summary>展开列表里是否显示**会话标题**。**默认 off** ✗✓（提案 §11 红线 A ✓）——
+        /// 标题是 LLM 从对话内容派生的 ✓ 属提示词派生数据 ✓ 开启时界面必须**明示**这一点 ✓
+        /// 且**绝不写盘/写日志**（本键只存开关本身 ✓ 不存任何标题文本 ✓）。</summary>
+        public bool OverlayShowTitle = false;
+
         public ToolkitConfig Copy()
         {
             ToolkitConfig c = new ToolkitConfig();
@@ -73,6 +91,7 @@ namespace Dsht.Domain.Model
             c.CheckUpdate = CheckUpdate; c.CheckDshUpdate = CheckDshUpdate; c.DshVersions = DshVersions;
             c.UpdateChannel = UpdateChannel; c.CloseAction = CloseAction; c.AutoStart = AutoStart; c.AutoStartTarget = AutoStartTarget; c.BrowserMode = BrowserMode; c.UiParallel = UiParallel; c.ScanChildren = ScanChildren; c.GuiStartPage = GuiStartPage; c.GuiAutoRefresh = GuiAutoRefresh; c.GuiShell = GuiShell; c.GuiStyle = GuiStyle; c.BalanceKey = BalanceKey;
             c.SessionsDefaultLevel = SessionsDefaultLevel; c.SessionsPriceInPerMTok = SessionsPriceInPerMTok; c.SessionsPriceCacheReadPerMTok = SessionsPriceCacheReadPerMTok; c.SessionsPriceCacheWritePerMTok = SessionsPriceCacheWritePerMTok; c.SessionsPriceOutPerMTok = SessionsPriceOutPerMTok; c.SessionsBudgetUsdPerDay = SessionsBudgetUsdPerDay;
+            c.OverlayEnabled = OverlayEnabled; c.OverlayEdge = OverlayEdge; c.OverlayOffset = OverlayOffset; c.OverlayScale = OverlayScale; c.OverlayScreen = OverlayScreen; c.OverlayShowTitle = OverlayShowTitle;
             return c;
         }
     }

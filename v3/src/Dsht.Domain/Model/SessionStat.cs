@@ -48,6 +48,23 @@ namespace Dsht.Domain.Model
         public bool HasPressure;   // contextPressure 存在
         public bool HasBreakdown;  // contextBreakdown 存在
 
+        // ——— 悬边状态灯（2026-10-26 · 提案 §11 ✓）：计划 `完成/总数` 与「有待回答」 ———
+        //   ★ **形状先验**（提案 §11 硬要求 ✓）：只有投影行**形状认得**才算有信号 ✓
+        //     形状不认 / 字段缺失 / 列表为空 ⇒ Has*=false ⇒ 界面**不显示数字**（✗ 绝不 `0/0` ✓ 不编 ✓）。
+        /// <summary>计划已完成项数（`todos.val[].status == "completed"` 的计数 ✓ 逐项真值 ✓）。</summary>
+        public long PlanDone;
+        /// <summary>计划总项数（`todos.val` 数组长度 ✓）。</summary>
+        public long PlanTotal;
+        /// <summary>`todos` 行的形状被认出且**总项数 &gt; 0** ⇒ 计划数字可显示 ✓；
+        /// 否则界面**一个数字都不显示** ✗（✗ 不显示 `0/0` ✓ 不编 ✓）。</summary>
+        public bool HasPlan;
+
+        /// <summary>`userQuestions.val.questions.active` 数组里**非空条目数**（有待回答的提问数 ✓ 逐项真值 ✓）。</summary>
+        public long QuestionActive;
+        /// <summary>`questions.active` 的形状被认出（是个数组）⇒ 「询问」这一路**有信号** ✓；
+        /// 形状不认 / 字段缺失 ⇒ false ⇒ 黄灯**不亮** ✗（灰 ✓ 绝不猜成"没有问题"✗）。</summary>
+        public bool HasQuestions;
+
         /// <summary>输入侧总 token（未命中缓存 + 命中缓存）。</summary>
         public long TotalInputTokens { get { return UncachedInputTokens + CacheReadTokens; } }
     }

@@ -127,6 +127,13 @@ namespace Dsht.Gui.Avalonia.Markers
                     case "sessions_price_cache_read_per_mtok": return "缓存读单价（美元 / 百万 token；0=未填）";
                     case "sessions_price_cache_write_per_mtok": return "缓存写单价（美元 / 百万 token；0=未填）";
                     case "sessions_budget_usd_per_day": return "每日预算上限（美元 / 天；0 或留空=不设上限，只在看板提示）";
+                    // ★ 悬边状态灯悬浮窗（2026-10-26 · 提案 §11 ✓）：六个纯 GUI 偏好键 ✓
+                    case "overlay_enabled": return "置顶进度窗：屏幕边缘的状态灯（默认关）";
+                    case "overlay_edge": return "状态灯贴哪一边（left / right / top / bottom）";
+                    case "overlay_offset": return "状态灯在那条边上的位置（0~1；0.5=居中）";
+                    case "overlay_scale": return "状态灯尺寸档（0=紧凑 / 1=标准 / 2=宽松）";
+                    case "overlay_screen": return "记住的显示器（留空=主屏；拔掉自动回主屏）";
+                    case "overlay_show_title": return "列表里是否显示会话标题（默认关；标题由模型从对话内容派生）";
                     default: return "";
                 }
             }
@@ -139,8 +146,9 @@ namespace Dsht.Gui.Avalonia.Markers
                 || key == "sessions_price_cache_read_per_mtok" || key == "sessions_price_cache_write_per_mtok"
                 || key == "sessions_budget_usd_per_day";
         }
-        /// <summary>on/off 型配置 → 渲染成两枚按钮 ✓（2026-10-02 补上 ui_parallel / scan_children ✓ 原来它们被当自由文本 ✗）。</summary>
-        public bool IsSwitch { get { return Key == "check_update" || Key == "check_dsh_update" || Key == "auto_start" || Key == "ui_parallel" || Key == "scan_children"; } }
+        /// <summary>on/off 型配置 → 渲染成两枚按钮 ✓（2026-10-02 补上 ui_parallel / scan_children ✓ 原来它们被当自由文本 ✗；
+        /// 2026-10-26 补上 overlay_enabled / overlay_show_title ✓ 同一处，✗ 不再各写一份 ✗）。</summary>
+        public bool IsSwitch { get { return Key == "check_update" || Key == "check_dsh_update" || Key == "auto_start" || Key == "ui_parallel" || Key == "scan_children" || Key == "overlay_enabled" || Key == "overlay_show_title"; } }
     }
 
     /// <summary>DeepSeek 余额（`balance` 命令的 BALANCE_* 行）✓ 2026-10-02 用户要求 ✓。

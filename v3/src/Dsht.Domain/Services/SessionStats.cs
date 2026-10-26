@@ -69,6 +69,17 @@ namespace Dsht.Domain.Services
         /// <summary>R5：title 行的当前写入器版本。</summary>
         public const long RowVerTitle = 1;
 
+        // ——— 悬边状态灯（2026-10-26 · 提案 §11 ✓）：两行的**形状先验**版本门 ———
+        //   ★ 本机实测（307 份投影 · 2026-10-26）：
+        //     · `todos`   ver=2 · val = null（257 份）或 `[{content,status}…]`（50 份 · 415 项）
+        //       status 取值实测三种：completed / pending / in_progress ✓（其余一律按"形状不认"拒收 ✓）
+        //     · `userQuestions` ver=2 · val.questions = `{active:[…], settled:[…]}`（199 份 ✓ 本机 active 全空）
+        //   ⇒ ver 不等 / 形状不认 / 缺字段 ⇒ Has*=false ⇒ 界面**不显示数字、不亮黄灯** ✗（绝不 `0/0` ✓ 绝不猜 ✓）。
+        /// <summary>R5：todos 行的当前写入器版本（计划 `完成/总数` 的来源 ✓）。</summary>
+        public const long RowVerTodos = 2;
+        /// <summary>R5：userQuestions 行的当前写入器版本（「有待回答」的来源 ✓）。</summary>
+        public const long RowVerUserQuestions = 2;
+
         /// <summary>R6：单会话投影文档的当前版本（实测 283/283 份均为 7）。</summary>
         public const long ProjectionDocVersion = 7;
         /// <summary>R6：写入器声明的文档兼容带下界（compatibleVersions [3..6] 实测）——接受区间 = [3..7]。</summary>
@@ -419,6 +430,38 @@ namespace Dsht.Domain.Services
             JNode title = row.Path("title", "val");
             if (RowMismatch(row, "title", RowVerTitle)) { if (rep != null) rep.Title++; title = null; }
             if (title != null && title.IsString) s.Title = title.StringValue;
+            // —— 悬边状态灯（2026-10-26 · 提案 §11 ✓✓）：计划 `完成/总数` 与「有待回答」 ——
+            //   ★ **形状先验**（提案 §11 硬要求 ✓）：形状认不出 ⇒ **当没有这个信号** ✗
+            //     （Has*=false ⇒ 界面不显示数字 / 黄灯不亮 ✓ ✗ 绝不 `0/0` ✓ 绝不猜成"没有问题"✗）
+            JNode todos = row.Path("todos", "val");
+            if (RowMismatch(row, "todos", RowVerTodos)) todos = null;
+            if (todos != null && todos.IsArray)
+            {
+                long done = 0, total = 0;
+                bool shaped = true;
+                for (int i = 0; i < todos.Items.Count; i++)
+                {
+                    JNode it = todos.Items[i];
+                    if (it == null || !it.IsObject) { shaped = false; break; }
+                    JNode stt = it.Get("status");
+                    if (stt == null || !stt.IsString) { shaped = false; break; }
+                    string sv = stt.StringValue;
+                    if (sv != "completed" && sv != "pending" && sv != "in_progress") { shaped = false; break; }
+                    total++;
+                    if (sv == "completed") done++;
+                }
+                // ★ 空数组 = "这个会话没有计划" ⇒ **不是 0/0 这个数字** ✗ 当没有信号 ✓（提案 §11 ✓）
+                if (shaped && total > 0) { s.HasPlan = true; s.PlanDone = done; s.PlanTotal = total; }
+            }
+            JNode qa = row.Path("userQuestions", "val", "questions", "active");
+            if (RowMismatch(row, "userQuestions", RowVerUserQuestions)) qa = null;
+            if (qa != null && qa.IsArray)
+            {
+                long n = 0;
+                for (int i = 0; i < qa.Items.Count; i++) if (qa.Items[i] != null) n++;
+                s.HasQuestions = true;   // ★ 形状认得出 ⇒ 这一路**有信号**（0 是真值 ✓ 不是未知 ✓）
+                s.QuestionActive = n;
+            }
             // —— 成本面板 v3.2（2026-10-16）：最后使用模型 = modelSelection.val.lastUsed.model ——
             //   ★ 不加行版本门（R5）✓：这个键**没有版本语义**（它只是名字 ✓ 不认识就当没有 ⇒ unknown ✓），
             //     也不进任何求和 ⇒ 门只会让「有模型却报 unknown」✗ 与诚实原则相悖 ✓

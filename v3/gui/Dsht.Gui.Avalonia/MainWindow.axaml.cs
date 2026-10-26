@@ -111,6 +111,9 @@ namespace Dsht.Gui.Avalonia
                 string act = (_closeAction ?? "").Trim();
                 if (act == "tray" && !_realExit) { ce.Cancel = true; HideToTray(); return; }
                 if (act == "ask" && !_realExit) { ce.Cancel = true; ConfirmExitAsync(); return; }
+                // ★ 悬边状态灯（提案 §11 ✓）：主窗口**真的退出**时把它一起关掉 ✗
+                //   （否则 Avalonia 的 OnLastWindowClose 会因为它还在而让进程活着 ✓ 用户以为没退 ✓）
+                try { StopOverlayTimer(); if (_overlay != null) { _overlay.Close(); _overlay = null; } } catch { }
             };
             for (int i = 0; i < 4; i++) BindStyle(i);
             // ★★★ 用户反馈「延迟还在」：根因不在切页慢，而在**点击后零反馈** ✗✗
@@ -1805,6 +1808,7 @@ namespace Dsht.Gui.Avalonia
                 if (t2.StartsWith("CONFIG browser_mode ", StringComparison.Ordinal)) BrowserMode = t2.Substring("CONFIG browser_mode ".Length).Trim();
                 else if (t2.StartsWith("CONFIG ui_parallel ", StringComparison.Ordinal)) UiParallel = t2.Substring("CONFIG ui_parallel ".Length).Trim() != "off";
             }
+            ParseOverlayConfig(cfg);   // ★ 同一份 config-get 里顺手读悬浮窗的六个键 ✓ 不多起进程 ✓
         }
 
         private async System.Threading.Tasks.Task AutoStartOnceAsync(string cli)
@@ -1865,6 +1869,7 @@ namespace Dsht.Gui.Avalonia
                     BuildShell();
                 }
                 _fadeSuppressed = false;
+                if (_overlay != null) { try { _overlay.UpdateFromHost(); } catch { } }   // ★ 悬浮窗跟着这一拍刷（同一次取数 ✓ 零额外进程 ✓）
                 if (_refreshQueued) { _refreshQueued = false; Refresh(); }   // ✓ 不丢 ✓ 排队再刷 ✓
             }
         }
@@ -1955,6 +1960,7 @@ namespace Dsht.Gui.Avalonia
                 EnsureBoardLevelAggs(cli);   // ★ 看板体验修复：指标页三档对比表的另外两档后台补齐（火忘 ✓ 只刷字段 ✓ 别页不花 ✓）
                 string cfgText2 = await System.Threading.Tasks.Task.Run(delegate { return CfgCached(cli); });   // ✓ 缓存 ✓ 省一次进程启动 ✓✓
                 ParseTroubleshootSwitches(cfgText2);
+                SyncOverlay();   // ★ 悬边状态灯（提案 §11 ✓）：配置与数据都到位了 ⇒ 同步一次（幂等 ✓ 不抢焦点 ✓）
                 if (_doctor == null) _doctor = new DoctorSummary();
 
                 // ★ DeepSeek 余额检测（2026-10-02 用户要求 ✓✓）：与状态刷新**分开** ✗
@@ -2007,6 +2013,14 @@ namespace Dsht.Gui.Avalonia
                         return RunStreaming(cli, "update-center --stream", delegate(string ln) { StreamLine(ln, false); });
                     });
                     _rawOutput = full;
+                    // ★ 悬边状态灯（提案 §11 ✓）：红灯③「插件与随包不一致」的唯一信号就在这里 ——
+                    //   更新页**真的取过** update-center ⇒ 才作数 ✓（不为此再起进程 ✗ 没取过 ⇒ 那盏灯不亮 ✓）
+                    if (full != null && full.IndexOf("UPDATECENTER_ITEM ", StringComparison.Ordinal) >= 0)
+                    {
+                        _ovPluginSeen = true;
+                        _ovPluginMismatch = PluginMismatchIn(full);
+                    }
+                    if (_overlay != null) _overlay.UpdateFromHost();
                     return;
                 }
                 // 日志页要带**当前筛选** ✓ 用动态命令 ✓（其余页用 NavCli 的固定命令 ✓）
@@ -2276,6 +2290,236 @@ namespace Dsht.Gui.Avalonia
             string k = _pendingPrefKey; int v = _pendingPrefVal;
             _pendingPrefKey = null;
             PersistUiPref(k, v);
+        }
+
+        // ================================================================ 悬边状态灯悬浮窗（2026-10-26 · 提案 §11）
+
+        // 纪律（逐条守 ✓）：
+        //   · **只读** ✓ 不新增 CLI 命令/标记行 ✓（SESSION 行只**追加** cwd=/plan=/q= 三个字段 ✓ 行头不变 ✓）
+        //   · **不为悬浮窗再起进程** ✓：主窗口在概览/看板页时**完全搭车**（同一次 overview 取数 ✓ 零额外进程 ✓）；
+        //     在别的页时由下面这个 15 秒定时器跑**同一条** `overview` 命令（走同一份 RunCached 缓存 ✓ 同源对账 ✓）。
+        //   · 未知一律「未知」✓ 绝不显示 0 ✗（灯为灰 ✓ 计划拿不到 ⇒ 不显示数字 ✓）。
+        private OverlayWindow _overlay;
+        private bool _ovEnabled;
+        private string _ovEdge = "right";
+        private double _ovOffset = 0.5;
+        private int _ovScale = 1;
+        private string _ovScreen = "";
+        private bool _ovShowTitle;
+        /// <summary>更新页那一次取数里看到的「插件与随包不一致」（`state=content-mismatch` ✓ 红灯③的唯一信号 ✓）。
+        /// ★ 只有 GUI **真的取过** `update-center` 才作数 ✓ —— 不为此再起进程 ✗ 取不到 ⇒ 那盏灯不亮 ✓。</summary>
+        private bool _ovPluginSeen, _ovPluginMismatch;
+        private global::Avalonia.Threading.DispatcherTimer _ovTimer;
+
+        public bool OverlayEnabledValue { get { return _ovEnabled; } }
+        public bool OverlayShowTitleValue { get { return _ovShowTitle; } }
+        public string OverlayEdgeValue { get { return _ovEdge; } }
+        public double OverlayOffsetValue { get { return _ovOffset; } }
+        public int OverlayScaleValue { get { return _ovScale; } }
+        public string OverlayScreenValue { get { return _ovScreen; } }
+
+        /// <summary>解析六个悬浮窗配置键（与 `ParseTroubleshootSwitches` 同一份 config-get ✓ 不多起进程 ✓）。
+        /// ★ 写盘进行中**跳过**（`_ovWriting`）：那一刻本地值比盘上的旧值新 ✓
+        ///   ✗ 否则一次恰好插进来的整页刷新会把刚点开的开关**翻回去** ✗（静默分叉 ✓ 实测最烦的一种）。</summary>
+        private void ParseOverlayConfig(string cfg)
+        {
+            if (string.IsNullOrEmpty(cfg) || _ovWriting) return;
+            string[] ls = cfg.Replace("\r\n", "\n").Split('\n');
+            for (int i = 0; i < ls.Length; i++)
+            {
+                string t2 = ls[i] == null ? "" : ls[i].Trim();
+                try
+                {
+                    if (t2.StartsWith("CONFIG overlay_enabled ", StringComparison.Ordinal)) _ovEnabled = t2.Substring("CONFIG overlay_enabled ".Length).Trim() == "on";
+                    else if (t2.StartsWith("CONFIG overlay_edge ", StringComparison.Ordinal))
+                    {
+                        string v = t2.Substring("CONFIG overlay_edge ".Length).Trim();
+                        if (v == "left" || v == "right" || v == "top" || v == "bottom") _ovEdge = v;
+                    }
+                    else if (t2.StartsWith("CONFIG overlay_offset ", StringComparison.Ordinal))
+                    {
+                        double d;
+                        if (double.TryParse(t2.Substring("CONFIG overlay_offset ".Length).Trim(), System.Globalization.NumberStyles.Float, System.Globalization.CultureInfo.InvariantCulture, out d) && d >= 0 && d <= 1) _ovOffset = d;
+                    }
+                    else if (t2.StartsWith("CONFIG overlay_scale ", StringComparison.Ordinal))
+                    {
+                        int n; if (int.TryParse(t2.Substring("CONFIG overlay_scale ".Length).Trim(), out n) && n >= 0 && n <= 2) _ovScale = n;
+                    }
+                    else if (t2.StartsWith("CONFIG overlay_screen ", StringComparison.Ordinal)) _ovScreen = t2.Substring("CONFIG overlay_screen ".Length).Trim();
+                    else if (t2.StartsWith("CONFIG overlay_show_title ", StringComparison.Ordinal)) _ovShowTitle = t2.Substring("CONFIG overlay_show_title ".Length).Trim() == "on";
+                }
+                catch { }
+            }
+        }
+
+        // —— 悬浮窗偏好落盘（两个开关键 + 三个位置键）——
+        //   与 PersistUiPref **同一纪律**：走同一把动作串行闸门 ✓ 不占操作回执 ✓ 静默 ✓
+        //   闸门被占时只记**最新一组**、释放后补写 ⇒ 快速连点 / 连续拖动都**不丢最终状态** ✗
+        //   ★ 为什么不用 SetConfig：`RunCliAction` 在闸门被占时是**如实拒绝**（不排队）✗
+        //     ⇒ 连点两下会变成"界面翻了两次、盘上只写了一次"的静默分叉 ✓ 这里必须排队取最终值 ✓
+        private string[] _pendingOvArgs;
+        private bool _ovWriting;
+
+        /// <summary>把一组 `config-set` 参数静默落盘（最后一次调用胜出 ✓）。</summary>
+        private void PersistOverlayPrefs(string[] args)
+        {
+            if (args == null || args.Length == 0) return;
+            if (_actionBusy || _ovWriting) { _pendingOvArgs = args; return; }
+            RunOverlayPrefsQuiet(args);
+        }
+
+        private void RunOverlayPrefsQuiet(string[] args)
+        {
+            string cli = CliPath();
+            if (cli == null) { FlushPendingOverlayPrefs(); return; }
+            _actionBusy = true; _ovWriting = true; _actionBusyLabel = "保存置顶进度窗设置"; _actionStartedAt = System.DateTime.UtcNow;
+            _ = System.Threading.Tasks.Task.Run(delegate
+            {
+                try
+                {
+                    for (int i = 0; i < args.Length; i++) Run(cli, args[i]);
+                    InvalidateCfgCache();   // 写完后让下一次 CfgCached 读到新值 ✓
+                }
+                catch { }
+                finally
+                {
+                    global::Avalonia.Threading.Dispatcher.UIThread.Post(delegate
+                    {
+                        _actionBusy = false; _ovWriting = false; _actionBusyLabel = "";
+                        FlushPendingOverlayPrefs();
+                    });
+                }
+            });
+        }
+
+        private void FlushPendingOverlayPrefs()
+        {
+            if (_pendingOvArgs == null) return;
+            string[] a = _pendingOvArgs;
+            _pendingOvArgs = null;
+            PersistOverlayPrefs(a);
+        }
+
+        /// <summary>开关悬浮窗（看板顶部 / 设置页都能改 ✓ 都写同一个配置键 ✓ 不新增命令 ✓）。</summary>
+        public void ToggleOverlay()
+        {
+            _ovEnabled = !_ovEnabled;
+            PersistOverlayPrefs(new string[] { "config-set overlay_enabled " + (_ovEnabled ? "on" : "off") });
+            SyncOverlay();
+            RefreshLiveFields();
+        }
+
+        /// <summary>标题开关（**默认关** ✓ 提案 §11 红线 A ✓）。开启时面板上会明示标题的来源 ✓。
+        /// <para>★ 接线统一（2026-10-26）：**只有一个键** `overlay_show_title` ✓ ——
+        /// 悬边状态灯的列表与看板 Top 5 卡**共用它**（✗ 不再有第二份"纯视图态"开关 ✗）；
+        /// 因此这里改完要同时刷字段级界面（Top 5 卡的开关文案 / 明示句 / 榜行都靠它 ✓ 不整页重建 ✓）。</para></summary>
+        public void ToggleOverlayShowTitle()
+        {
+            _ovShowTitle = !_ovShowTitle;
+            PersistOverlayPrefs(new string[] { "config-set overlay_show_title " + (_ovShowTitle ? "on" : "off") });
+            if (_overlay != null) _overlay.UpdateFromHost();
+            RefreshLiveFields();
+        }
+
+        /// <summary>拖动吸附后把位置写进配置（三个键 ✓ 静默 ✓ 不占操作回执 ✓ 走同一把串行闸门 ✓）。</summary>
+        public void PersistOverlayPlacement(string edge, double offset, string screen)
+        {
+            string off = offset.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+            PersistOverlayPrefs(new string[]
+            {
+                "config-set overlay_edge " + edge,
+                "config-set overlay_offset " + off,
+                "config-set overlay_screen \"" + (screen == null ? "" : screen.Replace("\"", "")) + "\""
+            });
+        }
+
+        /// <summary>按配置显示 / 隐藏悬浮窗（幂等 ✓ 不抢焦点 ✓ —— `OverlayWindow` 里 `ShowActivated=false` ✓）。</summary>
+        private void SyncOverlay()
+        {
+            try
+            {
+                if (!_ovEnabled) { if (_overlay != null && _overlay.IsVisible) _overlay.Hide(); StopOverlayTimer(); return; }
+                if (_overlay == null) _overlay = new OverlayWindow(this);
+                _overlay.ApplyPlacementFromHost(false);
+                if (!_overlay.IsVisible) _overlay.Show();     // ★ ShowActivated=false ⇒ 不夺前台焦点 ✓
+                _overlay.UpdateFromHost();
+                StartOverlayTimer();
+            }
+            catch { /* 悬浮窗失败绝不能影响主界面 ✓（✗ 不写任何诊断文件 ✗ 除配置文件外零写入 ✓） */ }
+        }
+
+        /// <summary>主窗口**不在**概览/看板页时的兜底取数节拍（15 秒 ✓ 同一条 overview 命令 ✓ 同一份缓存 ✓）。
+        /// 在概览/看板页时**不起**这个定时器 ✓（那一拍本来就会取 overview ✓ 完全搭车 ✓ 零额外进程 ✓）。</summary>
+        private void StartOverlayTimer()
+        {
+            if (_ovTimer != null) return;
+            _ovTimer = new global::Avalonia.Threading.DispatcherTimer { Interval = TimeSpan.FromSeconds(15) };
+            _ovTimer.Tick += delegate { OverlayTick(); };
+            _ovTimer.Start();
+        }
+
+        private void StopOverlayTimer()
+        {
+            if (_ovTimer == null) return;
+            _ovTimer.Stop(); _ovTimer = null;
+        }
+
+        private void OverlayTick()
+        {
+            if (!_ovEnabled || _overlay == null) { StopOverlayTimer(); return; }
+            if (IsOverviewLike) { _overlay.UpdateFromHost(); return; }   // 概览/看板页 ⇒ 搭那一拍的车 ✓ 不重复取数 ✓
+            string cli = CliPath();
+            if (cli == null) { _overlay.UpdateFromHost(); return; }
+            _ = System.Threading.Tasks.Task.Run(delegate
+            {
+                try
+                {
+                    string raw = RunCached(cli, "overview");   // ★ 与看板**同一条命令**（同源对账 ✓ 差 0 ✓）
+                    SessionsSnapshot d2 = SessionsMarkers.Parse(raw);
+                    StatusSnapshot st2 = StatusMarkers.Parse(raw);
+                    bool mism = PluginMismatchIn(raw);
+                    bool hasItem = raw != null && raw.IndexOf("UPDATECENTER_ITEM ", StringComparison.Ordinal) >= 0;
+                    global::Avalonia.Threading.Dispatcher.UIThread.Post(delegate
+                    {
+                        _data = d2;
+                        _dataAt = d2.Ok ? (System.DateTime?)System.DateTime.Now : null;
+                        _status = st2;
+                        if (hasItem) { _ovPluginSeen = true; _ovPluginMismatch = mism; }
+                        if (_overlay != null) _overlay.UpdateFromHost();
+                    });
+                }
+                catch { }
+            });
+        }
+
+        /// <summary>红灯③的唯一信号：CLI 的 `UPDATECENTER_ITEM plugin:… state=content-mismatch` 行
+        /// （**只解析标记行** ✓ 与更新页同一套判定 ✓ 不重算哈希 ✗ 不猜 ✗）。</summary>
+        private static bool PluginMismatchIn(string raw)
+        {
+            if (string.IsNullOrEmpty(raw)) return false;
+            string[] ls = raw.Replace("\r\n", "\n").Split('\n');
+            for (int i = 0; i < ls.Length; i++)
+            {
+                string t2 = ls[i] == null ? "" : ls[i].Trim();
+                if (!t2.StartsWith("UPDATECENTER_ITEM ", StringComparison.Ordinal)) continue;
+                if (t2.IndexOf(" kind=plugin", StringComparison.Ordinal) < 0) continue;
+                if (t2.IndexOf(" state=content-mismatch", StringComparison.Ordinal) >= 0) return true;
+            }
+            return false;
+        }
+
+        /// <summary>悬浮窗判定所需的外部事实 —— **全部来自已有的那几次取数** ✓（不为它单独取任何东西 ✗）。</summary>
+        public OverlayContext OverlayContextOf(SessionsSnapshot d)
+        {
+            OverlayContext c = new OverlayContext();
+            StatusSnapshot st = _status;
+            c.DshRunningKnown = st != null && st.Ok;
+            c.DshRunning = st != null && st.Ok && (st.State == 0 || st.State == 1 || !string.IsNullOrEmpty(st.DesktopClient));
+            c.SnapshotStale = d != null && d.SnapshotStale;
+            c.PluginStateKnown = _ovPluginSeen;
+            c.PluginMismatch = _ovPluginMismatch;
+            c.BridgePresent = d != null && d.IsLiveSource;
+            return c;
         }
         // ================================================================ CLI 结果短缓存（性能）
 

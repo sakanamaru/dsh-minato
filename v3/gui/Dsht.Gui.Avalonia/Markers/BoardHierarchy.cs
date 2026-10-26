@@ -113,8 +113,10 @@ namespace Dsht.Gui.Avalonia.Markers
         public const bool TitleSwitchDefaultOn = false;
 
         /// <summary>★ 标题开关**开启时**的明示（收尾 (b) ✓ 提案 §11 红线 A ✓ 逐字含「标题可能由你的对话内容派生」✓）。
-        /// 关着时不显示这句 ✓；开启时**必须**显示 ✗ 不许只改开关不提示 ✓。</summary>
-        public const string TitleNotice = "标题可能由你的对话内容派生（由模型根据对话自动生成）；本工具不会把标题写进任何文件或日志。";
+        /// 关着时不显示这句 ✓；开启时**必须**显示 ✗ 不许只改开关不提示 ✓。
+        /// <para>★ 接线统一（2026-10-26）：这句话现在**只有一份**（<see cref="OverlayLight.TitleNotice"/> ✓）——
+        /// 看板 Top 5 卡与悬边状态灯面板显示的是**同一句** ✗ 不许两处各写一份（写歪一句即红 ✓ 有断言 ✓）。</para></summary>
+        public const string TitleNotice = OverlayLight.TitleNotice;
 
         /// <summary>默认态（开关关）的名称口径说明 —— 名称来自**路径** ✗ 不含对话内容 ✓。</summary>
         public const string NamePolicyText = "会话名默认是「项目（会话工作目录）名 · 短码」，来自路径，不含对话内容。";

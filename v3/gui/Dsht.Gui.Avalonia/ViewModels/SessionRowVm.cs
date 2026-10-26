@@ -189,6 +189,17 @@ namespace Dsht.Gui.Avalonia.ViewModels
         public static IBrush HitBrush(int level) { return level >= 3 ? Good : (level == 2 ? Warn : (level == 1 ? Bad : Muted)); }
         public static IBrush CtxBrush(int level) { return level == 1 ? Good : (level == 2 ? Warn : (level >= 3 ? Bad : Muted)); }
         public static IBrush StatusBrush(int kind) { return kind == 0 ? Good : (kind == 2 ? Muted : Idle); }
+        /// <summary>★ 悬边状态灯（2026-10-26 · 提案 §11 ✓）：四色灯的**唯一配色出口** ——
+        /// 红=Bad ✓ 黄=Warn ✓ 蓝=Accent（四风格里都是冷色主色 ✓）✓ 绿=Good ✓ 灰=Muted（**未知用中性色** ✗
+        /// 绝不用"绿=正常"的颜色去替一个我们并不知道的状态背书 ✓）。四风格各自的深浅由 Apply 给出 ✓ 这里只做映射 ✓。</summary>
+        public static IBrush LightBrush(LightColor c)
+        {
+            if (c == LightColor.Bad) return Bad;
+            if (c == LightColor.Asking) return Warn;
+            if (c == LightColor.Running) return Accent;
+            if (c == LightColor.Done) return Good;
+            return Muted;
+        }
         public static IBrush FormBrush(int kind) { return kind == 0 ? Accent : (kind == 1 ? Idle : (kind == 2 ? FormAcp : Warn)); }
         /// <summary>语义色的软底（徽章/光环用）。</summary>
         public static IBrush SoftOf(IBrush b)

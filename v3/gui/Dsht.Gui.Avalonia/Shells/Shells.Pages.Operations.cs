@@ -1392,6 +1392,11 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 case "gui_style": return new string[] { Palette.StyleName(0), Palette.StyleName(1), Palette.StyleName(2), Palette.StyleName(3) };   // 索引即值（0..3 ✓）
 
+                // ★ 悬边状态灯悬浮窗（2026-10-26 · 提案 §11 ✓）：枚举型键给下拉 ✓（overlay_offset / overlay_screen 是自由文本 → 不进这里 ✓）
+                case "overlay_edge": return new string[] { "left", "right", "top", "bottom" };
+
+                case "overlay_scale": return new string[] { "紧凑", "标准", "宽松" };   // 索引即值（0..2 ✓）
+
                 default: return null;
 
             }
@@ -1486,11 +1491,11 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 int idx;
 
-                if (c.Key == "gui_start_page" || c.Key == "gui_shell" || c.Key == "gui_style")   // 索引即值的三个键（2026-10-06 U4）
+                if (c.Key == "gui_start_page" || c.Key == "gui_shell" || c.Key == "gui_style" || c.Key == "overlay_scale")   // 索引即值的键（2026-10-06 U4；2026-10-26 加 overlay_scale）
 
                 {
 
-                    int dflt = (c.Key == "gui_shell" ? 4 : (c.Key == "gui_style" ? 0 : 1));   // 各自默认 ✓
+                    int dflt = (c.Key == "gui_shell" ? 4 : (c.Key == "overlay_scale" ? 1 : (c.Key == "gui_style" ? 0 : 1)));   // 各自默认 ✓
 
                     int sp; if (!int.TryParse(c.Value, out sp) || sp < 0 || sp >= opts.Length) sp = dflt; idx = sp;
 
@@ -1510,7 +1515,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
                     {
 
-                        bool byIndex = (c.Key == "gui_start_page" || c.Key == "gui_shell" || c.Key == "gui_style");
+                        bool byIndex = (c.Key == "gui_start_page" || c.Key == "gui_shell" || c.Key == "gui_style" || c.Key == "overlay_scale");
 
                         host.SetConfig(c.Key, byIndex ? cb.SelectedIndex.ToString() : opts[cb.SelectedIndex]);
 

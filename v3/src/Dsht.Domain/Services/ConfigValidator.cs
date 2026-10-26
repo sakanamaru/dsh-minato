@@ -83,6 +83,18 @@ namespace Dsht.Domain.Services
                 decimal bd;
                 return (decimal.TryParse(v, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out bd) && bd >= 0m) ? null : "bad-value";
             }
+            // ——— 悬边状态灯悬浮窗（2026-10-26 · 提案 §11 ✓）：六个键 ✓ 白名单与 ApplyTo 双保险 ✓ ———
+            if (k == "overlay_enabled" || k == "overlay_show_title") return (v == "on" || v == "off") ? null : "bad-value";
+            if (k == "overlay_edge") return (v == "left" || v == "right" || v == "top" || v == "bottom") ? null : "bad-value";
+            if (k == "overlay_offset")
+            {
+                decimal off;
+                return (decimal.TryParse(v, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out off) && off >= 0m && off <= 1m) ? null : "bad-value";
+            }
+            if (k == "overlay_scale") { int n; return (int.TryParse(v, out n) && n >= 0 && n <= 2) ? null : "bad-value"; }
+            // ★ 显示器标识是自由文本（`DisplayName` 可能是 `\\.\DISPLAY1` 这种 ✓ 空 = 主屏 ✓）；
+            //   与 balance_key 同一条安全规则：**不许含换行** ✗（否则可往 launcher.config 注入任意配置行 ✓）
+            if (k == "overlay_screen") return (v.IndexOf('\r') >= 0 || v.IndexOf('\n') >= 0) ? "bad-value" : null;
             return "unknown-key";
         }
 
@@ -141,6 +153,18 @@ namespace Dsht.Domain.Services
             }
             else if (k == "gui_shell") { int n; if (int.TryParse(v, out n) && n >= 0 && n <= 4) c.GuiShell = n; }   // 越界保持原值 ✓（Validate 已拦 ✓ 双保险 ✓）
             else if (k == "gui_style") { int n; if (int.TryParse(v, out n) && n >= 0 && n <= 3) c.GuiStyle = n; }
+            // —— 悬边状态灯悬浮窗（2026-10-26 · 提案 §11 ✓）——
+            else if (k == "overlay_enabled") c.OverlayEnabled = v != "off";
+            else if (k == "overlay_edge") { if (v == "left" || v == "right" || v == "top" || v == "bottom") c.OverlayEdge = v; }
+            else if (k == "overlay_offset")
+            {
+                decimal off;
+                if (decimal.TryParse(v, System.Globalization.NumberStyles.Number, System.Globalization.CultureInfo.InvariantCulture, out off) && off >= 0m && off <= 1m)
+                    c.OverlayOffset = off;   // 越界/畸形保持原值 ✓（Validate 已拦 ✓ 双保险 ✓）
+            }
+            else if (k == "overlay_scale") { int n; if (int.TryParse(v, out n) && n >= 0 && n <= 2) c.OverlayScale = n; }
+            else if (k == "overlay_screen") c.OverlayScreen = v;
+            else if (k == "overlay_show_title") c.OverlayShowTitle = v != "off";
             return c;
         }
     }

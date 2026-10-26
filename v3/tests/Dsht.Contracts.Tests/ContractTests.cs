@@ -585,6 +585,33 @@ static class ContractTests
         Check("投影：epoch 毫秒 → UTC ISO", ps.CreatedAtEpochMs == 1788517824758L && ps.CreatedAt.EndsWith("Z") && ps.LastPromptEpochMs == 1788517999999L && ps.LastPromptAt.EndsWith("Z"));
         Check("epoch 转换：0/负数 → 空串（不假装时间）", Dsht.Domain.Services.SessionStats.EpochMsToIso(0) == "" && Dsht.Domain.Services.SessionStats.EpochMsToIso(-5) == "");
         Check("投影：缺 rows / 格式不认 / null → null", Dsht.Domain.Services.SessionStats.ParseSessionProjection("{\"record\":{}}", "x") == null && Dsht.Domain.Services.SessionStats.ParseSessionProjection("{oops", "x") == null && Dsht.Domain.Services.SessionStats.ParseSessionProjection(null, "x") == null);
+        // ★★ 悬边状态灯（2026-10-26 · 提案 §11 ✓✓）：计划 `完成/总数` 与「有待回答」——**形状先验** ✓
+        //   形状（本机 307 份投影实测）：`todos` ver=2 val=[{content,status}…]（status ∈ completed/pending/in_progress）
+        //   `userQuestions` ver=2 val.questions.active = […] ✓
+        string projPlan = "{\"version\":7,\"record\":{\"rows\":{"
+            + "\"todos\":{\"ver\":2,\"seq\":9,\"val\":[{\"content\":\"a\",\"status\":\"completed\"},{\"content\":\"b\",\"status\":\"pending\"},{\"content\":\"c\",\"status\":\"completed\"}]},"
+            + "\"userQuestions\":{\"ver\":2,\"seq\":9,\"val\":{\"questions\":{\"active\":[{\"id\":1}],\"settled\":[]}}}}}}";
+        Dsht.Domain.Model.SessionStat pp = Dsht.Domain.Services.SessionStats.ParseSessionProjection(projPlan, "p1");
+        Check("灯·计划：todos 形状认得 ⇒ 3 项里 2 项完成（HasPlan=true ✓ 逐项真值 ✓）",
+            pp != null && pp.HasPlan && pp.PlanTotal == 3 && pp.PlanDone == 2);
+        Check("灯·询问：questions.active 是数组 ⇒ HasQuestions=true 且非空条目数 = 1（真信号 ✓）",
+            pp != null && pp.HasQuestions && pp.QuestionActive == 1);
+        Check("灯·计划：todos.val 是 null（本机 257/307 份如此）⇒ **没有信号**（HasPlan=false ✗ 不假装 0/0 ✓）",
+            !Dsht.Domain.Services.SessionStats.ParseSessionProjection("{\"version\":7,\"record\":{\"rows\":{\"todos\":{\"ver\":2,\"val\":null}}}}", "p2").HasPlan);
+        Check("灯·计划：空数组 ⇒ 没有信号（✗ 不显示 0/0 ✓ 硬红线 ✓）",
+            !Dsht.Domain.Services.SessionStats.ParseSessionProjection("{\"version\":7,\"record\":{\"rows\":{\"todos\":{\"ver\":2,\"val\":[]}}}}", "p3").HasPlan);
+        Check("灯·计划：**形状先验**——status 认不出 / 元素不是对象 / val 不是数组 ⇒ 一律当没有信号（✗ 不猜 ✗）",
+            !Dsht.Domain.Services.SessionStats.ParseSessionProjection("{\"version\":7,\"record\":{\"rows\":{\"todos\":{\"ver\":2,\"val\":[{\"status\":\"done\"}]}}}}", "p4").HasPlan
+            && !Dsht.Domain.Services.SessionStats.ParseSessionProjection("{\"version\":7,\"record\":{\"rows\":{\"todos\":{\"ver\":2,\"val\":[1,2]}}}}", "p5").HasPlan
+            && !Dsht.Domain.Services.SessionStats.ParseSessionProjection("{\"version\":7,\"record\":{\"rows\":{\"todos\":{\"ver\":2,\"val\":{\"items\":[]}}}}}", "p6").HasPlan);
+        Check("灯·计划：todos 行 ver 不是 2（语义可能已变）⇒ 整行丢弃 ⇒ 没有信号（✗ 不猜 ✓）",
+            !Dsht.Domain.Services.SessionStats.ParseSessionProjection("{\"version\":7,\"record\":{\"rows\":{\"todos\":{\"ver\":3,\"val\":[{\"status\":\"completed\"}]}}}}", "p7").HasPlan);
+        Check("灯·询问：questions 段缺失 / active 不是数组 ⇒ HasQuestions=false（黄灯不亮 ✗ 绝不猜成「没有问题」✗）",
+            !Dsht.Domain.Services.SessionStats.ParseSessionProjection("{\"version\":7,\"record\":{\"rows\":{}}}", "p8").HasQuestions
+            && !Dsht.Domain.Services.SessionStats.ParseSessionProjection("{\"version\":7,\"record\":{\"rows\":{\"userQuestions\":{\"ver\":2,\"val\":{\"questions\":{\"active\":null}}}}}}", "p9").HasQuestions);
+        Check("灯·询问：active 是空数组 ⇒ **有信号且为 0**（真值 ✓ 不是未知 ✓ —— 与「拿不到」严格区分 ✓）",
+            Dsht.Domain.Services.SessionStats.ParseSessionProjection("{\"version\":7,\"record\":{\"rows\":{\"userQuestions\":{\"ver\":2,\"val\":{\"questions\":{\"active\":[]}}}}}}", "pa").HasQuestions
+            && Dsht.Domain.Services.SessionStats.ParseSessionProjection("{\"version\":7,\"record\":{\"rows\":{\"userQuestions\":{\"ver\":2,\"val\":{\"questions\":{\"active\":[]}}}}}}", "pa").QuestionActive == 0);
         string agg = "{\"tables\":{\"sessions\":{"
             + "\"session-abc\":{\"identity\":{\"createdAt\":1,\"cwd\":\"C:\\\\w\"},\"rows\":{\"tokenUsage\":{\"ver\":2,\"val\":{\"totals\":{\"cacheReadTokens\":5,\"uncachedInputTokens\":5}}}}},"
             + "\"bareid\":{\"rows\":{\"tokenUsage\":{\"ver\":2,\"val\":{\"totals\":{\"outputTokens\":7}}}}}"
@@ -1362,6 +1389,63 @@ static class ContractTests
             SessionStat psNull = SessionStats.ParseSessionProjection(
                 "{\"version\":7,\"record\":{\"identity\":{\"createdAt\":1},\"rows\":{\"modelSelection\":{\"ver\":2,\"seq\":1,\"val\":{\"lastUsed\":null,\"pending\":null}}}}}", "z");
             Check("模型：lastUsed=null → 空串（✗ 不打 null 字面量 ✗）", psNull != null && psNull.LastUsedModel == "");
+        }
+        Console.WriteLine("[38b] 悬边状态灯：六个配置键的四处同步（提案 §11 · 2026-10-26）");
+        {
+            System.Func<string,string> canon3 = delegate(string wsPath) { return wsPath; };
+            // ① ToolkitConfig 默认值（**overlay_enabled 默认 off** ✓ 提案 §9 不默认开 ✓；标题开关**默认关** ✓ 红线 A ✓）
+            ToolkitConfig d0 = new ToolkitConfig();
+            Check("悬浮窗键·默认值：enabled=off ✓ · edge=right ✓ · offset=0.5 ✓ · scale=1 ✓ · screen 空 ✓ · show_title=**off** ✓",
+                !d0.OverlayEnabled && d0.OverlayEdge == "right" && d0.OverlayOffset == 0.5m && d0.OverlayScale == 1
+                && d0.OverlayScreen == "" && !d0.OverlayShowTitle);
+            // ② ConfigCodec：解析 + 序列化（两处都在这一个文件里 ✓ 漏一处就落盘丢 ✓）
+            ToolkitConfig pc = ConfigCodec.Parse("overlay_enabled=on\noverlay_edge=top\noverlay_offset=0.25\noverlay_scale=2\noverlay_screen=\\\\.\\DISPLAY2\noverlay_show_title=on\n", canon3);
+            Check("悬浮窗键·ConfigCodec 解析：六个键全部读进来 ✓",
+                pc.OverlayEnabled && pc.OverlayEdge == "top" && pc.OverlayOffset == 0.25m && pc.OverlayScale == 2
+                && pc.OverlayScreen == @"\\.\DISPLAY2" && pc.OverlayShowTitle);
+            string ovSer = ConfigCodec.Serialize(pc);
+            Check("悬浮窗键·ConfigCodec 序列化：六个键都落盘（✗ 漏一个 = 重启就忘 ✗）",
+                ovSer.Contains("overlay_enabled=on") && ovSer.Contains("overlay_edge=top") && ovSer.Contains("overlay_offset=0.25")
+                && ovSer.Contains("overlay_scale=2") && ovSer.Contains("overlay_screen=") && ovSer.Contains("overlay_show_title=on"));
+            Check("悬浮窗键·往返一致（Parse(Serialize(x)) == x ✓ 这是位置记忆能成立的前提 ✓）",
+                ConfigCodec.Serialize(ConfigCodec.Parse(ovSer, canon3)) == ovSer);
+            Check("悬浮窗键·越界/畸形保持默认（✗ 不猜 ✗）：edge=middle / offset=1.5 / scale=9 / offset=abc",
+                ConfigCodec.Parse("overlay_edge=middle\n", canon3).OverlayEdge == "right"
+                && ConfigCodec.Parse("overlay_offset=1.5\n", canon3).OverlayOffset == 0.5m
+                && ConfigCodec.Parse("overlay_offset=abc\n", canon3).OverlayOffset == 0.5m
+                && ConfigCodec.Parse("overlay_scale=9\n", canon3).OverlayScale == 1);
+            // ③ ConfigValidator：白名单 + ApplyTo（两处 ✓ 只加一处 ⇒ config-set 报 unknown-key ✗ 实测踩过 ✓）
+            Check("悬浮窗键·校验白名单：合法值通过 ✓",
+                ConfigValidator.Validate("overlay_enabled", "on", canon3) == null
+                && ConfigValidator.Validate("overlay_enabled", "off", canon3) == null
+                && ConfigValidator.Validate("overlay_edge", "bottom", canon3) == null
+                && ConfigValidator.Validate("overlay_offset", "0", canon3) == null
+                && ConfigValidator.Validate("overlay_offset", "1", canon3) == null
+                && ConfigValidator.Validate("overlay_scale", "0", canon3) == null
+                && ConfigValidator.Validate("overlay_scale", "2", canon3) == null
+                && ConfigValidator.Validate("overlay_screen", @"\\.\DISPLAY1", canon3) == null
+                && ConfigValidator.Validate("overlay_show_title", "off", canon3) == null);
+            Check("悬浮窗键·校验白名单：非法值一律 bad-value（✗ 不猜 ✗）",
+                ConfigValidator.Validate("overlay_enabled", "yes", canon3) == "bad-value"
+                && ConfigValidator.Validate("overlay_edge", "middle", canon3) == "bad-value"
+                && ConfigValidator.Validate("overlay_offset", "1.5", canon3) == "bad-value"
+                && ConfigValidator.Validate("overlay_offset", "-0.1", canon3) == "bad-value"
+                && ConfigValidator.Validate("overlay_scale", "3", canon3) == "bad-value"
+                && ConfigValidator.Validate("overlay_show_title", "true", canon3) == "bad-value");
+            Check("悬浮窗键·overlay_screen 不许含换行（✗ 否则可往 launcher.config 注入任意配置行 ✗ 与 balance_key 同一条规则 ✓）",
+                ConfigValidator.Validate("overlay_screen", "a\nb", canon3) == "bad-value"
+                && ConfigValidator.Validate("overlay_screen", "a\rb", canon3) == "bad-value");
+            Check("悬浮窗键·ApplyTo 落值 + 越界保持原值（双保险 ✓）",
+                ConfigValidator.ApplyTo(new ToolkitConfig(), "overlay_edge", "left", canon3).OverlayEdge == "left"
+                && ConfigValidator.ApplyTo(new ToolkitConfig(), "overlay_edge", "middle", canon3).OverlayEdge == "right"
+                && ConfigValidator.ApplyTo(new ToolkitConfig(), "overlay_scale", "2", canon3).OverlayScale == 2
+                && ConfigValidator.ApplyTo(new ToolkitConfig(), "overlay_show_title", "on", canon3).OverlayShowTitle);
+            Check("悬浮窗键·SameValue 回读判定（写入真的生效 ✓ config-set 的判据 ✓）",
+                ConfigValidator.SameValue(new ToolkitConfig(), "overlay_edge", "left", canon3)
+                && ConfigValidator.SameValue(new ToolkitConfig(), "overlay_enabled", "on", canon3)
+                && ConfigValidator.SameValue(new ToolkitConfig(), "overlay_scale", "2", canon3));
+            Check("悬浮窗键·Copy() 带上全部六个（✗ 漏拷 = 活配置与落盘分叉 ✗）",
+                ConfigCodec.Serialize(pc.Copy()) == ovSer);
         }
         Console.WriteLine("[39] 会话 id 归一（数据正确性修复 2026-10-16：快照 id 剥前导 session- ⇒ 去重与联表才成立）");
         {

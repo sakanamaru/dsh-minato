@@ -321,7 +321,8 @@ namespace Dsht.Gui.LogicTests
             Check("体验修复·Top5：行带 输出/轮次（表格列数据源 ✓）",
                 top[0].Output == 901 && top[0].Turns == 5 && top[1].Output == 70 && top[1].Turns == 2);
             // ★★ 收尾 (b)（2026-10-26）：Top5 **默认不再显示会话标题** —— 改「项目名 · 短码」（来自 cwd，路径派生）
-            //   标题开关是**纯视图态**（默认关），不新增配置键，所以这里只能钉"默认值 + 纯函数的两种取值"
+            //   标题开关**默认关**；接线统一后它 = 悬边状态灯共用的那个**已持久化**键 `overlay_show_title`
+            //   （看板不再有第二份"纯视图态"开关 ⇒ 这里钉默认值 + 纯函数的两种取值 + 单一出处 ✓）
             Check("收尾(b)·★标题开关**默认关**（唯一出处 = BoardHierarchy.TitleSwitchDefaultOn ✓ 改成 true 即红 ✓）",
                 BoardHierarchy.TitleSwitchDefaultOn == false);
             Check("收尾(b)·Top5 默认显示「项目名 · 短码」（标题默认不出现 ✓ 提案 §11 红线 A ✓ 改坏即红 ✓）",
@@ -1149,6 +1150,246 @@ namespace Dsht.Gui.LogicTests
                 && hierText.IndexOf("本轮", StringComparison.Ordinal) < 0
                 && hierText.IndexOf("施工", StringComparison.Ordinal) < 0);
 
+            // ================================================================ ★ 悬边状态灯（2026-10-26 · 提案 §11）
+            //   每条都是**可证伪**的：改坏判定/文案/开关，对应断言立刻红 ✓✓
+
+            // —— ① 一色一信号：每盏灯都能指到它的信号来源（指不到 ⇒ 不亮 ⇒ 灰 ✓）——
+            Light noSrc = OverlayLight.Lit(LightColor.Bad, "");
+            Light noSrc2 = OverlayLight.Lit(LightColor.Asking, null);
+            Check("灯·★「指不到信号来源的灯不亮」：Lit(红, 空来源) ⇒ 灰（✗ 无来源的红灯在代码层就亮不起来 ✗✓ 改坏即红 ✓）",
+                noSrc.Color == LightColor.Unknown && !noSrc.IsLit && noSrc.Source.Length == 0
+                && noSrc2.Color == LightColor.Unknown && !noSrc2.IsLit);
+            Check("灯·★ 每一盏**真**灯都带非空来源（逐色抽查 ✓ 来源是唯一出处文案 ✓）",
+                OverlayLight.Lit(LightColor.Bad, "s").Source == "s"
+                && OverlayLight.Lit(LightColor.Asking, "s").IsLit
+                && OverlayLight.Lit(LightColor.Running, "s").IsLit
+                && OverlayLight.Lit(LightColor.Done, "s").IsLit);
+            Check("灯·五条信号来源文案各自非空且**互相不同**（✗ 不许几条灯共用一句含糊话 ✗）",
+                OverlayLight.SrcDshDown.Length > 0 && OverlayLight.SrcSnapshotStale.Length > 0 && OverlayLight.SrcPluginMismatch.Length > 0
+                && OverlayLight.SrcQuestions.Length > 0 && OverlayLight.SrcBridgeLive.Length > 0
+                && OverlayLight.SrcPlanDone.Length > 0 && OverlayLight.SrcInferredParked.Length > 0
+                && OverlayLight.SrcDshDown != OverlayLight.SrcSnapshotStale && OverlayLight.SrcSnapshotStale != OverlayLight.SrcPluginMismatch
+                && OverlayLight.SrcQuestions != OverlayLight.SrcBridgeLive && OverlayLight.SrcBridgeLive != OverlayLight.SrcPlanDone
+                && OverlayLight.SrcPlanDone != OverlayLight.SrcInferredParked);
+            Check("灯·★ 优先级 = 红 > 黄 > 蓝 > 绿 > 灰（枚举值即优先级 ✓ 提案 §11 逐字 ✓）",
+                (int)LightColor.Bad > (int)LightColor.Asking && (int)LightColor.Asking > (int)LightColor.Running
+                && (int)LightColor.Running > (int)LightColor.Done && (int)LightColor.Done > (int)LightColor.Unknown);
+
+            // —— ② 无信号 ⇒ 灰（默认态 ✓ 不是失败 ✓）——
+            OverlayContext none = new OverlayContext { DshRunningKnown = true, DshRunning = true };
+            SessionsSnapshot emptySnap = new SessionsSnapshot();
+            Check("灯·★ 一个信号都没有 ⇒ **灰**（✗ 不猜成绿/蓝 ✗ 默认态就是未知 ✓）",
+                OverlayLight.SystemLight(none).Color == LightColor.Unknown
+                && OverlayLight.RowLight(new SessionRow { Id = "x" }, none, false).Color == LightColor.Unknown
+                && OverlayLight.EdgeLight(none, emptySnap.Rows, null).Color == LightColor.Unknown);
+            Check("灯·灰灯**没有来源可指**（Describe 如实说「没有可用的信号」✗ 不编原因 ✓）",
+                OverlayLight.Describe(OverlayLight.None()) == "未知（没有可用的信号）"
+                && OverlayLight.Describe(null) == "未知（没有可用的信号）");
+            Check("灯·★ 无桥接 ⇒ **不许猜成进行中**（live=true 也点不亮蓝灯 ✓ 提案 §11 硬要求 ✓）",
+                OverlayLight.RowLight(new SessionRow { Id = "x", Live = true, LiveKnown = true },
+                    new OverlayContext { BridgePresent = false }, false).Color == LightColor.Unknown
+                && OverlayLight.RowLight(new SessionRow { Id = "x", Live = true, LiveKnown = true },
+                    new OverlayContext { BridgePresent = true }, false).Color == LightColor.Running);
+
+            // —— ③ 红灯三路（各指到各自信号 ✓）；两条**不接**的路不许偷偷亮 ——
+            Check("灯·红①：dsh 未运行（来源 = 本机状态 ✓；运行态**未知**时**不亮** ✗ 不猜 ✗）",
+                OverlayLight.SystemLight(new OverlayContext { DshRunningKnown = true, DshRunning = false }).Color == LightColor.Bad
+                && OverlayLight.SystemLight(new OverlayContext { DshRunningKnown = true, DshRunning = false }).Source == OverlayLight.SrcDshDown
+                && OverlayLight.SystemLight(new OverlayContext { DshRunningKnown = false, DshRunning = false }).Color == LightColor.Unknown);
+            Check("灯·红②：桥接快照陈旧（来源 = CLI 的 SESSIONS_SNAPSHOT_STALE 诊断行 ✓）",
+                OverlayLight.SystemLight(new OverlayContext { DshRunningKnown = true, DshRunning = true, SnapshotStale = true }).Color == LightColor.Bad
+                && OverlayLight.SystemLight(new OverlayContext { DshRunningKnown = true, DshRunning = true, SnapshotStale = true }).Source == OverlayLight.SrcSnapshotStale);
+            Check("灯·红③：插件与随包不一致（来源 = update-center 的 state=content-mismatch ✓；**没取过** update-center ⇒ 不亮 ✗ 不猜 ✗）",
+                OverlayLight.SystemLight(new OverlayContext { DshRunningKnown = true, DshRunning = true, PluginStateKnown = true, PluginMismatch = true }).Color == LightColor.Bad
+                && OverlayLight.SystemLight(new OverlayContext { DshRunningKnown = true, DshRunning = true, PluginStateKnown = true, PluginMismatch = true }).Source == OverlayLight.SrcPluginMismatch
+                && OverlayLight.SystemLight(new OverlayContext { DshRunningKnown = true, DshRunning = true, PluginStateKnown = false, PluginMismatch = true }).Color == LightColor.Unknown);
+            Check("灯·红④⑤**不接**（投影 status 失败态形状未验 · 会话格式损坏解不了 zstd ⇒ 代码里没有这两路 ⇒ 红灯只会由 ①②③ 亮 ✓）",
+                OverlayLight.SystemLight(new OverlayContext { DshRunningKnown = true, DshRunning = true, SnapshotStale = false, PluginStateKnown = true, PluginMismatch = false }).Color == LightColor.Unknown
+                && OverlayLight.EdgeLight(new OverlayContext { DshRunningKnown = true, DshRunning = true },
+                    new List<SessionRow> { new SessionRow { Id = "a", Live = false, Blank = false } }, null).Color == LightColor.Unknown);
+
+            // —— ④ 黄灯 = questions.active 非空；形状认不出 ⇒ 不亮 ——
+            Check("灯·黄：questions.active 非空 ⇒ 黄（来源 = 有待回答 ✓）；为 0 或形状认不出 ⇒ 不亮（✗ 绝不猜成「没有问题」✗）",
+                OverlayLight.RowLight(new SessionRow { Id = "x", QuestionKnown = true, QuestionActive = 2 }, none, false).Color == LightColor.Asking
+                && OverlayLight.RowLight(new SessionRow { Id = "x", QuestionKnown = true, QuestionActive = 2 }, none, false).Source == OverlayLight.SrcQuestions
+                && OverlayLight.RowLight(new SessionRow { Id = "x", QuestionKnown = true, QuestionActive = 0 }, none, false).Color == LightColor.Unknown
+                && OverlayLight.RowLight(new SessionRow { Id = "x", QuestionKnown = false, QuestionActive = 9 }, none, false).Color == LightColor.Unknown);
+
+            // —— ⑤ 绿灯两路（todos 全完成 ✓ / 由在动转停驻 = **推断** ✓ 必须标注 ✓）——
+            Check("灯·绿①：todos 全部完成 ⇒ 绿（来源 = 计划全部完成 ✓）；**未全完成**或**形状认不出** ⇒ 不亮（✗ 不猜 ✗）",
+                OverlayLight.RowLight(new SessionRow { Id = "x", PlanKnown = true, PlanDone = 3, PlanTotal = 3 }, none, false).Color == LightColor.Done
+                && OverlayLight.RowLight(new SessionRow { Id = "x", PlanKnown = true, PlanDone = 3, PlanTotal = 3 }, none, false).Source == OverlayLight.SrcPlanDone
+                && OverlayLight.RowLight(new SessionRow { Id = "x", PlanKnown = true, PlanDone = 2, PlanTotal = 3 }, none, false).Color == LightColor.Unknown
+                && OverlayLight.RowLight(new SessionRow { Id = "x", PlanKnown = false, PlanTotal = 0 }, none, false).Color == LightColor.Unknown);
+            Check("灯·绿②：由在动转停驻 = 绿，且来源文案**逐字含「推断」**（提案 §11 硬要求：必须标注是推断 ✓ 改坏即红 ✓）",
+                OverlayLight.RowLight(new SessionRow { Id = "x", ActiveKnown = true, Active = false }, none, true).Color == LightColor.Done
+                && OverlayLight.RowLight(new SessionRow { Id = "x", ActiveKnown = true, Active = false }, none, true).Source.Contains("推断")
+                && OverlayLight.SrcInferredParked.Contains("推断"));
+            Check("灯·绿②**不许拿「active 未知」凑推断**（更早拍到过也不行 ⇒ 灰 ✓ 那就是「用颜色猜」✗）",
+                OverlayLight.RowLight(new SessionRow { Id = "x", ActiveKnown = false }, none, true).Color == LightColor.Unknown
+                && OverlayLight.RowLight(new SessionRow { Id = "x", ActiveKnown = true, Active = true }, none, true).Color == LightColor.Unknown);
+
+            // —— ⑥ 记忆（推断态的唯一依据）：**先判定 → 再记** ✓ 同拍不假推断 ——
+            ParkedMemory mem = new ParkedMemory();
+            SessionRow act1 = new SessionRow { Id = "m1", ActiveKnown = true, Active = true };
+            Check("灯·记忆：第一拍 active=1 时**不亮绿灯**（更早没拍到过 ⇒ 不是推断 ✓ 同拍假推断被挡住 ✓）",
+                OverlayLight.RowLight(act1, none, mem.PriorActive("m1")).Color == LightColor.Unknown);
+            mem.Remember(new List<SessionRow> { act1 });
+            Check("灯·记忆：记下之后 PriorActive 才为真；这一拍 active=0 ⇒ 推断绿灯（来源含「推断」✓）",
+                mem.PriorActive("m1") && mem.Count == 1
+                && OverlayLight.RowLight(new SessionRow { Id = "m1", ActiveKnown = true, Active = false }, none, mem.PriorActive("m1")).Color == LightColor.Done
+                && !mem.PriorActive("") && !mem.PriorActive(null));
+
+            // —— ⑦ 悬边灯 = 所有灯里优先级最高者 ——
+            List<SessionRow> mix = new List<SessionRow>();
+            mix.Add(new SessionRow { Id = "g1", PlanKnown = true, PlanDone = 1, PlanTotal = 1 });                 // 绿
+            mix.Add(new SessionRow { Id = "b1", Live = true, LiveKnown = true });                                 // 蓝（需桥接）
+            mix.Add(new SessionRow { Id = "y1", QuestionKnown = true, QuestionActive = 1 });                      // 黄
+            OverlayContext bridgeCtx = new OverlayContext { DshRunningKnown = true, DshRunning = true, BridgePresent = true };
+            Check("灯·悬边灯 = 优先级最高者（黄 > 蓝 > 绿 ✓ 提案 §11 逐字）",
+                OverlayLight.EdgeLight(bridgeCtx, mix, null).Color == LightColor.Asking);
+            Check("灯·悬边灯：系统红灯**压过**所有行灯（红 > 黄 ✓）",
+                OverlayLight.EdgeLight(new OverlayContext { DshRunningKnown = true, DshRunning = false, BridgePresent = true }, mix, null).Color == LightColor.Bad);
+            Check("灯·悬边灯：把黄那行去掉 ⇒ 降到蓝；再去掉蓝 ⇒ 降到绿（逐级降 ✓ 不是一直亮着 ✓）",
+                OverlayLight.EdgeLight(bridgeCtx, new List<SessionRow> { mix[0], mix[1] }, null).Color == LightColor.Running
+                && OverlayLight.EdgeLight(bridgeCtx, new List<SessionRow> { mix[0] }, null).Color == LightColor.Done);
+
+            // —— ⑧ 计划数字：拿不到 ⇒ **不显示数字**（✗ 绝不 0/0 ✓）——
+            Check("灯·★计划：拿得到 ⇒「计划 3/7」；拿不到 ⇒「计划未知」且**一个数字都没有**（✗ 绝不 0/0 ✓ 硬红线 ✓ 改坏即红 ✓）",
+                OverlayLight.PlanText(new SessionRow { PlanKnown = true, PlanDone = 3, PlanTotal = 7 }) == "计划 3/7"
+                && OverlayLight.PlanText(new SessionRow { PlanKnown = false }) == "计划未知"
+                && OverlayLight.PlanText(null) == "计划未知"
+                && OverlayLight.PlanText(new SessionRow { PlanKnown = true, PlanDone = 0, PlanTotal = 0 }) == "计划未知"
+                && OverlayLight.PlanText(new SessionRow { PlanKnown = false }).IndexOf('0') < 0);
+            Check("灯·计划：投影里 0 项待办（空数组）⇒ HasPlan=false ⇒ 同样不显示数字（✗ 不把「没有计划」显示成 0/0 ✓）",
+                OverlayLight.PlanText(new SessionRow { PlanKnown = false, PlanDone = 0, PlanTotal = 0 }) == "计划未知");
+
+            // —— ⑨ 排序 == lastPromptAt 倒序（= 先后唤醒 ✓ 提案 §11 逐字）——
+            List<SessionRow> unsorted = new List<SessionRow>();
+            unsorted.Add(new SessionRow { Id = "old", Last = "2026-10-26T01:00:00Z" });
+            unsorted.Add(new SessionRow { Id = "newest", Last = "2026-10-26T09:30:00Z" });
+            unsorted.Add(new SessionRow { Id = "none" });                                        // 时间未知 ⇒ 排最后 ✓
+            unsorted.Add(new SessionRow { Id = "mid", Last = "2026-10-26T05:00:00Z" });
+            List<SessionRow> sorted = OverlayLight.SortedByLastPrompt(unsorted);
+            Check("灯·★排序 == lastPromptAt 倒序（先后唤醒 ✓ 时间未知的排最后且**不丢弃** ✓ 确定性 ✓ 改坏即红 ✓）",
+                sorted.Count == 4 && sorted[0].Id == "newest" && sorted[1].Id == "mid" && sorted[2].Id == "old" && sorted[3].Id == "none");
+            bool desc = true;
+            for (int i = 1; i < sorted.Count; i++)
+                if (OverlayLight.LastPromptMs(sorted[i - 1].Last) < OverlayLight.LastPromptMs(sorted[i].Last)) desc = false;
+            Check("灯·排序：逐对比较都满足**非递增**（用同一套 lastPromptAt 解析 ✓ 不是靠人眼看 ✓）", desc);
+            Check("灯·排序：不改入参（纯函数 ✓ 原列表顺序不变 ✓）",
+                unsorted[0].Id == "old" && unsorted[1].Id == "newest" && unsorted.Count == 4);
+            Check("灯·排序：并列按 id 字典序（两次运行同序 ✓）",
+                OverlayLight.SortedByLastPrompt(new List<SessionRow> {
+                    new SessionRow { Id = "b", Last = "2026-10-26T05:00:00Z" },
+                    new SessionRow { Id = "a", Last = "2026-10-26T05:00:00Z" } })[0].Id == "a");
+
+            // —— ⑩ 名称：默认 = 项目名 + 短码；**标题默认不出现** ——
+            SessionRow named = new SessionRow { Id = "630797e3-1111-2222-3333-444455556666", Title = "聊聊这个 bug", Cwd = @"D:\dsh-minato\repo" };
+            Check("灯·★名称默认 = 项目名 + id 短码（来自 cwd ✓ 路径派生 ✓ 与提案 §11 的例子同形 ✓）",
+                OverlayLight.RowName(named, false) == "repo · 630797e3");
+            Check("灯·★名称默认态**绝不出现标题**（投影里明明有标题也照样不显示 ✓ 可证伪 ✓ 改坏即红 ✓）",
+                OverlayLight.RowName(named, false).IndexOf("聊聊这个 bug", StringComparison.Ordinal) < 0);
+            Check("灯·名称：开关打开才显示标题（同一个开关 ✓ 不是两套 ✓）",
+                OverlayLight.RowName(named, true) == "聊聊这个 bug"
+                && OverlayLight.RowName(new SessionRow { Id = "abcdef0123", Cwd = "/x/y" }, true) == "y · abcdef01");
+            Check("灯·名称：项目名取末段（两种分隔符都认 ✓）；只有盘符 / 空 ⇒ 不编名字，退化成短码 ✓",
+                OverlayLight.ProjectName(@"D:\work\ShiogiriPAW") == "ShiogiriPAW"
+                && OverlayLight.ProjectName("/home/me/proj-a/") == "proj-a"
+                && OverlayLight.ProjectName(@"C:\") == "" && OverlayLight.ProjectName("") == "" && OverlayLight.ProjectName(null) == ""
+                && OverlayLight.RowName(new SessionRow { Id = "abcdef0123" }, false) == "abcdef01");
+            Check("灯·★标题明示文案逐字含「标题可能由你的对话内容派生」（提案 §11 红线 A ✓ 改坏即红 ✓）",
+                OverlayLight.TitleNotice.Contains("标题可能由你的对话内容派生")
+                && OverlayLight.TitleNotice.Contains("不会把标题写进任何文件或日志"));
+            Check("灯·每行都带数据时刻：拿不到 ⇒「最后提问 未知」✗ 绝不 00:00:00 ✓ 绝不编 ✓",
+                OverlayLight.RowClockText(new SessionRow { Id = "x" }).Contains("未知")
+                && OverlayLight.RowClockText(new SessionRow { Id = "x" }).IndexOf("00:00", StringComparison.Ordinal) < 0
+                && OverlayLight.RowClockText(new SessionRow { Id = "x", Last = "2026-10-26T05:00:00Z" }).StartsWith("最后提问 "));
+            Check("灯·全局数据时刻：未知 ⇒「未知」✗ 不显示 00:00:00 ✓",
+                OverlayLight.ClockText(null) == "未知" && OverlayLight.ClockText(new DateTime(2026, 10, 26, 12, 34, 56)) == "12:34:56");
+
+            // —— ⑪ 悬浮窗的**信号解析**：SESSION 行追加字段 + SNAPSHOT_STALE + content-mismatch ——
+            string ovFeed = "SESSIONS_OK 1\nSESSIONS_SOURCE snapshot\n"
+                + "SESSION abc12345-6789 title=%E4%BC%9A%E8%AF%9D last=2026-10-26T05:00:00Z live=1 active=0"
+                + " cwd=D%3A%5Cdsh-minato%5Crepo plan=3/7 q=2\n"
+                + "[stderr] SESSIONS_SNAPSHOT_STALE 快照已 90 秒未刷新";
+            SessionsSnapshot ovSnap = SessionsMarkers.Parse(ovFeed);
+            Check("灯·SESSION 行追加字段解析：cwd 解码 ✓ / plan=3/7 ✓ / q=2 ✓（✗ 不动行头 ✗ 老解析器忽略多出的键 ✓）",
+                ovSnap.Ok && ovSnap.Rows.Count == 1 && ovSnap.Rows[0].Cwd == @"D:\dsh-minato\repo"
+                && ovSnap.Rows[0].PlanKnown && ovSnap.Rows[0].PlanDone == 3 && ovSnap.Rows[0].PlanTotal == 7
+                && ovSnap.Rows[0].QuestionKnown && ovSnap.Rows[0].QuestionActive == 2);
+            Check("灯·★plan=unknown / q=unknown ⇒ PlanKnown=false / QuestionKnown=false（✗ 不把 unknown 读成 0 ✓ 硬红线 ✓）",
+                !SessionsMarkers.Parse("SESSION x plan=unknown q=unknown").Rows[0].PlanKnown
+                && !SessionsMarkers.Parse("SESSION x plan=unknown q=unknown").Rows[0].QuestionKnown
+                && SessionsMarkers.Parse("SESSION x plan=unknown q=unknown").Rows[0].PlanTotal == 0);
+            Check("灯·★畸形 plan（0/0 · 5/3 · abc · 负号）一律**不认** ⇒ 不显示数字（✗ 不编 ✓ 可证伪 ✓）",
+                !SessionsMarkers.Parse("SESSION x plan=0/0").Rows[0].PlanKnown
+                && !SessionsMarkers.Parse("SESSION x plan=5/3").Rows[0].PlanKnown
+                && !SessionsMarkers.Parse("SESSION x plan=abc").Rows[0].PlanKnown
+                && !SessionsMarkers.Parse("SESSION x plan=-1/3").Rows[0].PlanKnown);
+            Check("灯·★桥接快照陈旧：只在真看到 CLI 的 SESSIONS_SNAPSHOT_STALE 行时才为真（✗ 看不到**不**断言新鲜 ✓ 不过度声称 ✓）",
+                ovSnap.SnapshotStale && !SessionsMarkers.Parse("SESSIONS_OK 1\nSESSION x live=1").SnapshotStale);
+            Check("灯·老 CLI（SESSION 行没有 cwd/plan/q）⇒ 全部按未知处理（✗ 不猜 ✓ 名称退化成短码 ✓）",
+                !SessionsMarkers.Parse("SESSION x live=1").Rows[0].PlanKnown
+                && !SessionsMarkers.Parse("SESSION x live=1").Rows[0].QuestionKnown
+                && SessionsMarkers.Parse("SESSION x live=1").Rows[0].Cwd == ""
+                && OverlayLight.RowName(SessionsMarkers.Parse("SESSION x live=1").Rows[0], true) == "x");
+
+            // —— ⑭ ★ `cwd=` 解析的**三态**（含 / 不含（老 CLI）/ 空值）——
+            //   上一单（c9ae7b4）的 cwd 断言只覆盖 `BoardMetrics.DisplayName` 这个纯函数，
+            //   而「**解析 SESSION 行**里的 cwd=」这一段探针没入库 ⇒ 这里补上（可证伪：改坏解析即红 ✓）。
+            //   三态的**共同要求**：显示名退化成短码且**不编**（✗ 不空白 ✗ 不写 unknown/未知 ✗ 不带分隔点 ✗）。
+            //   ★ 喂的是**真实标记面**：CLI 侧 `MarkerText.Encode` 只转义 `%`/空格/制表/换行（中文原样 UTF-8 ✓
+            //     空值 ⇒ `-` ✓）——所以这里既喂 `cwd=<路径>`，也喂 CLI 对"没有 cwd"的实际输出 `cwd=-`。
+            const string SID = "630797e3-1111-2222-3333-444455556666";
+            SessionsSnapshot cwdHas = SessionsMarkers.Parse("SESSIONS_OK 1\nSESSION " + SID + " title=会话 cwd=D:\\dsh-minato\\repo plan=3/7 q=2");
+            SessionsSnapshot cwdOld = SessionsMarkers.Parse("SESSIONS_OK 1\nSESSION " + SID + " title=会话");
+            SessionsSnapshot cwdEmpty = SessionsMarkers.Parse("SESSIONS_OK 1\nSESSION " + SID + " title=会话 cwd=");
+            SessionsSnapshot cwdDash = SessionsMarkers.Parse("SESSIONS_OK 1\nSESSION " + SID + " title=会话 cwd=-");
+            Check("灯·★cwd= 三态①**含** cwd= ⇒ 解码成路径，显示名 =「项目名 · 短码」（路径派生 ✓ 非对话内容 ✓）",
+                cwdHas.Ok && cwdHas.Rows.Count == 1
+                && cwdHas.Rows[0].Cwd == @"D:\dsh-minato\repo"
+                && BoardMetrics.DisplayName(cwdHas.Rows[0], false) == "repo · 630797e3");
+            Check("灯·★cwd= 三态②**不含** cwd=（老 CLI）⇒ 空串，显示名**退化成短码**且不编（✗ 不写 unknown/未知 ✗ 不带「 · 」✗）",
+                cwdOld.Ok && cwdOld.Rows.Count == 1
+                && cwdOld.Rows[0].Cwd == ""
+                && BoardMetrics.DisplayName(cwdOld.Rows[0], false) == "630797e3"
+                && BoardMetrics.DisplayName(cwdOld.Rows[0], false).IndexOf("unknown", StringComparison.OrdinalIgnoreCase) < 0
+                && BoardMetrics.DisplayName(cwdOld.Rows[0], false).IndexOf("未知", StringComparison.Ordinal) < 0
+                && BoardMetrics.DisplayName(cwdOld.Rows[0], false).IndexOf('·') < 0
+                && OverlayLight.RowName(cwdOld.Rows[0], false) == "630797e3");
+            Check("灯·★cwd= 三态③**空值** ⇒ 与「不含」同解（空串 ⇒ 同样退化短码，✗ 不把空值读成路径/根目录 ✗）"
+                + "—— 两种空值写法都认：`cwd=` 与 CLI 对空 cwd 的实际编码 `cwd=-` ✓",
+                cwdEmpty.Ok && cwdEmpty.Rows.Count == 1 && cwdEmpty.Rows[0].Cwd == ""
+                && BoardMetrics.DisplayName(cwdEmpty.Rows[0], false) == "630797e3"
+                && OverlayLight.RowName(cwdEmpty.Rows[0], false) == "630797e3"
+                && cwdDash.Ok && cwdDash.Rows.Count == 1 && cwdDash.Rows[0].Cwd == ""
+                && BoardMetrics.DisplayName(cwdDash.Rows[0], false) == "630797e3"
+                && OverlayLight.RowName(cwdDash.Rows[0], false) == "630797e3");
+            Check("灯·★cwd= 三态：**开关打开也不编**（该行投影里有标题 ⇒ 显标题；没标题 ⇒ 仍退化成短码 ✓）",
+                BoardMetrics.DisplayName(cwdOld.Rows[0], true) == "会话"          // title 原样 UTF-8 ⇒ 解码后就是「会话」✓
+                && BoardMetrics.DisplayName(cwdEmpty.Rows[0], true) == "会话"
+                && BoardMetrics.DisplayName(new SessionRow { Id = SID }, true) == "630797e3"
+                && OverlayLight.RowName(new SessionRow { Id = SID }, true) == "630797e3");
+
+            // —— ⑮ 接线统一：**只有一个标题开关**（同一份文案 + 同一套名称口径）——
+            //   ★ 边界（诚实说明）：本工程只编译 `Markers/*.cs`（不引用 Avalonia / 不编译 `Shells/`），
+            //     所以"看板卡里真的没有第二份开关"这条**不在本文件里断言** ✗ ——
+            //     它由 `v3/tests/verify_overlay_wiring.ps1` 做**源码级**断言（改坏即红 ✓ 可证伪 ✓）。
+            Check("灯·★接线统一：标题明示文案**全项目只有一份**（看板 Top5 与悬边状态灯是同一句 ✓ 写歪一处即红 ✓）",
+                BoardHierarchy.TitleNotice == OverlayLight.TitleNotice
+                && BoardHierarchy.TitleNotice.Contains("标题可能由你的对话内容派生")
+                && BoardHierarchy.TitleNotice.Contains("不会把标题写进任何文件或日志"));
+            Check("灯·★接线统一：看板 Top5 与悬边状态灯的**名称口径同形**（项目名 · 短码 ⇒ 同一套规则 ✓）",
+                BoardMetrics.DisplayName(new SessionRow { Id = SID, Cwd = @"D:\dsh-minato\repo" }, false)
+                    == OverlayLight.RowName(new SessionRow { Id = SID, Cwd = @"D:\dsh-minato\repo" }, false)
+                && BoardMetrics.DisplayName(new SessionRow { Id = SID }, false)
+                    == OverlayLight.RowName(new SessionRow { Id = SID }, false));
+            Check("灯·★接线统一：两个开关**默认都是关**（置顶进度窗不默认开 ✓ 标题默认屏蔽 ✓ 提案 §9 / §11 红线 A ✓）",
+                BoardHierarchy.TitleSwitchDefaultOn == false
+                && BoardMetrics.Top5ByInput(tp)[0].Title == "ShiogiriPAW · s-big"
+                && OverlayLight.RowName(new SessionRow { Id = SID, Title = "不该出现", Cwd = @"D:\x" }, false) == "x · 630797e3");
+
             // —— ⑫ 收尾 (a)(c)：胶囊已拆（数据时刻留下）· 24h 集合口径点明 ——
             Check("收尾(a)·数据时刻一行仍在（纯文字 ✓ 取不到 ⇒「未知」✗ 不显示 00:00:00 ✓）",
                 BoardHierarchy.DataClockLine(null) == "数据时刻 未知"
@@ -1176,6 +1417,23 @@ namespace Dsht.Gui.LogicTests
                 && tailText.IndexOf("改动", StringComparison.Ordinal) < 0
                 && tailText.IndexOf("落实", StringComparison.Ordinal) < 0
                 && tailText.IndexOf("施工", StringComparison.Ordinal) < 0);
+
+            // —— ⑬ 悬浮窗文案的不变量（零 ✓/✗ 记号、零施工语气 ✓ 提案 §6 ✓）——
+            string ovText = OverlayLight.SrcDshDown + OverlayLight.SrcSnapshotStale + OverlayLight.SrcPluginMismatch
+                + OverlayLight.SrcQuestions + OverlayLight.SrcBridgeLive + OverlayLight.SrcPlanDone
+                + OverlayLight.SrcInferredParked + OverlayLight.NoBridgeText + OverlayLight.OldBridgeText
+                + OverlayLight.TitleNotice + OverlayLight.NamePolicyText + BoardHierarchy.HourlyEligibleNote
+                + OverlayLight.ColorName(LightColor.Bad) + OverlayLight.ColorName(LightColor.Asking)
+                + OverlayLight.ColorName(LightColor.Running) + OverlayLight.ColorName(LightColor.Done)
+                + OverlayLight.ColorName(LightColor.Unknown) + OverlayLight.PlanText(null);
+            Check("灯·不变量 悬浮窗用户可见文案零 ✓/✗ 记号、零施工语气（✗「本轮/改动/落实/施工」之类 ✗）",
+                ovText.IndexOf('✓') < 0 && ovText.IndexOf('✗') < 0
+                && ovText.IndexOf("本轮", StringComparison.Ordinal) < 0
+                && ovText.IndexOf("施工", StringComparison.Ordinal) < 0
+                && ovText.IndexOf("改动", StringComparison.Ordinal) < 0);
+            Check("灯·无桥接 / 旧桥接两句如实说「拿不到、按未知处理」（✗ 不猜成进行中 ✗ 不猜成完成 ✗）",
+                OverlayLight.NoBridgeText.Contains("未装桥接") && OverlayLight.NoBridgeText.Contains("未知")
+                && OverlayLight.OldBridgeText.Contains("未知"));
 
             Console.WriteLine("== " + _pass + "/" + (_pass + _fail) + " passed, " + _fail + " failed ==");
             return _fail == 0 ? 0 : 1;

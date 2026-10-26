@@ -1044,6 +1044,13 @@ namespace Dsht.Cli
             Console.WriteLine("CONFIG sessions_price_cache_write_per_mtok " + _cfg.SessionsPriceCacheWritePerMTok.ToString(System.Globalization.CultureInfo.InvariantCulture));
             Console.WriteLine("CONFIG sessions_price_out_per_mtok " + _cfg.SessionsPriceOutPerMTok.ToString(System.Globalization.CultureInfo.InvariantCulture));
             Console.WriteLine("CONFIG sessions_budget_usd_per_day " + _cfg.SessionsBudgetUsdPerDay.ToString(System.Globalization.CultureInfo.InvariantCulture));   // ★ 成本面板 v3.2（2026-10-16 ✓ 维护者已确认键名 ✓）0 = 未设 → 不作超限判定 ✓
+            // —— 悬边状态灯悬浮窗（2026-10-26 · 提案 §11 ✓✓）：六个纯 GUI 偏好键（位置/尺寸记忆 + 标题开关 ✓）——
+            Console.WriteLine("CONFIG overlay_enabled " + (_cfg.OverlayEnabled ? "on" : "off"));
+            Console.WriteLine("CONFIG overlay_edge " + _cfg.OverlayEdge);
+            Console.WriteLine("CONFIG overlay_offset " + _cfg.OverlayOffset.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            Console.WriteLine("CONFIG overlay_scale " + _cfg.OverlayScale);
+            Console.WriteLine("CONFIG overlay_screen " + (_cfg.OverlayScreen == null ? "" : _cfg.OverlayScreen));
+            Console.WriteLine("CONFIG overlay_show_title " + (_cfg.OverlayShowTitle ? "on" : "off"));
             // 备注行 ✓✓：GUI 原样显示在对应设置项下面 ✓（"出现什么问题时试哪个" ✓）
             Console.WriteLine("CONFIGNOTE browser_mode " + T("【浏览器打不开时改这个】auto=自动（先 snap run firefox → 再直开 → 最后 xdg-open）/ snap=只走 snap（Ubuntu 的 snap 版 firefox 必须这样）/ direct=只直开 firefox / xdg=只交给系统默认", "when the browser will not open"));
             Console.WriteLine("CONFIGNOTE ui_parallel " + T("【切页卡顿时改这个】on=概览页一次聚合调用 overview（快，默认）/ off=四个命令分开跑（老行为，排障用）", "when switching pages feels slow"));
@@ -1064,6 +1071,13 @@ namespace Dsht.Cli
             Console.WriteLine("CONFIGNOTE sessions_budget_usd_per_day " + T("【每日预算上限】美元/天；0=未设 → 不作超限提示。只跟**今日**（按最后一次提问归属本地日）的估算金额比较；超限只提示，不阻止任何操作", "daily budget ceiling in USD; 0 = unset (no over-budget notice). Compared with today's estimated spend (sessions attributed by their last prompt's local day); the notice never blocks anything"));
             Console.WriteLine("CONFIGNOTE close_action " + T("【关闭窗口时】exit=直接退出（默认）/ ask=先弹确认 / tray=最小化到系统托盘（托盘图标右键可显示或退出）", "close behavior: exit / ask / tray (system tray)"));
             Console.WriteLine("CONFIGNOTE host " + T("【dsh 监听地址】127.0.0.1 或 localhost（探测与显示用的回环名，功能等价）", "loopback name used for probing/display: 127.0.0.1 or localhost"));
+            // —— 悬边状态灯悬浮窗（2026-10-26 · 提案 §11 ✓）：用户可见文案 ✓ 不带施工语气 ✓ ——
+            Console.WriteLine("CONFIGNOTE overlay_enabled " + T("【置顶进度窗】on=在屏幕边缘常驻一个状态灯（悬停或点击展开列表）/ off=不显示（默认）。它只读本地状态，不抢焦点，灯以外的区域点击会落到下面的窗口", "edge status lamp: on = a small always-on-top lamp on a screen edge (hover or click to expand) / off = hidden (default); read-only, never steals focus, clicks outside the lamp go to the window underneath"));
+            Console.WriteLine("CONFIGNOTE overlay_edge " + T("【状态灯贴哪一边】left=左 / right=右（默认）/ top=上 / bottom=下", "which screen edge the lamp sticks to"));
+            Console.WriteLine("CONFIGNOTE overlay_offset " + T("【状态灯在那条边上的位置】0~1 的比例（0.5=居中，默认）；拖动它会记住新位置", "position along that edge, 0-1 (0.5 = centered); dragging remembers the new spot"));
+            Console.WriteLine("CONFIGNOTE overlay_scale " + T("【状态灯尺寸档】0=紧凑 / 1=标准（默认）/ 2=宽松——只缩放灯与列表的字号与厚度", "lamp size: 0 compact / 1 standard / 2 roomy"));
+            Console.WriteLine("CONFIGNOTE overlay_screen " + T("【记住的显示器】留空=主屏；显示器拔掉或认不出时自动回到主屏，窗口不会被放到屏幕外", "remembered monitor; empty = primary. If that monitor is gone the lamp falls back to the primary screen and never lands off-screen"));
+            Console.WriteLine("CONFIGNOTE overlay_show_title " + T("【列表里是否显示会话标题】off=不显示（默认），只显示「项目名 · 会话短码」。注意：标题是模型从你的对话内容派生的，开启后它可能出现在这个悬浮窗里；本工具不会把标题写进任何文件或日志", "show session titles in the list; off by default (shows 'project - short id' instead). Titles are derived by the model from your conversation content; they are never written to any file or log"));
             return 0;
         }
         /// <summary>config-set <key> <value>：白名单内才写盘，否则 CONFIGSET_FAIL 原因。</summary>
