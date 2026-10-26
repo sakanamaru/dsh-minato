@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using System.Collections.Generic;
 using Dsht.Gui.Avalonia.Markers;
 
@@ -301,9 +301,9 @@ namespace Dsht.Gui.LogicTests
 
             // —— Top5：输入(未命中+缓存)降序 · 只进「数值完整」(HasTokens && HasStats)的会话 · 并列按 id 字典序（确定性 ✓）——
             SessionsSnapshot tp = new SessionsSnapshot();
-            tp.Rows.Add(new SessionRow { Id = "s-big", Title = "大会话" });
-            tp.Rows.Add(new SessionRow { Id = "s-tie-a" });   // 无标题 → TitleText 人话兜底 ✓
-            tp.Rows.Add(new SessionRow { Id = "s-tie-b", Title = "并列B" });
+            tp.Rows.Add(new SessionRow { Id = "s-big", Title = "大会话", Cwd = @"D:\work\ShiogiriPAW" });
+            tp.Rows.Add(new SessionRow { Id = "s-tie-a", Cwd = "/home/me/proj-a" });   // 无标题 → 名称走「项目名 · 短码」✓
+            tp.Rows.Add(new SessionRow { Id = "s-tie-b", Title = "并列B", Cwd = @"D:\work\ShiogiriPAW" });
             tp.AggRows.Add(new SessAggRow { Id = "s-big", Bucket = "own", HasTokens = true, HasStats = true, Uncached = 900, CacheRead = 100, Output = 901, Turns = 5 });
             tp.AggRows.Add(new SessAggRow { Id = "s-tie-b", Bucket = "own", HasTokens = true, HasStats = true, Uncached = 500, CacheRead = 0, Output = 60, Turns = 1 });
             tp.AggRows.Add(new SessAggRow { Id = "s-tie-a", Bucket = "own", HasTokens = true, HasStats = true, Uncached = 500, CacheRead = 0, Output = 70, Turns = 2 });
@@ -320,8 +320,31 @@ namespace Dsht.Gui.LogicTests
                 top[1].Id == "s-tie-a" && top[2].Id == "s-tie-b");
             Check("体验修复·Top5：行带 输出/轮次（表格列数据源 ✓）",
                 top[0].Output == 901 && top[0].Turns == 5 && top[1].Output == 70 && top[1].Turns == 2);
-            Check("体验修复·Top5：标题取 SESSION 行 TitleText（无标题 → 人话兜底 ✓）；SESSION 行缺失 → 短 id 兜底（不空白 ✗ 不猜 ✓）",
-                top[0].Title == "大会话" && top[1].Title == "（未命名会话）" && top[4].Title == "s-six");
+            // ★★ 收尾 (b)（2026-10-26）：Top5 **默认不再显示会话标题** —— 改「项目名 · 短码」（来自 cwd，路径派生）
+            //   标题开关是**纯视图态**（默认关），不新增配置键，所以这里只能钉"默认值 + 纯函数的两种取值"
+            Check("收尾(b)·★标题开关**默认关**（唯一出处 = BoardHierarchy.TitleSwitchDefaultOn ✓ 改成 true 即红 ✓）",
+                BoardHierarchy.TitleSwitchDefaultOn == false);
+            Check("收尾(b)·Top5 默认显示「项目名 · 短码」（标题默认不出现 ✓ 提案 §11 红线 A ✓ 改坏即红 ✓）",
+                top[0].Title == "ShiogiriPAW · s-big" && top[1].Title == "proj-a · s-tie-a" && top[2].Title == "ShiogiriPAW · s-tie-b");
+            Check("收尾(b)·Top5 默认态**一个标题都不出现**（标题文本确实在快照里也照样不显示 ✓ 可证伪 ✓）",
+                top[0].Title.IndexOf("大会话", StringComparison.Ordinal) < 0
+                && top[2].Title.IndexOf("并列B", StringComparison.Ordinal) < 0
+                && !top[1].Title.Contains("未命名会话"));
+            Check("收尾(b)·同一个开关打开后 Top5 才显示标题（开关真的接线 ✓ 不是两套 ✓）",
+                BoardMetrics.Top5ByInput(tp, true)[0].Title == "大会话"
+                && BoardMetrics.Top5ByInput(tp, true)[2].Title == "并列B"
+                && BoardMetrics.Top5ByInput(tp, true)[1].Title == "proj-a · s-tie-a");   // 该行投影里本就没有标题 ⇒ 仍走名称 ✓
+            Check("收尾(b)·SESSION 行缺失 / cwd 拿不到 ⇒ 短 id 兜底（✗ 不空白 ✗ 不编 ✓）",
+                top[4].Title == "s-six"
+                && BoardMetrics.DisplayName(new SessionRow { Id = "abcdef0123456789" }, false) == "abcdef01"
+                && BoardMetrics.DisplayName(new SessionRow { Id = "abcdef0123456789", Cwd = @"C:\" }, false) == "abcdef01"
+                && BoardMetrics.ProjectName(@"D:\work\ShiogiriPAW") == "ShiogiriPAW"
+                && BoardMetrics.ProjectName("/home/me/proj-a/") == "proj-a"
+                && BoardMetrics.ProjectName(null) == "" && BoardMetrics.ProjectName("") == "");
+            Check("收尾(b)·★标题明示文案逐字含「标题可能由你的对话内容派生」（提案 §11 红线 A ✓ 改坏即红 ✓）",
+                BoardHierarchy.TitleNotice.Contains("标题可能由你的对话内容派生")
+                && BoardHierarchy.TitleNotice.Contains("不会把标题写进任何文件或日志")
+                && BoardHierarchy.NamePolicyText.Contains("不含对话内容"));
             Check("体验修复·Top5：null/空快照 → 空榜 ✓",
                 BoardMetrics.Top5ByInput(null).Count == 0 && BoardMetrics.Top5ByInput(new SessionsSnapshot()).Count == 0);
 
@@ -1126,8 +1149,56 @@ namespace Dsht.Gui.LogicTests
                 && hierText.IndexOf("本轮", StringComparison.Ordinal) < 0
                 && hierText.IndexOf("施工", StringComparison.Ordinal) < 0);
 
+            // —— ⑫ 收尾 (a)(c)：胶囊已拆（数据时刻留下）· 24h 集合口径点明 ——
+            Check("收尾(a)·数据时刻一行仍在（纯文字 ✓ 取不到 ⇒「未知」✗ 不显示 00:00:00 ✓）",
+                BoardHierarchy.DataClockLine(null) == "数据时刻 未知"
+                && BoardHierarchy.DataClockLine(new DateTime(2026, 10, 26, 8, 9, 10)) == "数据时刻 08:09:10"
+                && BoardHierarchy.DataClockLine(null).IndexOf("00:00", StringComparison.Ordinal) < 0);
+            Check("收尾(a)·★状态胶囊的**界面构建器**在程序集里已不存在（拆掉即绿；谁再把它加回来立刻红 ✓ 可证伪 ✓）",
+                CapsuleUiBuilderGone());
+            Check("收尾(c)·★24h 卡文案逐字点明集合口径（含维护者指定句「仅统计有最后活动时间的会话，与下方热力图口径不同」✓ 改坏即红 ✓）",
+                BoardHierarchy.HourlyEligibleNote.StartsWith("仅统计有最后活动时间的会话，与下方热力图口径不同", StringComparison.Ordinal)
+                && BoardHierarchy.HourlyEligibleNote.Contains("eligible 集")
+                && BoardHierarchy.HourlyEligibleNote.Contains("热力图按全部会话行归日"));
+            Check("收尾(c)·口径脚注仍是**两段**（整会话累计 + 集合口径 ✗ 不合并成一句含糊话 ✗）",
+                BoardHierarchy.HourlyFootnote != BoardHierarchy.HourlyEligibleNote
+                && BoardHierarchy.HourlyFootnote.Contains("整会话累计，非该小时增量")
+                && BoardHierarchy.HourlyEligibleNote.IndexOf("整会话累计", StringComparison.Ordinal) < 0);
+            // ★ 收尾新增的**用户可见**文案也进"零记号 / 零施工语气"不变量（✗ 新文案不能躲过这条 ✓）
+            string tailText = BoardHierarchy.DataClockLine(null)
+                + BoardHierarchy.DataClockLine(new DateTime(2026, 10, 26, 8, 9, 10))
+                + BoardHierarchy.TitleNotice + BoardHierarchy.NamePolicyText + BoardHierarchy.HourlyEligibleNote
+                + BoardMetrics.DisplayName(new SessionRow { Id = "abcdef0123456789", Cwd = @"D:\x\proj" }, false)
+                + BoardMetrics.DisplayName(new SessionRow { Id = "abcdef0123456789", Title = "T" }, true);
+            Check("收尾·不变量 新增的用户可见文案零 ✓/✗ 记号、零施工语气（✗「本轮/改动/落实/施工」之类 ✗）",
+                tailText.IndexOf('✓') < 0 && tailText.IndexOf('✗') < 0
+                && tailText.IndexOf("本轮", StringComparison.Ordinal) < 0
+                && tailText.IndexOf("改动", StringComparison.Ordinal) < 0
+                && tailText.IndexOf("落实", StringComparison.Ordinal) < 0
+                && tailText.IndexOf("施工", StringComparison.Ordinal) < 0);
+
             Console.WriteLine("== " + _pass + "/" + (_pass + _fail) + " passed, " + _fail + " failed ==");
             return _fail == 0 ? 0 : 1;
+        }
+
+        /// <summary>收尾 (a) 的**可证伪**判据：程序集里还有没有"状态胶囊"的**界面构建器**。
+        /// <para>只看构建器（`BoardStatusCapsule` / `CapsuleBrush`）：它们一旦被加回来，这条断言立刻红。</para>
+        /// <para>★ 边界说明：`CapsuleOf` / `CapsuleStateLine` / `CapsuleClockLine` / `CapsuleDetailLine` 这几个
+        /// **纯判定函数**仍在 —— 它们被 M1 的"三态诚实性"断言引用（删掉会让测试数变少），
+        /// 但收尾后它们**已经没有任何界面调用点**（界面只调 `DataClockLine`）。</para></summary>
+        private static bool CapsuleUiBuilderGone()
+        {
+            System.Reflection.BindingFlags f = System.Reflection.BindingFlags.Public
+                | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.Static
+                | System.Reflection.BindingFlags.Instance;
+            Type[] ts = typeof(BoardHierarchy).Assembly.GetTypes();
+            for (int i = 0; i < ts.Length; i++)
+            {
+                System.Reflection.MethodInfo[] ms = ts[i].GetMethods(f);
+                for (int j = 0; j < ms.Length; j++)
+                    if (ms[j].Name == "BoardStatusCapsule" || ms[j].Name == "CapsuleBrush") return false;
+            }
+            return true;
         }
 
         /// <summary>成本卡在**当前数据**下会渲染出来的全部文案（纯函数拼一遍 ✓）——

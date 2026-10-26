@@ -50,10 +50,12 @@ namespace Dsht.Gui.Avalonia.Markers
             return s;
         }
 
-        /// <summary>Top5 榜一行（会话 / 输入 / 输出 / 轮次 ✓）。</summary>
+        /// <summary>输入 Top5 榜一行（会话名 / 输入 / 输出 / 轮次 ✓）。</summary>
         public sealed class TopRow
         {
             public string Id = "";
+            /// <summary>**显示名** —— 默认 =「项目名 · 短码」（来自 cwd ✓ 路径派生 ✓）；
+            /// 只有开关开启（且投影确实有标题）才是会话标题 ✓ 提案 §11 红线 A ✓。</summary>
             public string Title = "";
             public long In;
             public long Output;
@@ -63,14 +65,20 @@ namespace Dsht.Gui.Avalonia.Markers
         /// <summary>输入 Top5：bucket=own 里「数值完整」（HasTokens && HasStats ✓ token 或轮次未知的不进榜 ✗ 不猜 ✓）
         /// 的会话，按输入（uncached+cacheRead ✓ 与 SESSIONS_TOTAL 同口径 ✓）降序取前 5；
         /// 并列按会话 id 字典序（Ordinal ✓ 两次运行同序 ✓ 确定性 ✓）。
-        /// 标题取 SESSION 行 TitleText（无标题 → 人话兜底 ✓）；SESSION 行缺失 → 短 id 兜底（不空白 ✗ 不猜 ✓）。</summary>
-        public static List<TopRow> Top5ByInput(SessionsSnapshot d)
+        /// ★ 2026-10-26 收尾 (b) ✓✓：**默认显示「项目名 · 短码」**（来自 `SESSION` 行的 `cwd=` ✓ 路径派生 ✓
+        /// ✗ 不是对话内容 ✗）；<paramref name="showTitle"/> = 用户显式打开标题开关（默认 false ✓）
+        /// ⇒ 只有它为 true 且投影真有标题时才用标题 ✓（✗ 默认态绝不出现标题 ✗ LogicTests 有断言 ✓）。
+        /// cwd 也拿不到 ⇒ 退化成短 id ✓（✗ 不空白 ✗ 不编 ✗）。</summary>
+        public static List<TopRow> Top5ByInput(SessionsSnapshot d) { return Top5ByInput(d, BoardHierarchy.TitleSwitchDefaultOn); }
+
+        /// <summary>带标题开关的重载（界面走这一个 ✓ 纯函数 ✓ 可测 ✓）。</summary>
+        public static List<TopRow> Top5ByInput(SessionsSnapshot d, bool showTitle)
         {
             List<TopRow> all = new List<TopRow>();
             if (d == null) return all;
-            Dictionary<string, string> titles = new Dictionary<string, string>(StringComparer.Ordinal);
+            Dictionary<string, SessionRow> byId = new Dictionary<string, SessionRow>(StringComparer.Ordinal);
             for (int i = 0; i < d.Rows.Count; i++)
-                if (d.Rows[i] != null && d.Rows[i].Id != null) titles[d.Rows[i].Id] = d.Rows[i].TitleText;
+                if (d.Rows[i] != null && d.Rows[i].Id != null && !byId.ContainsKey(d.Rows[i].Id)) byId[d.Rows[i].Id] = d.Rows[i];
             for (int i = 0; i < d.AggRows.Count; i++)
             {
                 SessAggRow r = d.AggRows[i];
@@ -86,11 +94,52 @@ namespace Dsht.Gui.Avalonia.Markers
             if (all.Count > 5) all.RemoveRange(5, all.Count - 5);
             for (int i = 0; i < all.Count; i++)
             {
-                string t;
-                if (titles.TryGetValue(all[i].Id, out t) && !string.IsNullOrEmpty(t)) { all[i].Title = t; continue; }
-                all[i].Title = all[i].Id.Length > 8 ? all[i].Id.Substring(0, 8) : all[i].Id;   // 短 id 兜底 ✓
+                SessionRow row;
+                if (byId.TryGetValue(all[i].Id, out row) && row != null)
+                {
+                    all[i].Title = DisplayName(row, showTitle);
+                    if (!string.IsNullOrEmpty(all[i].Title)) continue;
+                }
+                all[i].Title = ShortId(all[i].Id);   // 短 id 兜底 ✓
             }
             return all;
+        }
+
+        // ================================================================ ★ 榜单显示名（收尾 (b) ✓ 唯一出处）
+
+        /// <summary>★ 榜单显示名（2026-10-26 收尾 (b) ✓✓）：**默认** =「项目（会话工作目录）名 · 短码」✓
+        /// —— 来自 `cwd` ✓ **路径派生** ✗ 不是对话内容 ✗；只有 <paramref name="showTitle"/> 打开
+        /// **且**投影里确实有标题时才返回标题 ✓（✗ 默认态绝不出现标题 ✗ 提案 §11 红线 A ✓）。
+        /// cwd 取不到 ⇒ 只给短码 ✓（✗ 不空白 ✗ 不编一个项目名 ✗）。</summary>
+        public static string DisplayName(SessionRow row, bool showTitle)
+        {
+            if (row == null) return "";
+            if (showTitle && !string.IsNullOrEmpty(row.Title)) return row.Title;   // 显式开启 + 真有标题 ✓
+            string proj = ProjectName(row.Cwd);
+            string shortId = ShortId(row.Id);
+            if (proj.Length == 0) return shortId;                                  // 没有 cwd ⇒ 只给短码 ✓
+            if (shortId.Length == 0) return proj;
+            return proj + " · " + shortId;
+        }
+
+        /// <summary>项目名 = 会话工作目录的**末段**（两种分隔符都认 ✓；只有盘符 / 空 ⇒ 空串 ✗ 不编 ✓）。</summary>
+        public static string ProjectName(string cwd)
+        {
+            if (string.IsNullOrEmpty(cwd)) return "";
+            string t = cwd.Trim().TrimEnd('/', '\\');       // 末尾分隔符不算一段 ✓
+            if (t.Length == 0) return "";
+            int i = t.LastIndexOfAny(new char[] { '/', '\\' });
+            string seg = i >= 0 ? t.Substring(i + 1) : t;
+            if (seg.Length == 0) return "";                  // 只有盘符（`C:\`）⇒ 不编名字 ✓
+            if (seg.Length == 2 && seg[1] == ':') return "";  // `C:` ⇒ 同上 ✓
+            return seg;
+        }
+
+        /// <summary>会话短码 = id 前 8 位（不足 8 位就原样 ✓ ✗ 不补零 ✗ 不截断成空 ✓）。</summary>
+        public static string ShortId(string id)
+        {
+            if (string.IsNullOrEmpty(id)) return "";
+            return id.Length > 8 ? id.Substring(0, 8) : id;
         }
 
         /// <summary>图表区重画签名（看板体验修复 ✓✓ **图表只在输入真的变了才重画** ✓✓）。

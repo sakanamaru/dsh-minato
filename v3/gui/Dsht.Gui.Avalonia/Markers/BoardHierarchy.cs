@@ -96,6 +96,29 @@ namespace Dsht.Gui.Avalonia.Markers
             return "数据时刻 " + ClockText(dataAt);
         }
 
+        /// <summary>★ 看板顶部那行**纯文字**的数据时刻（2026-10-26 收尾 (a) ✓✓）——
+        /// 状态胶囊已按维护者意见拆掉 ✗，但它承担的**数据时刻不能丢** ✗ ⇒ 保留成一行纯文字 ✓。
+        /// <para>与 <see cref="CapsuleClockLine"/> 是**同一份实现**（✗ 不许两套并存 ✗）：这里只是给它一个
+        /// 不再叫"胶囊"的名字 ✓ 界面只调这一个 ✓（`Capsule*` 系列仍被 LogicTests 的三态诚实性断言引用 ✓）。</para></summary>
+        public static string DataClockLine(DateTime? dataAt)
+        {
+            return CapsuleClockLine(dataAt);
+        }
+
+        // ================================================================ ★ 收尾 (a)(b) 的界面文案（唯一出处 ✓）
+
+        /// <summary>★ 会话标题开关的**默认值**（2026-10-26 收尾 (b) ✓✓ 提案 §11 红线 A ✓）：
+        /// 会话标题是**模型从对话内容派生**的 ✗ 属提示词派生数据 ✗ ⇒ **默认关** ✓。
+        /// 界面初始化与 LogicTests 的"默认关"断言**共用这一个出处** ✓（改成 true ⇒ 断言立刻红 ✓）。</summary>
+        public const bool TitleSwitchDefaultOn = false;
+
+        /// <summary>★ 标题开关**开启时**的明示（收尾 (b) ✓ 提案 §11 红线 A ✓ 逐字含「标题可能由你的对话内容派生」✓）。
+        /// 关着时不显示这句 ✓；开启时**必须**显示 ✗ 不许只改开关不提示 ✓。</summary>
+        public const string TitleNotice = "标题可能由你的对话内容派生（由模型根据对话自动生成）；本工具不会把标题写进任何文件或日志。";
+
+        /// <summary>默认态（开关关）的名称口径说明 —— 名称来自**路径** ✗ 不含对话内容 ✓。</summary>
+        public const string NamePolicyText = "会话名默认是「项目（会话工作目录）名 · 短码」，来自路径，不含对话内容。";
+
         /// <summary>HH:mm:ss（未知 ⇒「未知」✗ 不用 0 顶替 ✓）；本地时间 ✓。</summary>
         public static string ClockText(DateTime? at)
         {
@@ -354,6 +377,14 @@ namespace Dsht.Gui.Avalonia.Markers
         /// token 与缓存命中率都是整会话累计、按最后活动小时归属 ✗ **不许声称是每小时真实增量** ✗
         /// （逐时真值须解原始 zstd 日志，本工具拿不到 ✓）。</summary>
         public const string HourlyFootnote = "整会话累计，非该小时增量（token 与缓存命中率都按会话最后活动小时整会话归属；逐时真值须解原始日志，本工具拿不到）。";
+
+        /// <summary>★ 24 小时分布的**集合口径**脚注（2026-10-26 收尾 (c) ✓✓ 维护者点名：M1 自曝未在文案点明 ✗）：
+        /// 这张表的集合 = **eligible 集**（投影里有 `bucket=own` token 行 ✓ 且同时有 `SESSION` 行 ✓）**再交**
+        /// "有最后活动时间" ✓；而**图表页的热力图**只要求 `SESSION` 行（不要求有 token 行 ✓ 也不要求同一 eligible 集 ✓）。
+        /// ⇒ 两者**口径不同** ✓ 必须逐字点明 ✗ 不许含糊 ✓（LogicTests 逐字断言 ✓）。
+        /// ★ 首句是**逐字**指定句 ✓ 不许改写 ✗ 也不许与 <see cref="HourlyFootnote"/> 合并成一句含糊话 ✗；
+        /// 括号里只把"差在哪"说清楚（本表 = eligible 集再交"有最后活动时间"；热力图 = 全部会话行 ✓）。</summary>
+        public const string HourlyEligibleNote = "仅统计有最后活动时间的会话，与下方热力图口径不同（本表只收投影里既有该会话 token 行、又有会话行的 eligible 集；热力图按全部会话行归日，不要求有 token 行）。";
 
         /// <summary>分布标题（**写明是"会话活动数 + 整会话累计用量"** ✗ 不写"每小时用量" ✗）。</summary>
         public const string HourlyTitle = "近 24 小时会话活动分布（本地小时）";

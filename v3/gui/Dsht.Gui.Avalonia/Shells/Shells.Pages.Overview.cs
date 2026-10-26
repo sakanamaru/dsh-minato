@@ -450,11 +450,12 @@ namespace Dsht.Gui.Avalonia.Shells
             //   ✗ 原来「指标/图表」切换 = 只建一棵子树 + `BuildShell()` 整页重建 → 闪 160ms ✗ 滚动回顶 ✗✗
             //   ✓ 现在两棵子树**都建好**、切换只切 `IsVisible` ✓ 零重建 ✓ 零闪烁 ✓ 不跳滚动 ✓✓
             //   （CLI 数据照旧按原节奏刷 ✗ 不降刷新频率 ✓；两棵树同一时刻只有一棵可见 ✗ 没有双份 CLI 开销 ✓）
-            // —— 子标签「指标」✓✓ 顺序（层级重整后）= 状态胶囊 → KPI → 今日用量 → 筛选 → 折叠区 → 回执细条 ——
+            // —— 子标签「指标」顺序（收尾 (a) 之后）= 数据时刻一行 → KPI → 今日用量 → 筛选 → 折叠区 → 回执细条 ——
             StackPanel metrics = new StackPanel { Spacing = ShapeTokens.S12 };   // 12px ✓（规格：卡间距 12~16 ✓ 一屏放下 ✓）
-            // ① 状态胶囊（提案 §3① ✓）：一屏之内先给结论 —— 在动 / 停驻 / 无活动 + **数据时刻**（HH:mm:ss ✓）；
-            //   ★ 状态来源必须标清：有桥接快照 ⇒「来自桥接快照 · 3 秒拍」✓；无桥接 ⇒「未知（未装桥接）」✗ **不许猜成停驻** ✗✓
-            metrics.Children.Add(BoardStatusCapsule(host));
+            // ① 数据时刻一行纯文字（2026-10-26 收尾 (a) —— **状态胶囊已按维护者意见拆掉**
+            //   「状态胶囊算了」；但它承担的**数据时刻不能丢** ⇒ 保留成顶部**一行纯文字**
+            //   不许两套并存：状态现在只有**悬边状态灯**那一处（提案 §11），看板不再重复一遍。
+            metrics.Children.Add(BoardDataClockLine(host));
             // KPI 四卡（首屏 4 个数字 ✓ §3⑤）
             metrics.Children.Add(KpiStrip(host));
             // ② 进度化（提案 §3② ✓）：把「今天用了多少」做成进度条 —— 相对**用户自填预算**（sessions_budget_usd_per_day ✓）
@@ -493,56 +494,32 @@ namespace Dsht.Gui.Avalonia.Shells
             return s;
         }
 
-        // ================================================================ ① 状态胶囊（提案 §3①）
+        // ================================================================ ① 数据时刻一行（收尾 (a) ✓ 原状态胶囊的位置）
 
-        /// <summary>状态胶囊（2026-10-26 · 提案 §3① ✓✓）：**指标页顶部一条** ✓
-        /// 左：状态点 + 「在动 / 停驻 / 无活动 / 未知（来源）」✓；右：**数据时刻 HH:mm:ss** ✓；下方：判据一行 ✓。
-        /// 状态来源逐字标清（有桥接 ⇒「来自桥接快照 · 3 秒拍」✓；无桥接 ⇒「未知（未装桥接）」✗ 不猜停驻 ✓）；
-        /// 判定与文案全在 <see cref="BoardHierarchy.CapsuleOf"/>（纯函数 ✓ LogicTests 钉死 ✓）。
-        /// 刷新走**字段级** Live / LiveText ✓（✗ 不整页重建 ✓）；未知时状态点是**中性色** ✗ 不用绿点误导 ✓。</summary>
-        private static Control BoardStatusCapsule(MainWindow host)
+        /// <summary>看板顶部**一行纯文字**（2026-10-26 收尾 (a)）：只承担**数据时刻**（HH:mm:ss；
+        /// 取不到就说「未知」，绝不显示 00:00:00）。
+        /// <para>★ 状态胶囊已拆（维护者：「状态胶囊算了」）：看板上**不再有**状态点 / 状态句 / 判据行 ——
+        /// 状态只由**悬边状态灯**一处承担（不许两套并存）。</para>
+        /// <para>★ 这一行**不是胶囊**：没有底、没有边框、没有状态点，只有一行文字 + 一句口径说明；
+        /// 刷新走字段级 <see cref="MainWindow.LiveText"/>，不整页重建。</para>
+        /// </summary>
+        private static Control BoardDataClockLine(MainWindow host)
         {
             StackPanel c = new StackPanel { Spacing = 5 };
-            Grid row = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto") };
-            Ellipse dot = new Ellipse { Width = 11, Height = 11, Fill = CapsuleBrush(host.Data), VerticalAlignment = VerticalAlignment.Center };
-            Grid.SetColumn(dot, 0);
-            row.Children.Add(dot);
-            TextBlock state = host.LiveText(BoardHierarchy.CapsuleStateLine(host.Data),
-                delegate { return BoardHierarchy.CapsuleStateLine(host.Data); });
-            state.FontSize = 15.5; state.FontWeight = FontWeight.SemiBold; state.Foreground = Palette.Text;
-            state.VerticalAlignment = VerticalAlignment.Center; state.Margin = new Thickness(9, 0, 12, 0);
-            state.TextWrapping = TextWrapping.Wrap;
-            Grid.SetColumn(state, 1);
-            row.Children.Add(state);
-            // ★ 数据时刻（提案 §3① 硬要求 ✓）：HH:mm:ss ✓；取不到 ⇒「未知」✗ 绝不显示 00:00:00 ✓
-            TextBlock clock = host.LiveText(BoardHierarchy.CapsuleClockLine(host.DataAt),
-                delegate { return BoardHierarchy.CapsuleClockLine(host.DataAt); });
-            clock.FontSize = 11.5; clock.Foreground = Palette.TextDim;
+            Grid row = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*") };
+            TextBlock clock = host.LiveText(BoardHierarchy.DataClockLine(host.DataAt),
+                delegate { return BoardHierarchy.DataClockLine(host.DataAt); });
+            clock.FontSize = ShapeTokens.FsBody; clock.Foreground = Palette.TextDim;
             clock.VerticalAlignment = VerticalAlignment.Center;
-            Grid.SetColumn(clock, 2);
+            Grid.SetColumn(clock, 0);
             row.Children.Add(clock);
+            // ★ 数据时刻的口径说明（唯一出处）：它是"本机解析出这份 CLI 输出的时刻"，不是 dsh 里数据产生的时刻
+            TextBlock note = T("（本机解析出这份输出的时刻；不是数据在 dsh 里产生的时刻）", ShapeTokens.FsFoot, Palette.TextFaint);
+            note.VerticalAlignment = VerticalAlignment.Center;
+            Grid.SetColumn(note, 1);
+            row.Children.Add(note);
             c.Children.Add(row);
-            TextBlock detail = host.LiveText(BoardHierarchy.CapsuleDetailLine(host.Data),
-                delegate { return BoardHierarchy.CapsuleDetailLine(host.Data); });
-            detail.FontSize = 11.5; detail.Foreground = Palette.TextFaint; detail.TextWrapping = TextWrapping.Wrap;
-            c.Children.Add(detail);
-            host.Live(delegate
-            {
-                IBrush br = CapsuleBrush(host.Data);
-                if (!ReferenceEquals(dot.Fill, br)) dot.Fill = br;
-            });
-            return Card(c, new Thickness(0), new Thickness(16, 10));
-        }
-
-        /// <summary>胶囊状态点颜色：已知在动 = Good ✓ / 已知停驻 = Warn ✓ / 已知无活动 = Idle ✓；
-        /// **未知 = Muted（中性）** ✗ —— 绝不用"绿=在跑"的颜色去替一个我们并不知道的状态背书 ✓。</summary>
-        private static IBrush CapsuleBrush(SessionsSnapshot d)
-        {
-            BoardHierarchy.Capsule cap = BoardHierarchy.CapsuleOf(d);
-            if (!cap.Known) return Palette.Muted;
-            if (cap.State == BoardHierarchy.StateActive) return Palette.Good;
-            if (cap.State == BoardHierarchy.StateParked) return Palette.Warn;
-            return Palette.Idle;
+            return c;
         }
 
         // ================================================================ ② 今日用量进度（提案 §3②）
@@ -783,6 +760,10 @@ namespace Dsht.Gui.Avalonia.Shells
             TextBlock fn = T(BoardHierarchy.HourlyFootnote, 10.5, Palette.TextFaint);
             fn.TextWrapping = TextWrapping.Wrap;
             c.Children.Add(fn);
+            // ★ 集合口径脚注（2026-10-26 收尾 (c) ✓✓）：与既有热力图**不是同一个集合** ⇒ 必须点明 ✗ 不许含糊 ✓
+            TextBlock fn2 = T(BoardHierarchy.HourlyEligibleNote, 10.5, Palette.TextFaint);
+            fn2.TextWrapping = TextWrapping.Wrap;
+            c.Children.Add(fn2);
             return Card(c, new Thickness(0), new Thickness(18, 8));
         }
 
@@ -1460,22 +1441,59 @@ namespace Dsht.Gui.Avalonia.Shells
 
         private static string[] LvRowDeg(string num, string note) { return new string[] { num, num, "", num, note }; }
 
-        /// <summary>★ 输入 Top 5（2026-10-11 看板体验修复 ✓✓）：按输入降序 ✓ 仅列数值完整的会话（token 或轮次未知的不进榜 ✓ 不猜 ✓）✓
-        /// 范围 = 当前窗口 eligible 集 ✓；榜单内容变化才重建行区（签名比较 ✓ 不变 = 零重画 ✓✓ 与图区同一规则 ✓）。</summary>
+        /// <summary>输入 Top 5（当前窗口）★ 2026-10-26 收尾 (b)：
+        /// 榜单**默认不再显示会话标题** —— 改显示「项目/目录名 + id 短码」（来自 `cwd`，路径派生，非对话内容）；
+        /// 要显示标题 ⇒ 走本卡右上角的**开关**（**纯视图态 · 默认关**，提案 §11 红线 A）。
+        /// 名称口径的唯一出处是 <see cref="BoardMetrics.DisplayName"/>（纯函数，LogicTests 钉死）。</summary>
         private static Control BoardTop5Card(MainWindow host)
         {
             StackPanel c = new StackPanel { Spacing = 4 };   // ★ 体验修复：卡内节奏压一档（一屏 ✓）
-            c.Children.Add(T("输入 Top 5（当前窗口）", 13, Palette.Text, FontWeight.Bold));
+            Grid head = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
+            TextBlock cap = T("输入 Top 5（当前窗口）", 13, Palette.Text, FontWeight.Bold);
+            cap.VerticalAlignment = VerticalAlignment.Center;
+            Grid.SetColumn(cap, 0);
+            head.Children.Add(cap);
+            Button sw = new Button
+            {
+                Background = Palette.CardHover,
+                BorderBrush = Palette.Border,
+                BorderThickness = new Thickness(1),
+                CornerRadius = new CornerRadius(ShapeTokens.RCtrl),
+                Padding = new Thickness(8, 3),
+                VerticalAlignment = VerticalAlignment.Center,
+                Content = new TextBlock { FontSize = ShapeTokens.FsFoot, Foreground = Palette.TextDim }
+            };
+            Grid.SetColumn(sw, 1);
+            head.Children.Add(sw);
+            c.Children.Add(head);
+            // ★ 开启时的**明示**（唯一出处）：关着时不显示；开启时必须显示（提案 §11 红线 A）
+            TextBlock notice = T(BoardHierarchy.TitleNotice, ShapeTokens.FsFoot, Palette.TextFaint);
+            notice.TextWrapping = TextWrapping.Wrap;
+            notice.IsVisible = host.BoardTop5ShowTitle;
+            c.Children.Add(notice);
             StackPanel rows = new StackPanel { Spacing = 2 };   // ★ 行距压一档（一屏 ✓）
             BuildTop5Rows(host, rows);
             string sig0 = BoardMetrics.ChartSignature(host.Data, host.ChartDays, host.Doctor, System.DateTime.Now.Date);
+            bool t0 = host.BoardTop5ShowTitle;
             host.Live(delegate
             {
+                TextBlock tb = sw.Content as TextBlock;
+                if (tb != null)
+                {
+                    string want = host.BoardTop5ShowTitle ? "会话名：标题（点一下改回项目名 · 短码）" : "会话名：项目名 · 短码（点一下显示标题）";
+                    if (tb.Text != want) tb.Text = want;
+                }
+                if (notice.IsVisible != host.BoardTop5ShowTitle) notice.IsVisible = host.BoardTop5ShowTitle;
                 string sg = BoardMetrics.ChartSignature(host.Data, host.ChartDays, host.Doctor, System.DateTime.Now.Date);
-                if (sg != sig0) { sig0 = sg; rows.Children.Clear(); BuildTop5Rows(host, rows); }   // ★ 只在榜变才重建 ✓✓
+                bool t = host.BoardTop5ShowTitle;
+                if (sg != sig0 || t != t0) { sig0 = sg; t0 = t; rows.Children.Clear(); BuildTop5Rows(host, rows); }   // ★ 只在榜变/开关变才重建 ✓✓
             });
+            sw.Click += delegate { host.ToggleBoardTop5ShowTitle(); };
+            global::Avalonia.Automation.AutomationProperties.SetName(sw, "会话名显示开关");
+            global::Avalonia.Automation.AutomationProperties.SetHelpText(sw, BoardHierarchy.NamePolicyText + BoardHierarchy.TitleNotice);
             c.Children.Add(rows);
-            TextBlock fn = T("按输入降序 · 仅列数值完整的会话（token 或轮次未知的不进榜）· 范围 = 当前窗口 eligible 集", 10.5, Palette.TextFaint);
+            TextBlock fn = T("按输入降序 · 仅列数值完整的会话（token 或轮次未知的不进榜）· 范围 = 当前窗口 eligible 集 · "
+                + BoardHierarchy.NamePolicyText + "要显示会话标题请点本卡右上角的开关（本次会话内有效，不写入配置）", 10.5, Palette.TextFaint);
             fn.TextWrapping = TextWrapping.Wrap;
             c.Children.Add(fn);
             return Card(c, new Thickness(0), new Thickness(18, 8));
@@ -1483,7 +1501,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
         private static void BuildTop5Rows(MainWindow host, StackPanel rows)
         {
-            List<BoardMetrics.TopRow> top = BoardMetrics.Top5ByInput(host.Data);
+            List<BoardMetrics.TopRow> top = BoardMetrics.Top5ByInput(host.Data, host.BoardTop5ShowTitle);
             if (top == null || top.Count == 0)
             {
                 rows.Children.Add(T("暂无数值完整的会话（token 或轮次未知的不进榜）", 11.5, Palette.TextDim));
