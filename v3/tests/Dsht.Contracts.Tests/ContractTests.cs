@@ -1389,6 +1389,44 @@ static class ContractTests
             Check("三方归一后可直接联表（快照 id == 血缘边键 == 聚合键 ✓）",
                 ssNorm[0].Id == "aaaa0001" && slNorm.Edges.ContainsKey(ssNorm[0].Id) && asNorm[0].Id == "cccc0003");
         }
+        // ================================================================ [40] 插件枚举资格判定（2026-10-26）
+        // 真机缺陷：update-center 只扫 node_modules **一级目录**（漏 @scope/包）、只要求 package.json 存在
+        //   （纯依赖 zod 被当插件报）、读不到 manifest **静默跳过**（真插件静默漏报）。
+        // 这一节钉住**资格判定**本身（纯函数；IO 枚举由 CLI 负责，端到端夹具在
+        //   v3\tests\verify_plugin_update_baseline.ps1 的 D 段）：
+        //   ① 声明 dsh.bundle 或 dsh.client  ② profile package.json 的 dependencies
+        //   ③ profile 的 cordis.patch.yml / 配置里明确引用（整词边界，不拿子串冒充）
+        Console.WriteLine("[40] 插件枚举资格判定（scope 包 / 纯依赖 / 依赖兜底 / 配置引用 / 读失败）");
+        {
+            string declared = "{\"name\":\"@local/dsh-shiogiri-seats\",\"version\":\"1.0.0\",\"dsh\":{\"bundle\":{\"patch\":\"./cordis.patch.yml\"}}}";
+            string clientOnly = "{\"name\":\"ui-x\",\"version\":\"2.0.0\",\"dsh\":{\"client\":{\"entry\":\"./index.js\"}}}";
+            string zod = "{\"name\":\"zod\",\"version\":\"4.4.3\"}";
+            string codex = "{\"name\":\"codex\",\"version\":\"0.153.4\"}";
+            string deps = "{\"dependencies\":{\"@local/dsh-shiogiri-seats\":\"link:D:/x\",\"plain-dep\":\"1.0.0\"}}";
+            string conf = "insert:\n  - id: config-ref\n    name: 'config-ref'\n  - id: subagent-codex\n    name: '@deepseek-ai/dsh-subagent-codex'\n";
+            Check("资格·①声明 dsh.bundle → 插件（scope 包也认 ✓）",
+                PluginEligibility.Classify("@local/dsh-shiogiri-seats", true, declared, "", "") == PluginEntryKind.Plugin);
+            Check("资格·①声明 dsh.client → 插件（不要求 dsh.bundle ✓）",
+                PluginEligibility.Classify("ui-x", true, clientOnly, "", "") == PluginEntryKind.Plugin);
+            Check("资格·纯依赖（zod；无 dsh、不在依赖/配置）→ 过滤（✗ 不再当插件输出 ✗）",
+                PluginEligibility.Classify("zod", true, zod, "{\"dependencies\":{}}", "") == PluginEntryKind.Filtered);
+            Check("资格·②profile dependencies 兜底 → 插件（manifest 没声明 dsh 也算 ✓ 这就是 codex 那类真插件能留下的路径 ✓）",
+                PluginEligibility.Classify("plain-dep", true, "{\"name\":\"plain-dep\",\"version\":\"1.0.0\"}", deps, "") == PluginEntryKind.Plugin);
+            Check("资格·③cordis.patch.yml 精确引用 → 插件（无 dsh、不在 dependencies ✓）",
+                PluginEligibility.Classify("config-ref", true, "{\"name\":\"config-ref\",\"version\":\"1.0.0\"}", "{\"dependencies\":{}}", conf) == PluginEntryKind.Plugin);
+            Check("资格·★配置里出现 `@deepseek-ai/dsh-subagent-codex` **不等于** `codex` 被引用（整词边界 ✓ 不拿子串冒充 ✓）",
+                PluginEligibility.Classify("codex", true, codex, "{\"dependencies\":{}}", conf) == PluginEntryKind.Filtered);
+            Check("资格·manifest 读不到 / 空 → Unreadable（✗ 静默丢 ✗）",
+                PluginEligibility.Classify("broken", false, null, deps, conf) == PluginEntryKind.Unreadable
+                && PluginEligibility.Classify("broken", true, "", deps, conf) == PluginEntryKind.Unreadable);
+            Check("资格·dsh 声明在**别的键**里不算（dshVersion / bundles / dshNote 之类 ✗ 不误报 ✓）",
+                PluginEligibility.Classify("fake", true, "{\"name\":\"fake\",\"dshVersion\":\"1\",\"bundles\":[\"x\"],\"dshNote\":{}}", "", "") == PluginEntryKind.Filtered);
+            Check("资格·dsh 里的 bundle/client 必须是**顶层键**（嵌套 {\"dsh\":{\"note\":{\"bundle\":1}}} 不算 ✓）",
+                PluginEligibility.Classify("fake2", true, "{\"name\":\"fake2\",\"dsh\":{\"note\":{\"bundle\":1}}}", "", "") == PluginEntryKind.Filtered);
+            Check("资格·package.json 顶层键扫描：嵌套同名键不串（dependencies 只在顶层算 ✓）",
+                PackageJsonFields.ObjectHasKey("{\"dependencies\":{\"x\":\"1\"}}", "dependencies")
+                && !PackageJsonFields.ObjectHasKey("{\"dsh\":{\"dependencies\":{\"x\":\"1\"}}}", "dependencies"));
+        }
         Console.WriteLine("== " + _pass + "/" + (_pass + _fail) + " passed, " + _fail + " failed ==");
         return _fail == 0 ? 0 : 1;
     }

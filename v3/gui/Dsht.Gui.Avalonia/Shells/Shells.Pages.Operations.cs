@@ -599,6 +599,14 @@ namespace Dsht.Gui.Avalonia.Shells
 
             List<UpdItem> items = UpdParse(raw);
 
+            // ★★★ 2026-10-26：插件枚举的**扫描汇总**（过滤掉 N 个 / 读不到 N 个）——
+            //   这两类条目**故意没有 ITEM** ✗（它们不是已安装插件 ✓），但不许静默消失 ✗
+            //   → 单独一行显示 ✓（CLI 的 NOTE 原文仍留在「原始输出」里 ✓ 可逐字核对 ✓）。
+            UpdateCenterMarkers.PluginScanSummary scan = UpdateCenterMarkers.PluginScanOf(raw);
+            string scanText = UpdateCenterMarkers.PluginScanText(scan);
+            if (scanText.Length > 0)
+                s.Children.Add(Card(T(scanText, 11.5, Palette.TextDim), new Thickness(0), new Thickness(16, 12)));
+
             try
             {
                 string tp = Environment.GetEnvironmentVariable("DSHT_TRACE_RAW");

@@ -189,7 +189,10 @@ function Write-Plugin([string]$profileDir, [string]$version, [string]$layout, [s
     $code = if ($layout -eq 'legacy') { Join-Path $pkg 'plugin\dsh-minato-bridge' } else { $pkg }
     New-Item -ItemType Directory -Path $code -Force | Out-Null
     $main = if ($layout -eq 'legacy') { 'plugin/dsh-minato-bridge/index.js' } else { 'index.js' }
-    $json = '{"name":"dsh-minato-bridge","version":"' + $version + '","main":"' + $main + '"}'
+    # 2026-10-26: declare dsh.bundle + a repository. The update centre now only reports real plugins
+    # (declared dsh / profile dependency / config reference); the bridge really does declare dsh.bundle,
+    # so the fixture must too - otherwise this file would test the filter, not the baseline.
+    $json = '{"name":"dsh-minato-bridge","version":"' + $version + '","main":"' + $main + '","repository":"https://example.invalid/dsh-minato-bridge.git","dsh":{"bundle":{"patch":"./cordis.patch.yml"}}}'
     [System.IO.File]::WriteAllText((Join-Path $pkg 'package.json'), $json, (New-Object System.Text.UTF8Encoding($false)))
     Copy-Item -LiteralPath (Join-Path $bundled 'index.js') -Destination (Join-Path $code 'index.js') -Force
     [System.IO.File]::WriteAllText((Join-Path $code 'snapshot.js'), $snapshotText, (New-Object System.Text.UTF8Encoding($false)))
@@ -207,7 +210,7 @@ Write-Plugin (New-Profile 'ahead')   '9.9.9' 'root'   $bsnap                    
 $objProf = New-Profile 'objrepo'
 $objPkg = Join-Path $objProf 'node_modules\probe-objrepo'
 New-Item -ItemType Directory -Path $objPkg -Force | Out-Null
-$objJson = '{"name":"probe-objrepo","version":"1.0.0","repository":{"type":"git","url":"https://example.invalid/probe-objrepo.git","directory":"plugin/probe-objrepo"}}'
+$objJson = '{"name":"probe-objrepo","version":"1.0.0","dsh":{"bundle":{}},"repository":{"type":"git","url":"https://example.invalid/probe-objrepo.git","directory":"plugin/probe-objrepo"}}'
 [System.IO.File]::WriteAllText((Join-Path $objPkg 'package.json'), $objJson, (New-Object System.Text.UTF8Encoding($false)))
 [void](New-Profile 'none')                                                                    # real profile, plugin not installed
 New-Item -ItemType Directory -Path (Join-Path $root 'profiles\junkdir') -Force | Out-Null     # not a profile (no marker files)
@@ -350,8 +353,79 @@ Check 'About page still gives the full path of the bundled baseline (exe dir + p
 Check 'About page still says the desktop profile is managed by the desktop app and cannot be installed from the command line' `
     ($explain.Contains($zhDesktopWord) -and $explain.Contains($zhCliNoInstall)) 'About text lost the desktop-managed wording'
 
+# ---- D. plugin enumeration (2026-10-26) ----
+# The old scan only looked at first-level directories (every @scope/package was invisible), accepted any
+# readable package.json (zod and other plain dependencies were printed as plugins), and silently skipped
+# entries whose manifest could not be read. This fixture pins the fixed behaviour end to end:
+#   * @scope/package is found (scope expanded exactly one level)
+#   * a plugin can qualify by dsh.bundle / dsh.client, by profile package.json dependencies, or by an
+#     exact reference in cordis.patch.yml (a substring such as `codex` inside `@deepseek-ai/dsh-subagent-codex`
+#     must NOT qualify)
+#   * .bin / .pnpm / dot-directories are skipped (not counted as unreadable)
+#   * unreadable manifests are counted separately (never silently dropped)
+#   * filtered entries are counted separately (never silently dropped)
+Write-Host ''
+Write-Host '== D. plugin enumeration: scope expansion + eligibility + unreadable/filtered counts =='
+$scanRoot = Join-Path $env:TEMP ('dsht_plugin_scan_' + $PID)
+if (Test-Path -LiteralPath $scanRoot) { Remove-Item -LiteralPath $scanRoot -Recurse -Force }
+$scanProf = Join-Path $scanRoot 'profiles\scan'
+$scanNm = Join-Path $scanProf 'node_modules'
+New-Item -ItemType Directory -Path $scanNm -Force | Out-Null
+$scanUtf8 = New-Object System.Text.UTF8Encoding($false)
+function Write-ScanFile([string]$path, [string]$text) {
+    $dir = Split-Path -Parent $path
+    New-Item -ItemType Directory -Path $dir -Force | Out-Null
+    [System.IO.File]::WriteAllText($path, $text, $scanUtf8)
+}
+# profile: plain-dep is a declared dependency (criterion 2), even though its manifest has no dsh field.
+Write-ScanFile (Join-Path $scanProf 'package.json') '{"name":"dsh-profile-scan","private":true,"dependencies":{"plain-dep":"1.0.0"},"dsh":{"profile":{"bundles":[]}}}'
+Write-ScanFile (Join-Path $scanProf 'cordis.patch.yml') "insert:`n  - id: config-ref`n    name: 'config-ref'`n  - id: subagent-codex`n    name: '@deepseek-ai/dsh-subagent-codex'`n"
+# 1) scope package declaring dsh.bundle -> reported (old scan never looked inside @scope)
+Write-ScanFile (Join-Path $scanNm '@scope\declared\package.json') '{"name":"@scope/declared","version":"1.0.0","repository":"https://example.invalid/declared.git","dsh":{"bundle":{"patch":"./cordis.patch.yml"}}}'
+# 2) plain dependency, NO dsh declaration -> plugin via profile dependencies
+Write-ScanFile (Join-Path $scanNm 'plain-dep\package.json') '{"name":"plain-dep","version":"1.0.0","repository":"https://example.invalid/plain-dep.git"}'
+# 3) config-referenced, NO dsh and NOT in dependencies -> plugin via cordis.patch.yml
+Write-ScanFile (Join-Path $scanNm 'config-ref\package.json') '{"name":"config-ref","version":"1.0.0","repository":"https://example.invalid/config-ref.git"}'
+# 4) pure dependency -> filtered (must never be printed as a plugin)
+Write-ScanFile (Join-Path $scanNm 'pure-dep\package.json') '{"name":"pure-dep","version":"4.4.3","repository":"https://example.invalid/pure-dep.git"}'
+# 5) substring trap: the config mentions @deepseek-ai/dsh-subagent-codex, which must NOT qualify `codex`
+Write-ScanFile (Join-Path $scanNm 'codex\package.json') '{"name":"codex","version":"0.153.4","repository":"https://example.invalid/codex.git"}'
+# 6) unreadable manifest: a package directory with no package.json -> counted, not silently dropped
+New-Item -ItemType Directory -Path (Join-Path $scanNm 'broken-manifest') -Force | Out-Null
+# 7) managed/hidden directories: skipped entirely (if scanned they would inflate the unreadable count)
+New-Item -ItemType Directory -Path (Join-Path $scanNm '.bin') -Force | Out-Null
+New-Item -ItemType Directory -Path (Join-Path $scanNm '.pnpm\x') -Force | Out-Null
+New-Item -ItemType Directory -Path (Join-Path $scanNm '.hidden-managed') -Force | Out-Null
+
+function HasScanItem([string]$out, [string]$id) {
+    return (@(LinesOf $out | Where-Object { $_.Trim().StartsWith('UPDATECENTER_ITEM ' + $id + ' kind=plugin') }).Count -gt 0)
+}
+function ScanItems([string]$out) {
+    return @(LinesOf $out | Where-Object { $_.Trim() -match '^UPDATECENTER_ITEM plugin:' } | ForEach-Object { $_.Trim() })
+}
+$outD = RunCli $cli $scanRoot
+$scanItems = @(ScanItems $outD)
+$filteredLine = @(LinesOf $outD | Where-Object { $_.Trim() -eq 'UPDATECENTER_NOTE plugins-filtered n=2' })
+$unreadableLine = @(LinesOf $outD | Where-Object { $_.Trim() -eq 'UPDATECENTER_NOTE plugins-unreadable n=1' })
+Check 'D1 @scope/declared is reported (scope expanded one level)' `
+    (HasScanItem $outD 'plugin:@scope/declared') ($scanItems -join ' | ')
+Check 'D2 plain-dep (no dsh) is reported via profile package.json dependencies' `
+    (HasScanItem $outD 'plugin:plain-dep') ($scanItems -join ' | ')
+Check 'D3 config-ref (no dsh, not a dependency) is reported via cordis.patch.yml' `
+    (HasScanItem $outD 'plugin:config-ref') ($scanItems -join ' | ')
+Check 'D4 pure-dep is NOT printed as a plugin' `
+    (-not (HasScanItem $outD 'plugin:pure-dep')) ($scanItems -join ' | ')
+Check 'D5 codex is NOT qualified by the substring inside @deepseek-ai/dsh-subagent-codex' `
+    (-not (HasScanItem $outD 'plugin:codex')) ($scanItems -join ' | ')
+Check 'D6 filtered summary is exactly n=2 (pure-dep + codex)' `
+    ($filteredLine.Count -eq 1) (($filteredLine -join ' | ') + ' / items=' + ($scanItems -join ','))
+Check 'D7 unreadable summary is exactly n=1 (broken-manifest; .bin/.pnpm/.hidden are skipped, not counted)' `
+    ($unreadableLine.Count -eq 1) (($unreadableLine -join ' | '))
+Check 'D8 every item row still uses kind=plugin and the unchanged ITEM field names' `
+    (@($scanItems | Where-Object { $_ -notmatch ' kind=plugin ' }).Count -eq 0) ($scanItems -join ' | ')
+
 if (-not $Keep) {
-    foreach ($d in @($root, $bare)) { Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
+    foreach ($d in @($root, $bare, $scanRoot)) { Remove-Item -LiteralPath $d -Recurse -Force -ErrorAction SilentlyContinue }
 }
 Write-Host ''
 Write-Host ('== plugin update baseline: ' + $pass + '/' + ($pass + $fail) + ' passed, ' + $fail + ' failed ==')

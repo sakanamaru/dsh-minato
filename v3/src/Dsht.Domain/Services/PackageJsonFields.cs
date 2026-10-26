@@ -41,6 +41,66 @@ namespace Dsht.Domain.Services
             return StringValueOf(packageJson, "version") ?? "";
         }
 
+        /// <summary>任意键后面的**原始值片段**（JSON 形态的公开入口 ✓）：
+        /// 字符串 → 字符串内容 ✓；对象 → `{` 到配对 `}` 的原文 ✓；其它 / 缺失 → null ✓（不猜 ✗）。
+        /// ★ 2026-10-26 插件资格判定要读 `dsh` 对象本身（再由 `ObjectHasKey` 看它有没有 bundle/client 顶层键），
+        ///   复用的仍是**同一份**取值/配对扫描 ✓（✗ 不在调用方再写一份解析 ✗）。</summary>
+        public static string RawField(string packageJson, string key)
+        {
+            return RawValueAt(packageJson, key);
+        }
+
+        /// <summary>对象**顶层**是否含某个键（键名精确匹配 ✓；嵌套对象里的同名键**不算** ✓）。
+        /// 用途：`dependencies` 的键集合、`dsh` 对象里的 `bundle` / `client` —— 都必须只看**这一层**，
+        /// 否则 `{"dsh":{"note":{"bundle":1}}}` 会被误判成声明了 dsh.bundle ✗。
+        /// 输入不是对象 / 读不到 → false ✓（不猜 ✗ 不抛 ✗）。</summary>
+        public static bool ObjectHasKey(string jsonObject, string key)
+        {
+            if (string.IsNullOrEmpty(jsonObject) || string.IsNullOrEmpty(key)) return false;
+            int start = 0;
+            while (start < jsonObject.Length && IsJsonSpace(jsonObject[start])) start++;
+            if (start >= jsonObject.Length || jsonObject[start] != '{') return false;
+            bool inStr = false;
+            int depth = 0;
+            for (int i = start; i < jsonObject.Length; i++)
+            {
+                char ch = jsonObject[i];
+                if (inStr)
+                {
+                    if (ch == '\\') { i++; continue; }
+                    if (ch == '"') inStr = false;
+                    continue;
+                }
+                if (ch == '"')
+                {
+                    if (depth == 1)
+                    {
+                        int end;
+                        string s = ReadStringAt(jsonObject, i, out end);
+                        if (s != null)
+                        {
+                            int c = end + 1;
+                            while (c < jsonObject.Length && IsJsonSpace(jsonObject[c])) c++;
+                            // 顶层字符串后面跟 `:` → 它是**键** ✓；否则是值 → 只跳过（不能把值当键 ✗）
+                            if (c < jsonObject.Length && jsonObject[c] == ':' && string.Equals(s, key, StringComparison.Ordinal))
+                                return true;
+                            i = end;   // 跳过整个字符串，避免值里的 `{` / `}` / 引号干扰结构扫描 ✓
+                            continue;
+                        }
+                    }
+                    inStr = true;
+                    continue;
+                }
+                if (ch == '{') depth++;
+                else if (ch == '}')
+                {
+                    depth--;
+                    if (depth == 0) break;
+                }
+            }
+            return false;
+        }
+
         /// <summary>某个键后面的**原始值片段**：字符串 → 字符串内容 ✓；对象 → `{` 到**配对的** `}` 的原文 ✓；
         /// 其它（数字 / 布尔 / null / 数组）/ 找不到 → null ✓（不猜 ✗）。
         /// 键名必须**整词**匹配（前一个非空白字符是 `{` 或 `,` ✓）→ `repositoryUrl` 不会被当成 `repository` ✓。</summary>
@@ -110,6 +170,15 @@ namespace Dsht.Domain.Services
         /// 找不到收尾引号 → null ✓（不编 ✗）。</summary>
         private static string StringValueAt(string json, int q1)
         {
+            int end;
+            return ReadStringAt(json, q1, out end);
+        }
+
+        /// <summary>读 `json[q1]`（必须是开引号 ✓）起始的 JSON 字符串，并给出**收尾引号**的下标 ✓。
+        /// 内容按 JSON 转义还原（`\"` `\\` `\uXXXX` ✓）；找不到收尾引号 → null（`end` 原样）✓ 不编 ✗。</summary>
+        private static string ReadStringAt(string json, int q1, out int end)
+        {
+            end = q1;
             if (json == null || q1 < 0 || q1 >= json.Length || json[q1] != '"') return null;
             StringBuilder sb = new StringBuilder();
             for (int i = q1 + 1; i < json.Length; i++)
@@ -134,7 +203,7 @@ namespace Dsht.Domain.Services
                     else sb.Append(e);   // `\"` / `\\` / `\/` 等 → 字面字符 ✓
                     continue;
                 }
-                if (ch == '"') return sb.ToString();
+                if (ch == '"') { end = i; return sb.ToString(); }
                 sb.Append(ch);
             }
             return null;

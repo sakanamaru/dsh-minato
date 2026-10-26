@@ -480,6 +480,16 @@ namespace Dsht.Gui.LogicTests
                 && UpdateDiagnosis.VersionText("plugin", "unknown", "unknown", "0.2.0").Contains("工具箱自带基准")
                 && !UpdateDiagnosis.VersionText("plugin", "unknown", "unknown", "0.2.0").Contains("最新")
                 && !UpdateDiagnosis.VersionText("plugin", "unknown", "unknown", "0.2.0").Contains("CLI 不提供"));
+            // ★★★ 2026-10-26：用户报「离线时已装版本缺 v」——源码核对后确认两条路径**都**走 TagOf/DisplayVersion
+            //   （VersionMarkers.cs:35 DisplayVersion / :42 TagOf 纯委托；VersionText 的 head 无条件拼「已装 」+ TagOf）。
+            //   这条断言把「latest 已知 / unknown 两态」都钉住：**只要 installed 是实读值，就一定是 vX.Y.Z** ✓
+            //   （历史截图来自旧二进制 ✓ 不是现行源码的分支差异 ✓）
+            Check("诊断·★`latest` 已知 / unknown 两态都显示「已装 vX.Y.Z」（离线不丢 v ✓）",
+                UpdateDiagnosis.VersionText("plugin", "up-to-date", "0.2.0", "0.1.0").StartsWith("已装 v0.1.0")
+                && UpdateDiagnosis.VersionText("plugin", "unknown", "unknown", "0.1.0").StartsWith("已装 v0.1.0")
+                && UpdateDiagnosis.VersionText("webui", "update-available", "3.3.0", "3.2.0").StartsWith("已装 v3.2.0")
+                && UpdateDiagnosis.VersionText("webui", "unknown", "unknown", "3.2.0").StartsWith("已装 v3.2.0")
+                && UpdateCenterMarkers.CellInstalled(new UpdateCenterMarkers.Item { Installed = "3.2.0" }) == "v3.2.0");
             Check("诊断·插件行**贴 CLI 的 DIAG 原文**（工具箱自带的一份缺 plugin 目录（源码构建常见）✓ 按 id 前缀取 ✓ 第一条 ✓ ✗ 不编 ✗）",
                 UpdateDiagnosis.HintText("plugin", "unknown", "unknown", "0.1.0",
                     "UPDATECENTER_ITEM plugin:dsh-minato-bridge kind=plugin installed=0.1.0 latest=unknown state=unknown profile=desktop\nUPDATECENTER_DIAG plugin:dsh-minato-bridge 工具箱自带的一份缺 plugin 目录（源码构建常见）：C:\\x\\plugin\\dsh-minato-bridge\n")
@@ -665,6 +675,26 @@ namespace Dsht.Gui.LogicTests
             Check("更新页·★真机那一行逐字复现：`UPDATECENTER_ITEM webui`（NOT 长文的续行）**必须**被跳过 ✓ 而真 ITEM 行（带 kind=）仍照收 ✓",
                 UpdateCenterMarkers.Parse("UPDATECENTER_ITEM webui\nUPDATECENTER_ITEM plugin:x kind=plugin state=up-to-date installed=1 latest=1 profile=a\n").Count == 1
                 && UpdateCenterMarkers.Parse("UPDATECENTER_ITEM webui").Count == 0);
+            // ★★★ 2026-10-26：插件枚举的**过滤/读失败汇总**（CLI：UPDATECENTER_NOTE plugins-filtered / -unreadable）。
+            //   这两条 NOTE 没有对应 ITEM（被过滤/读不到的包不该变成插件条目）→ 由独立纯函数取；
+            //   GUI 更新页必须显示它，否则"被过滤掉的"就从界面上静默消失了 ✗。
+            string scanRaw =
+                "UPDATECENTER_ITEM webui kind=webui installed=3.2.0 latest=unknown state=unknown\n" +
+                "UPDATECENTER_NOTE plugins-filtered n=2\n" +
+                "UPDATECENTER_NOTE plugins-unreadable n=1\n";
+            UpdateCenterMarkers.PluginScanSummary scanSum = UpdateCenterMarkers.PluginScanOf(scanRaw);
+            Check("更新页·插件扫描汇总：两条 NOTE 解析成计数（filtered=2 / unreadable=1 ✓）",
+                scanSum != null && scanSum.Filtered == 2 && scanSum.Unreadable == 1);
+            Check("更新页·插件扫描汇总：文案里两个计数都在（✗ 不吞成「未知」✗ 也不编 0 ✗）",
+                UpdateCenterMarkers.PluginScanText(scanSum).Contains("2")
+                && UpdateCenterMarkers.PluginScanText(scanSum).Contains("1")
+                && UpdateCenterMarkers.PluginScanText(scanSum).Contains("过滤")
+                && UpdateCenterMarkers.PluginScanText(scanSum).Contains("读不到"));
+            Check("更新页·插件扫描汇总：缺行 / 畸形 / 空原文 → -1（不编计数 ✓ 空文案 ✓）",
+                UpdateCenterMarkers.PluginScanOf("UPDATECENTER_NOTE plugins-filtered n=2").Unreadable == -1
+                && UpdateCenterMarkers.PluginScanOf("UPDATECENTER_NOTE plugins-filtered n=abc").Filtered == -1
+                && UpdateCenterMarkers.PluginScanOf("").Filtered == -1
+                && UpdateCenterMarkers.PluginScanText(UpdateCenterMarkers.PluginScanOf("")) == "");
 
             // ============ 成本面板 v3.2（2026-10-16 ✓✓ 规格 §3 + §3.1 ✓✓）：COST_* 解析 + 展示文案 ============
             // 契约形状（Lead 冻结 ✓）：一个进程吐**两块** —— scope=today（含 COST_BUDGET）+ scope=window（含 COST_SESSION）

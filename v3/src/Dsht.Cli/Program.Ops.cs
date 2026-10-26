@@ -175,6 +175,11 @@ namespace Dsht.Cli
                 //   · 每行**特有的修复指引**改随该行发：`… state=<态> profile=<名> next=<指引>` ✓
                 //     （老解析器遇到不认识的 key=value 会跳过 ✓ 新 GUI 按 **id 归组**取它 ✓）
                 bool bridgeSharedSent = false;
+                // ★★★ 2026-10-26：插件枚举的**两个必须可见的汇总**（✗ 都不许静默丢 ✗）
+                //   · plugins-filtered   = 读过 manifest、按资格判定**不是插件**的条目数 ✓
+                //   · plugins-unreadable = manifest 不存在 / 读失败 / 空的条目数 ✓（真插件可能就在里面 ✓）
+                //   汇总**不进 UPDATECENTER_ITEM** ✗、不占 UPDATECENTER_OK 的计数 ✓（OK 仍是"报出来的组件数" ✓）
+                int pluginsFiltered = 0, pluginsUnreadable = 0;
                 if (System.IO.Directory.Exists(profiles))
                 {
                     string[] profDirs = System.IO.Directory.GetDirectories(profiles);
@@ -187,16 +192,43 @@ namespace Dsht.Cli
                         string nm = System.IO.Path.Combine(profDirs[i], "node_modules");
                         // ★ 桥接插件那一行**单独算** ✓；其余插件**逐字保持不变** ✓（既有行不动 ✓）
                         bool bridgeDone = false;
-                        string[] pkgs = System.IO.Directory.Exists(nm) ? System.IO.Directory.GetDirectories(nm) : new string[0];
-                        for (int k = 0; k < pkgs.Length; k++)
+                        // ★★★ 2026-10-26：**展开 @scope/包** + 跳过管理目录（.bin / .pnpm / 隐藏目录 ✓）
+                        //   旧写法只扫 node_modules 一级目录 ✗ → @local/dsh-shiogiri-seats 整条漏报 ✗
+                        List<PluginPackageEntry> pkgs = EnumeratePluginPackages(nm);
+                        // 资格判定要看的 profile 侧事实（读不到 → 空串 ✓；只影响 ②③ 兜底，不影响 ① ✓）
+                        string profPkgJson = ReadTextBestEffort(System.IO.Path.Combine(profDirs[i], "package.json"));
+                        string profConfigText = ReadProfileConfigText(profDirs[i]);
+                        for (int k = 0; k < pkgs.Count; k++)
                         {
-                            string pj = System.IO.Path.Combine(pkgs[k], "package.json");
-                            if (!System.IO.File.Exists(pj)) continue;
+                            PluginPackageEntry entry = pkgs[k];
+                            string pj = System.IO.Path.Combine(entry.Dir, "package.json");
                             string txt = null;
-                            try { txt = System.IO.File.ReadAllText(pj); } catch { }
-                            if (string.IsNullOrEmpty(txt)) continue;
-                            string name = JsonStr(txt, "name");
+                            bool readable = false;
+                            try
+                            {
+                                if (System.IO.File.Exists(pj)) { txt = System.IO.File.ReadAllText(pj); readable = !string.IsNullOrEmpty(txt); }
+                            }
+                            catch { readable = false; }
+                            string name = readable ? JsonStr(txt, "name") : "";
+                            if (string.IsNullOrEmpty(name)) name = entry.Name;
+                            if (!readable)
+                            {
+                                // ★ 读不到 manifest = **真插件可能被漏掉** ✓ → 单独计数 ✓（✗ 静默 continue ✗）
+                                pluginsUnreadable++;
+                                // 目录名就是桥接插件 → 不能反手报「未安装」✗（那是在编事实 ✗）
+                                if (entry.Name == "dsh-minato-bridge") bridgeDone = true;
+                                continue;
+                            }
                             string ver = JsonStr(txt, "version");
+                            // ★ 三选一资格：dsh.bundle/client · profile dependencies · 配置明确引用 ✓
+                            Dsht.Domain.Services.PluginEntryKind kind =
+                                Dsht.Domain.Services.PluginEligibility.Classify(name, true, txt, profPkgJson, profConfigText);
+                            if (kind != Dsht.Domain.Services.PluginEntryKind.Plugin)
+                            {
+                                // ★ 被过滤掉的也要可见 ✓（纯依赖 zod 之类 ✗ 不再当插件输出 ✓）
+                                pluginsFiltered++;
+                                continue;
+                            }
                             // ★★★ 2026-10-13 URL 取值修复：`repository` 是**对象**（npm 官方写法之一 ✓
                             //   `{"type":"git","url":"https://…","directory":"…"}` ✓）时，原来直接调
                             //   `JsonStr(txt, "repository")` → 它取「键后第一个引号串」→ 拿到的是对象里的
@@ -206,7 +238,7 @@ namespace Dsht.Cli
                             //     单测（GUI LogicTests ✓ 契约测试）与设备端到端（verify_plugin_update_baseline ✓）各钉一遍 ✓
                             //     ✗ 不在这里再写第二份解析 ✗（两份就会有两个答案 —— 这个 bug 正是这么来的 ✓）
                             string repo = Dsht.Domain.Services.PackageJsonFields.RepoUrl(txt);
-                            if (string.IsNullOrEmpty(name)) name = System.IO.Path.GetFileName(pkgs[k]);
+                            if (string.IsNullOrEmpty(name)) name = entry.Name;
                             if (string.IsNullOrEmpty(ver)) ver = "unknown";
                             string pid = "plugin:" + name;
                             ids.Add(pid);
@@ -220,7 +252,7 @@ namespace Dsht.Cli
                                 //   本仓库的门槛 `compare_markers.ps1` 用 **.NET Framework 4.x 的 csc** 编译 CLI ✓
                                 //   那个编译器不认识内联 out 声明（C# 7 ✓）→ 会以「V3 编译失败」整条红掉 ✓
                                 string bwhy = null;
-                                string bstate = BridgeStateOf(ver, CodeDirOf(pkgs[k], txt), bbl, out bwhy);
+                                string bstate = BridgeStateOf(ver, CodeDirOf(entry.Dir, txt), bbl, out bwhy);
                                 string bnext = NextOf(profName, bstate, ver, bbl, bwhy);
                                 // 共用两行（URL + 长说明）**只随第一行发一次** ✓（同一个 id ✓ 同一个地址 ✓）
                                 if (!bridgeSharedSent)
@@ -264,6 +296,11 @@ namespace Dsht.Cli
                             AddPart(lines, emit, BridgeRow(profName, "", nostate, NextOf(profName, nostate, "", bbl, nowhy), bbl, nowhy));
                         }
                     }
+                    // ★★★ 2026-10-26：**扫描汇总**（跨 profile 合计 ✓）—— 被过滤的 / 读不到的**都可见** ✓
+                    //   · 只有 NOTE、没有 ITEM ✓（它们不是"已安装插件" ✗ 不能混进列表 ✗）
+                    //   · 不进 `UPDATECENTER_OK <n>` ✓（那一行仍是"报出来的组件数" ✓ 语义不变 ✓）
+                    AppendUpdateCenterNote(lines, emit, "plugins-filtered", "n=" + pluginsFiltered);
+                    AppendUpdateCenterNote(lines, emit, "plugins-unreadable", "n=" + pluginsUnreadable);
                 }
             }
             catch { }
@@ -640,6 +677,104 @@ namespace Dsht.Cli
             }
             catch { }
             return false;
+        }
+
+        // ================================================================ 插件枚举（2026-10-26 ✓）
+        // 真机缺陷：旧代码只扫 `node_modules` 的**一级目录** ✗ → `@scope/包` 整条漏报 ✗；
+        //   而且只要 package.json 存在就算插件 ✗（纯依赖 zod 也被输出 ✗）、读不到 manifest 静默跳过 ✗。
+        // 现在：
+        //   · 一级目录 + `@scope/包` 两层 ✓（scope 只展开一层 ✓）
+        //   · 跳过 `.bin` / `.pnpm` / 任何点开头的管理目录 ✓（以及名为 node_modules 的怪目录 ✓）
+        //   · 资格判定交给 Domain 的 PluginEligibility（纯函数 ✓ 三选一 ✓）
+        //   · 读不到 manifest 的条目 → 调用方计 `plugins-unreadable` ✓；被过滤的 → `plugins-filtered` ✓
+        //   · 目录名（含 scope 前缀 ✓）在 manifest 缺 name 时兜底 ✓（✗ 不丢 scope 段 ✗）
+
+        /// <summary>一个待判定的 node_modules 包条目：真实目录 + 展示/兜底用的包名 ✓。</summary>
+        private sealed class PluginPackageEntry
+        {
+            public string Dir = "";
+            public string Name = "";
+        }
+
+        /// <summary>枚举 node_modules 下的包条目（一级 + `@scope/包` 一层 ✓）。
+        /// 读不到目录 → 空表 ✓（不抛 ✗）；排序固定 ✓（顺序可复现 ✓）。</summary>
+        private static List<PluginPackageEntry> EnumeratePluginPackages(string nodeModules)
+        {
+            List<PluginPackageEntry> list = new List<PluginPackageEntry>();
+            string[] tops;
+            try
+            {
+                if (!System.IO.Directory.Exists(nodeModules)) return list;
+                tops = System.IO.Directory.GetDirectories(nodeModules);
+            }
+            catch { return list; }
+            System.Array.Sort(tops, StringComparer.Ordinal);
+            for (int i = 0; i < tops.Length; i++)
+            {
+                string dir = tops[i];
+                string name = System.IO.Path.GetFileName(dir);
+                if (string.IsNullOrEmpty(name) || name[0] == '.') continue;   // .bin / .pnpm / 隐藏目录 ✓
+                if (string.Equals(name, "node_modules", StringComparison.OrdinalIgnoreCase)) continue;
+                if (name[0] == '@')
+                {
+                    string[] subs;
+                    try { subs = System.IO.Directory.GetDirectories(dir); } catch { continue; }
+                    System.Array.Sort(subs, StringComparer.Ordinal);
+                    for (int k = 0; k < subs.Length; k++)
+                    {
+                        string sub = System.IO.Path.GetFileName(subs[k]);
+                        if (string.IsNullOrEmpty(sub) || sub[0] == '.') continue;
+                        list.Add(new PluginPackageEntry { Dir = subs[k], Name = name + "/" + sub });
+                    }
+                    // scope 目录本身带 package.json（少见但合法）→ 也算一个条目 ✓
+                    try
+                    {
+                        if (System.IO.File.Exists(System.IO.Path.Combine(dir, "package.json")))
+                            list.Add(new PluginPackageEntry { Dir = dir, Name = name });
+                    }
+                    catch { }
+                    continue;
+                }
+                list.Add(new PluginPackageEntry { Dir = dir, Name = name });
+            }
+            return list;
+        }
+
+        /// <summary>读文本；文件不在 / 读失败 → 空串 ✓（不抛 ✗ 不编 ✗）。</summary>
+        private static string ReadTextBestEffort(string path)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(path) || !System.IO.File.Exists(path)) return "";
+                return System.IO.File.ReadAllText(path);
+            }
+            catch { return ""; }
+        }
+
+        /// <summary>profile 侧配置文本（资格判定 ③ 用 ✓）：`cordis.patch.yml` / `cordis.yml` /
+        /// `settings.yaml|yml` 逐个尽力读 ✓（读不到就当没有 ✓ 不因此把真插件误判成非插件 ——
+        /// 还有 ① 声明与 ② dependencies 两条兜底 ✓）。只读 ✓ 不写 ✓。</summary>
+        private static string ReadProfileConfigText(string profileDir)
+        {
+            string[] names = new string[] { "cordis.patch.yml", "cordis.yml", "settings.yaml", "settings.yml" };
+            System.Text.StringBuilder sb = new System.Text.StringBuilder();
+            for (int i = 0; i < names.Length; i++)
+            {
+                string t = ReadTextBestEffort(System.IO.Path.Combine(profileDir, names[i]));
+                if (t.Length == 0) continue;
+                sb.Append('\n');
+                sb.Append(t);
+            }
+            return sb.ToString();
+        }
+
+        /// <summary>追加一条 `UPDATECENTER_NOTE <id> <值>`（流式时同步发射 ✓）。
+        /// 用于**没有 ITEM 对应**的扫描汇总 ✓（GUI 用 `UpdateCenterMarkers.PluginScanOf` 读它 ✓）。</summary>
+        private static void AppendUpdateCenterNote(List<string> lines, System.Action<string> emit, string id, string value)
+        {
+            string line = "UPDATECENTER_NOTE " + id + " " + value;
+            lines.Add(line);
+            if (emit != null) emit(line);
         }
 
         private static int UpdateInfo(ServiceRegistry reg)

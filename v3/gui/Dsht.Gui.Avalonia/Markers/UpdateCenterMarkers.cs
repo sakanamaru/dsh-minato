@@ -35,7 +35,73 @@ namespace Dsht.Gui.Avalonia.Markers
             public List<string> Logs = new List<string>();
         }
 
-        /// <summary>`%20` → 空格（CLI `EncodeNext` 的逆 ✓ **只还原这一个字符** ✓）。
+        /// <summary>插件枚举的**扫描汇总**（2026-10-26 ✓ 对应 CLI 的两条没有 ITEM 的 NOTE：
+        /// `UPDATECENTER_NOTE plugins-filtered n=N` / `… plugins-unreadable n=N`）。
+        /// 为什么单独一个类型：被过滤 / 读不到的条目**不是已安装插件** ✗（不能混进 ITEM 列表 ✗），
+        ///   但**不许静默消失** ✓ → 更新页单独显示一行汇总 ✓。
+        /// 缺哪条就留 -1 ✓（✗ 不替 CLI 编 0 ✗）。</summary>
+        public sealed class PluginScanSummary
+        {
+            public int Filtered = -1;
+            public int Unreadable = -1;
+        }
+
+        /// <summary>从整段原文里取插件扫描汇总（纯函数 ✓ 认不出 / 缺行 → -1 ✓ 不猜 ✗ 不抛 ✗）。</summary>
+        public static PluginScanSummary PluginScanOf(string raw)
+        {
+            PluginScanSummary s = new PluginScanSummary();
+            if (string.IsNullOrEmpty(raw)) return s;
+            string[] ls = raw.Replace("\r\n", "\n").Split('\n');
+            for (int i = 0; i < ls.Length; i++)
+            {
+                string t = ls[i] == null ? "" : ls[i].Trim();
+                if (t.StartsWith("UPDATECENTER_NOTE plugins-filtered ", StringComparison.Ordinal))
+                {
+                    int n;
+                    if (TryCountOf(t.Substring("UPDATECENTER_NOTE plugins-filtered ".Length), out n)) s.Filtered = n;
+                    continue;
+                }
+                if (t.StartsWith("UPDATECENTER_NOTE plugins-unreadable ", StringComparison.Ordinal))
+                {
+                    int n;
+                    if (TryCountOf(t.Substring("UPDATECENTER_NOTE plugins-unreadable ".Length), out n)) s.Unreadable = n;
+                    continue;
+                }
+            }
+            return s;
+        }
+
+        /// <summary>扫描汇总的**显示文案**（短句 ✓）；两条都没有 → 空串 ✓（✗ 不占位 ✗）。</summary>
+        public static string PluginScanText(PluginScanSummary s)
+        {
+            if (s == null) return "";
+            if (s.Filtered < 0 && s.Unreadable < 0) return "";
+            List<string> parts = new List<string>();
+            if (s.Filtered >= 0)
+                parts.Add("过滤掉 " + s.Filtered + " 个未声明 dsh、也不在 profile 依赖/配置里的包（纯依赖等）");
+            if (s.Unreadable >= 0)
+                parts.Add(s.Unreadable + " 个包的 package.json 读不到（已单独计数，未混进插件列表）");
+            return "插件扫描：" + string.Join(" · ", parts.ToArray());
+        }
+
+        /// <summary>取 `n=<非负整数>`（逐 token 找 ✓ 后面多别的字段也不影响 ✓）；找不到 / 畸形 → false ✓。</summary>
+        private static bool TryCountOf(string rest, out int n)
+        {
+            n = -1;
+            if (string.IsNullOrEmpty(rest)) return false;
+            string[] ps = rest.Split(' ');
+            for (int i = 0; i < ps.Length; i++)
+            {
+                if (!ps[i].StartsWith("n=", StringComparison.Ordinal)) continue;
+                int v;
+                if (int.TryParse(ps[i].Substring(2), System.Globalization.NumberStyles.None,
+                        System.Globalization.CultureInfo.InvariantCulture, out v)) { n = v; return true; }
+                return false;
+            }
+            return false;
+        }
+
+        /// <summary>`%20` → 空格（CLI `EncodeNext` 的逆 ✓ **只还原这一个字符** ✓）。</summary>
         /// 没有 `%20` → 原样返回 ✓；空 / `-` → 空串 ✓（CLI 用 `-` 表示"这一行没有额外指引" ✓ **不是**一句文案 ✗）。</summary>
         public static string DecodeNext(string s)
         {
