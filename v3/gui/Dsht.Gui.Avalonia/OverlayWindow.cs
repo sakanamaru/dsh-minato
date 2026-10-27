@@ -102,7 +102,13 @@ namespace Dsht.Gui.Avalonia
             //   后果：按"请求尺寸"算右贴边 ⇒ 窗口**有 11 px 探到屏幕外** ✗（违反提案 §4「不许跑到屏幕外」✗）。
             //   ⇒ 修法：定位一律用**实际尺寸**（`Bounds`/`ClientSize` ✓ 平台抬过之后的值 ✓），
             //     并在 `Opened`（平台尺寸已定）与 `SizeChanged` 后各重算一次 ✓ —— 只动定位 ✗ 不动判定 ✗。
-            Opened += delegate { ApplyPosition(); ApplyRegion(); };
+            Opened += delegate
+            {
+                ApplyPosition();
+                ApplyRegion();
+                // ★ 一次性淡入 + 轻微位移（≤200ms ✓ 只播一次 ✗ 不循环 ✗）；减少动效 ⇒ 瞬变 ✓
+                try { DesignTokens.EdgeLampSpec one = EdgeSpec(); StatusLight.FadeIn(_lamp, one.FadeDy); } catch { }
+            };
             SizeChanged += delegate { ApplyPosition(); ApplyRegion(); };
             // ★ 关键：`Opened` / `SizeChanged` 都在**布局跑完之前**触发 ⇒ 那一拍 `_lamp.Bounds` 还是 0,0,0,0
             //   （实测：DBG bounds=0, 0, 0, 0 ✗）⇒ 必须**布局跑完再裁一次** ✓
@@ -176,12 +182,38 @@ namespace Dsht.Gui.Avalonia
         /// 灯色 → 语义色走 <see cref="OverlayLight.SemanticOf"/>（纯判定 ✓）；色值 / 透明度 / 尺寸 / 光晕
         /// 全部来自 <see cref="DesignTokens"/> ✓（✗ 本文件里没有 hex、没有 `Color.FromArgb`、没有命名颜色 ✗ 断言盯着 ✓）。
         /// <para>灯色变了（每拍刷新）/ 风格变了（A/B/C/D）/ 档位变了（`overlay_scale`）⇒ 重画一次 ✓
-        /// （幂等 ✓ 不重算判定 ✓ —— 判定结果就是 <see cref="_lampColor"/> 本身 ✓）。</para></summary>
+        /// （幂等 ✓ 不重算判定 ✓ —— 判定结果就是 <see cref="_lampColor"/> 本身 ✓）。</para>
+        /// <para>★ 三款画法（极简细条 / 圆点轻环 / 双端点胶囊）都走 <see cref="StatusLight.Create"/> 的
+        /// 同一个重载 ✓ 几何与透明度由 <see cref="DesignTokens.EdgeLampOf"/> 给 ✓（✗ 本文件不自造 ✗）。</para></summary>
         private void ApplyLampLight()
         {
             if (_lamp == null) return;
-            _lamp.Child = StatusLight.Create(OverlayLight.SemanticOf(_lampColor), Palette.StyleKind,
-                DesignTokens.LampDotOf(DesignTokens.LampThicknessOf(_scale)));
+            _lamp.Child = StatusLight.Create(OverlayLight.SemanticOf(_lampColor), Palette.StyleKind, EdgeSpec());
+        }
+
+        /// <summary>当前档位 + 边方向 + 变体下的灯几何（**全部从 token 表算** ✓
+        /// 基础厚度/长度/余量/圆点也由既有 token 给 ✓ ✗ 界面文件里没有自造灯几何 ✗）。</summary>
+        private DesignTokens.EdgeLampSpec EdgeSpec()
+        {
+            double t = DesignTokens.LampThicknessOf(_scale);
+            double l = DesignTokens.LampLengthOf(_scale);
+            double m = DesignTokens.LampMarginOf(_scale);
+            double dot = DesignTokens.LampDotOf(t);
+            bool vert = _edge == "left" || _edge == "right";
+            return DesignTokens.EdgeLampOf(DesignTokens.OverlayLampVariant, vert, t, l, m, dot);
+        }
+
+        /// <summary>灯体卡片的外观（四风格 + 三变体共用；✗ 不变色 ≠ 不改画法 ✗）。
+        /// B 的卡片是正圆（CornerRadius = 半厚），A/C 是胶囊；颜色仍只从 Palette 取 ✓。</summary>
+        private void ApplyLampChrome()
+        {
+            if (_lamp == null) return;
+            DesignTokens.EdgeLampSpec spec = EdgeSpec();
+            _lamp.Background = Palette.CardBg;
+            _lamp.BorderBrush = Palette.BorderStrong;
+            _lamp.BorderThickness = new Thickness(ShapeTokens.Stroke);
+            _lamp.CornerRadius = new CornerRadius(spec.CornerRadius);
+            _lamp.BoxShadow = string.IsNullOrEmpty(Palette.CardShadow) ? default(BoxShadows) : BoxShadows.Parse(Palette.CardShadow);
         }
 
         // ================================================================ 视觉树
@@ -207,6 +239,8 @@ namespace Dsht.Gui.Avalonia
             _lamp.PointerPressed += OnLampPressed;
             _lamp.PointerMoved += OnLampMoved;
             _lamp.PointerReleased += OnLampReleased;
+            // ★ 右键菜单：灯本体与展开面板都能右键 ✓（灯以外的透明区在窗口区域外 ⇒ 本来就收不到右键 ✓）
+            _lamp.ContextMenu = BuildLampMenu();
             root.Children.Add(_lamp);
 
             _panel = new Border
@@ -257,6 +291,7 @@ namespace Dsht.Gui.Avalonia
             col.Children.Add(_foot);
 
             _panel.Child = col;
+            _panel.ContextMenu = BuildLampMenu();
             root.Children.Add(_panel);
             Content = root;
 
@@ -267,6 +302,52 @@ namespace Dsht.Gui.Avalonia
             _collapse.Tick += delegate { _collapse.Stop(); if (!_dragging) Expand(false); };
         }
 
+        // ================================================================ 右键菜单（★ 两档"关"必须分清）
+
+        /// <summary>★ 右键菜单（2026-10-28）：三项 —— 本次隐藏 / 永久关闭 / 打开主窗口。
+        /// <para>· **本次隐藏**：只隐藏窗口，**不写配置**（`overlay_enabled` 不变 ✓）；看板「置顶进度窗」
+        ///   或托盘菜单可再显示 ✓。</para>
+        /// <para>· **永久关闭**：写 `overlay_enabled=false` 落盘 ✓，并明示之后可在设置里重新开启 ✓。</para>
+        /// <para>★ 两档文案来自 <see cref="OverlayMenu"/> 的唯一出处（✗ 不在界面里各写一份 ✗），
+        /// 且靠副标题把"只是藏起来"与"关掉功能"说到一眼能分 ✓。</para></summary>
+        private ContextMenu BuildLampMenu()
+        {
+            ContextMenu menu = new ContextMenu();
+            menu.Items.Add(MenuItemOf(OverlayMenuAction.SessionHide, delegate { _host.HideOverlayForSession(); }));
+            menu.Items.Add(MenuItemOf(OverlayMenuAction.PermanentClose, delegate { _host.CloseOverlayPermanently(); }));
+            menu.Items.Add(new Separator());
+            menu.Items.Add(MenuItemOf(OverlayMenuAction.OpenMain, delegate { _host.ShowMainFromOverlay(); }));
+            return menu;
+        }
+
+        /// <summary>一项菜单 = 主标题 + 一句副标题（副标题是两档不混的关键 ✓）。</summary>
+        private static MenuItem MenuItemOf(OverlayMenuAction action, Action onClick)
+        {
+            StackPanel head = new StackPanel { Spacing = 2 };
+            head.Children.Add(new TextBlock
+            {
+                Text = OverlayMenu.TitleOf(action),
+                FontSize = ShapeTokens.FsBody,
+                FontWeight = FontWeight.SemiBold,
+                Foreground = Palette.Text
+            });
+            string detail = OverlayMenu.DetailOf(action);
+            if (!string.IsNullOrEmpty(detail))
+            {
+                head.Children.Add(new TextBlock
+                {
+                    Text = detail,
+                    FontSize = ShapeTokens.FsFoot,
+                    Foreground = Palette.TextFaint,
+                    TextWrapping = TextWrapping.Wrap
+                });
+            }
+            MenuItem mi = new MenuItem { Header = head };
+            mi.Click += delegate { onClick(); };
+            global::Avalonia.Automation.AutomationProperties.SetName(mi, OverlayMenu.TitleOf(action));
+            return mi;
+        }
+
         // ================================================================ 展开 / 收回
 
         /// <summary>展开 / 收回（`hover=true` 表示由悬停触发 ✓ 收回时**保留**悬停语义 ✓）。</summary>
@@ -275,7 +356,8 @@ namespace Dsht.Gui.Avalonia
             if (_expanded == on) return;
             _expanded = on;
             _panel.IsVisible = on;
-            _lamp.CornerRadius = new CornerRadius(on ? ShapeTokens.RCtrl : ShapeTokens.RPill);
+            if (on) _lamp.CornerRadius = new CornerRadius(ShapeTokens.RCtrl);
+            else ApplyLampChrome();   // 收回 ⇒ 变体自己的圆角（B 正圆 / A·C 胶囊）✓
             ApplySize();
             // ★★ 真机冒烟抓到的第二个坑（2026-10-26 ✗✓）：展开那一刻窗口高度还是构造时的初值
             //   （`_panelHeight = 120`）⇒ 列表被窗口**裁掉**，只剩两行可见 ✗✗
@@ -419,13 +501,14 @@ namespace Dsht.Gui.Avalonia
             {
                 _panel.Width = double.NaN;
                 _panel.Height = double.NaN;
-                double t = DesignTokens.LampThicknessOf(_scale), l = DesignTokens.LampLengthOf(_scale), m = DesignTokens.LampMarginOf(_scale);
-                bool vert = _edge == "left" || _edge == "right";
-                _lamp.Width = vert ? t : l;
-                _lamp.Height = vert ? l : t;
-                ApplyLampLight();   // 档位/边变了 ⇒ 按 token 的圆点直径重画一次（唯一画法 ✓）
-                Width = (vert ? t : l) + 2 * m;
-                Height = (vert ? l : t) + 2 * m;
+                // ★ 几何全部由 token 算（含三款变体）✗ 本文件不出现自造灯尺寸 ✗
+                DesignTokens.EdgeLampSpec spec = EdgeSpec();
+                _lamp.Width = spec.Width;
+                _lamp.Height = spec.Height;
+                ApplyLampChrome();   // 变体/边/档变了 ⇒ 圆角与卡片外观跟着重算 ✓
+                ApplyLampLight();    // 档位/边/变体变了 ⇒ 按 token 重画一次（唯一画法 ✓）
+                Width = spec.Width + 2 * spec.Margin;
+                Height = spec.Height + 2 * spec.Margin;
             }
             ApplyRegion();   // ★ 尺寸/档位/边变了 ⇒ 区域跟着重算（布局跑完那一拍 `SizeChanged` 会再算一次 ✓）
         }
@@ -518,9 +601,8 @@ namespace Dsht.Gui.Avalonia
             Light edge = OverlayLight.EdgeLight(ctx, rows, _memory);
 
             _lampColor = edge.Color;   // ★ 判定结果（✗ 不是色值 ✗）⇒ 下面按它重画一次灯
+            ApplyLampChrome();
             ApplyLampLight();
-            _lamp.BorderBrush = Palette.BorderStrong;
-            _lamp.Background = Palette.CardBg;
             _state.Text = OverlayLight.EdgeSummary(edge);
             _state.Foreground = edge.IsLit ? Palette.Text : Palette.TextFaint;
             _clock.Text = "数据时刻 " + OverlayLight.ClockText(_host.DataAt);
@@ -574,8 +656,7 @@ namespace Dsht.Gui.Avalonia
         {
             try
             {
-                _lamp.Background = Palette.CardBg;
-                _lamp.BorderBrush = Palette.BorderStrong;
+                ApplyLampChrome();   // 变体不同 ⇒ 圆角不同（B 是正圆）✓ 三款都从 Palette 取色 ✓
                 _panel.Background = Palette.CardBg;
                 _panel.BorderBrush = Palette.BorderStrong;
                 _head.Foreground = Palette.Text;

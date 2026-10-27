@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using Dsht.Gui.Avalonia.Markers;
 using Dsht.Gui.Avalonia.Design;
@@ -1810,6 +1810,162 @@ namespace Dsht.Gui.LogicTests
             Check("⑮-5 · 色值口径一致：画法文件里 0 处 `Color.Parse(`（8 位 hex 的 alpha 在前陷阱 ✗ 实测灯环变紫 ✗）·"
                 + " 一律经 DesignTokens.Parse 后按 (A,R,G,B) 组装 ✓ · 8 位 token 的 alpha 恰为 token 常量 ✓",
                 ltFilesFound && ltChannelOk && ltAlphaOk);
+
+            // ========== ⑯ 悬浮窗三项增强（2026-10-28）：右键两档 / 入口闭环 / 灯样式变体 ==========
+            Console.WriteLine();
+            Console.WriteLine("== 悬浮窗：右键两档 / 设置入口闭环 / 三款灯样式 ==");
+
+            // ⑯-1 两档"关"的文案必须一眼分得清（唯一出处 = OverlayMenu）
+            string mnAll = "";
+            for (int ma = 0; ma < OverlayMenu.Actions.Length; ma++)
+            {
+                OverlayMenuAction mact = OverlayMenu.Actions[ma];
+                mnAll += OverlayMenu.TitleOf(mact) + "|" + OverlayMenu.DetailOf(mact) + "|";
+            }
+            mnAll += OverlayMenu.SessionHideToast + "|" + OverlayMenu.PermanentCloseToast + "|"
+                + OverlayMenu.TrayShowTitle + "|" + OverlayMenu.TrayDisabledToast;
+            bool mnTitles = OverlayMenu.Actions.Length == 3
+                && OverlayMenu.TitleOf(OverlayMenuAction.SessionHide) == "本次隐藏"
+                && OverlayMenu.TitleOf(OverlayMenuAction.PermanentClose) == "永久关闭"
+                && OverlayMenu.TitleOf(OverlayMenuAction.OpenMain) == "打开主窗口"
+                && OverlayMenu.TitleOf(OverlayMenuAction.SessionHide) != OverlayMenu.TitleOf(OverlayMenuAction.PermanentClose);
+            bool mnDetails = OverlayMenu.DetailOf(OverlayMenuAction.SessionHide).Contains("不改设置")
+                && OverlayMenu.DetailOf(OverlayMenuAction.SessionHide).Contains("再显示")
+                && OverlayMenu.DetailOf(OverlayMenuAction.PermanentClose).Contains("写入设置")
+                && OverlayMenu.DetailOf(OverlayMenuAction.PermanentClose).Contains("重新开启");
+            Check("⑯-1 · 右键两档文案一眼分得清：「本次隐藏」明说**不改设置**，「永久关闭」明说**写入设置且可再开启**（✗ 两档混用即红）",
+                mnTitles && mnDetails);
+
+            // ⑯-2 "哪一档写盘"是机器判据：本次隐藏 false / 永久关闭 true / 打开主窗口 false
+            bool mnWrites = !OverlayMenu.WritesConfig(OverlayMenuAction.SessionHide)
+                && OverlayMenu.WritesConfig(OverlayMenuAction.PermanentClose)
+                && !OverlayMenu.WritesConfig(OverlayMenuAction.OpenMain)
+                && OverlayMenu.HidesWindow(OverlayMenuAction.SessionHide)
+                && OverlayMenu.HidesWindow(OverlayMenuAction.PermanentClose)
+                && !OverlayMenu.HidesWindow(OverlayMenuAction.OpenMain);
+            Check("⑯-2 · 本次隐藏**不写配置**、永久关闭**写配置**、打开主窗口不碰开关（✗ 把两档对调即红）", mnWrites);
+
+            // ⑯-3 看板按钮三态（关 / 开 / 本次已隐藏）互不相同，且隐藏态点一下是"显示"
+            string btOff = OverlayMenu.ButtonText(false, false);
+            string btOn = OverlayMenu.ButtonText(true, false);
+            string btHide = OverlayMenu.ButtonText(true, true);
+            bool mnButtons = btOff.Contains("关") && btOff.Contains("打开")
+                && btOn.Contains("开") && btOn.Contains("关掉")
+                && btHide.Contains("本次已隐藏") && btHide.Contains("显示")
+                && btOff != btOn && btOn != btHide && btOff != btHide;
+            Check("⑯-3 · 看板按钮三态可读：关 / 开 / 本次已隐藏（点一下显示）✓ 三句互不相同 ✓", mnButtons);
+
+            // ⑯-4 用户可见文案零 ✓/✗ 记号、零施工语气
+            bool mnTone = !OverlayMenu.HasMark(mnAll) && !OverlayMenu.HasBuilderTone(mnAll);
+            Check("⑯-4 · 右键菜单 / 回执 / 托盘文案：零 ✓/✗ 记号、零施工语气（✗ 用户可见即红）", mnTone);
+
+            // ⑯-5 三款变体：枚举完整、名字互不相同、解析可逆
+            bool mvList = DesignTokens.LampVariants.Length == DesignTokens.LampVariantCount
+                && DesignTokens.LampVariantCount == 3
+                && DesignTokens.LampVariantName(DesignTokens.LampVariant.Minimal) != DesignTokens.LampVariantName(DesignTokens.LampVariant.Dot)
+                && DesignTokens.LampVariantName(DesignTokens.LampVariant.Dot) != DesignTokens.LampVariantName(DesignTokens.LampVariant.Capsule)
+                && DesignTokens.ParseLampVariant("a") == DesignTokens.LampVariant.Minimal
+                && DesignTokens.ParseLampVariant("b") == DesignTokens.LampVariant.Dot
+                && DesignTokens.ParseLampVariant("c") == DesignTokens.LampVariant.Capsule
+                && DesignTokens.ClampVariant((DesignTokens.LampVariant)99) == DesignTokens.DefaultLampVariant;
+            Check("⑯-5 · 三款变体枚举 / 名字 / 环境变量解析都完整（a→A · b→B · c→C；未知回落默认款 ✓）", mvList);
+
+            // ⑯-6 三款几何真的不同 + 全部来自 token（B 的圆点比旧圆点大 ✓）
+            bool mvGeom = true;
+            double mvDot0 = DesignTokens.LampDotOf(DesignTokens.LampThicknessOf(1));
+            string mvGeomLog = "";
+            for (int ms = 0; ms < 3; ms++)
+            {
+                double mt = DesignTokens.LampThicknessOf(ms), ml = DesignTokens.LampLengthOf(ms);
+                double mm = DesignTokens.LampMarginOf(ms), md = DesignTokens.LampDotOf(mt);
+                DesignTokens.EdgeLampSpec sa = DesignTokens.EdgeLampOf(DesignTokens.LampVariant.Minimal, true, mt, ml, mm, md);
+                DesignTokens.EdgeLampSpec sb = DesignTokens.EdgeLampOf(DesignTokens.LampVariant.Dot, true, mt, ml, mm, md);
+                DesignTokens.EdgeLampSpec sc = DesignTokens.EdgeLampOf(DesignTokens.LampVariant.Capsule, true, mt, ml, mm, md);
+                if (sa.Width <= 0 || sa.Height <= 0 || sb.Width <= 0 || sb.Height <= 0 || sc.Width <= 0 || sc.Height <= 0) mvGeom = false;
+                if (sa.Width == sb.Width && sa.Height == sb.Height && sb.Width == sc.Width) mvGeom = false;
+                if (sb.DotSize <= mvDot0 || sb.RingSize <= sb.DotSize) mvGeom = false;
+                if (sa.HaloBlur <= DesignTokens.LightGlowBlur) mvGeom = false;
+                if (sa.Margin <= mm || sb.Margin <= mm || sc.Margin <= mm) mvGeom = false;
+                mvGeomLog += " 档" + ms + "：" + sa.Width.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) + "×" + sa.Height.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)
+                    + " / " + sb.Width.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) + "×" + sb.Height.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture)
+                    + " / " + sc.Width.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) + "×" + sc.Height.ToString("0.#", System.Globalization.CultureInfo.InvariantCulture) + "；";
+            }
+            Console.WriteLine("  [INFO] 三款灯体（A/B/C · 竖边 · 档 0/1/2）：" + mvGeomLog);
+            Check("⑯-6 · 三款变体的几何**真的不同**且全部由 token 算出（A 更窄、B 圆点比旧圆点大、三款余量都 > 基础值 ✓）", mvGeom);
+
+            // ⑯-7 三款 × 四风格 × 五语义色：底色/光晕/灯环全来自 token，底色 ≠ 原色，且 ≥3:1
+            bool mvColor = true;
+            double mvMin = 99; string mvMinWhere = "";
+            int mvCases = 0;
+            for (int mk = 0; mk < DesignTokens.StyleCount; mk++)
+            {
+                for (int mi = 0; mi < DesignTokens.Semantics.Length; mi++)
+                {
+                    DesignTokens.Semantic msem = DesignTokens.Semantics[mi];
+                    string mraw = DesignTokens.Style(mk).SemanticOf(msem);
+                    for (int mv = 0; mv < DesignTokens.LampVariants.Length; mv++)
+                    {
+                        DesignTokens.LampVariant mvar = DesignTokens.LampVariants[mv];
+                        string mbase = DesignTokens.EdgeBase(msem, mk, mvar);
+                        string mhalo = DesignTokens.EdgeHalo(msem, mk, mvar);
+                        string mring = DesignTokens.EdgeRing(msem, mk, mvar);
+                        if (!DesignTokens.IsHex(mbase) || !DesignTokens.IsHex(mhalo) || !DesignTokens.IsHex(mring)) mvColor = false;
+                        if (mbase == mraw) mvColor = false;
+                        if (DesignTokens.Parse(mhalo).A != DesignTokens.EdgeHaloAlphaOf(mvar)) mvColor = false;
+                        if (DesignTokens.Parse(mring).A != DesignTokens.EdgeRingAlphaOf(mvar)) mvColor = false;
+                        double mc = DesignTokens.Contrast(mbase, DesignTokens.StatusSurface(mk));
+                        if (mc < mvMin) { mvMin = mc; mvMinWhere = DesignTokens.Style(mk).Key + " · " + DesignTokens.SemanticName(msem) + " · " + DesignTokens.LampVariantName(mvar); }
+                        if (mc < DesignTokens.MinUiContrast) mvColor = false;
+                        double me = DesignTokens.Contrast(DesignTokens.EdgeEndEffective(msem, mk, mvar), DesignTokens.StatusSurface(mk));
+                        if (me < DesignTokens.MinUiContrast) mvColor = false;
+                        mvCases++;
+                    }
+                }
+            }
+            Console.WriteLine("  [INFO] 三款 × 四风格 × 五语义色 = " + mvCases + " 组；底色 vs 卡片面最低对比度 "
+                + mvMin.ToString("0.00", System.Globalization.CultureInfo.InvariantCulture) + ":1（" + mvMinWhere + "）");
+            Check("⑯-7 · 三款灯在四风格（明暗两套）下都过 WCAG 1.4.11 的 3:1；底色去饱和、光晕/灯环 alpha 恰为 token 常量 ✓", mvColor);
+
+            // ⑯-8 源码级：右键菜单真的接在灯与面板上；三档动作都调主窗口入口
+            string mwPath = vtGuiDir == null ? null : System.IO.Path.Combine(vtGuiDir, "MainWindow.axaml.cs");
+            string mwTxt = ReadIfExists(mwPath);
+            string ovTxt = ltWinTxt;
+            bool mvMenuWiring = ovTxt.IndexOf("ContextMenu", StringComparison.Ordinal) >= 0
+                && ovTxt.IndexOf("OverlayMenuAction.SessionHide", StringComparison.Ordinal) >= 0
+                && ovTxt.IndexOf("OverlayMenuAction.PermanentClose", StringComparison.Ordinal) >= 0
+                && ovTxt.IndexOf("OverlayMenuAction.OpenMain", StringComparison.Ordinal) >= 0
+                && ovTxt.IndexOf("_host.HideOverlayForSession()", StringComparison.Ordinal) >= 0
+                && ovTxt.IndexOf("_host.CloseOverlayPermanently()", StringComparison.Ordinal) >= 0
+                && ovTxt.IndexOf("_host.ShowMainFromOverlay()", StringComparison.Ordinal) >= 0;
+            Check("⑯-8 · 右键菜单三项都接上了：本次隐藏 → HideOverlayForSession · 永久关闭 → CloseOverlayPermanently · 打开主窗口 → ShowMainFromOverlay", mvMenuWiring);
+
+            // ⑯-9 源码级：本次隐藏的正文里**没有** config-set；永久关闭写的是同一个 overlay_enabled
+            bool mvSameKey = false;
+            if (!string.IsNullOrEmpty(mwTxt))
+            {
+                int mh0 = mwTxt.IndexOf("public void HideOverlayForSession()", StringComparison.Ordinal);
+                int mh1 = mwTxt.IndexOf("public void ShowOverlayForSession()", StringComparison.Ordinal);
+                string mhBody = (mh0 >= 0 && mh1 > mh0) ? mwTxt.Substring(mh0, mh1 - mh0) : "";
+                int mc0 = mwTxt.IndexOf("public void CloseOverlayPermanently()", StringComparison.Ordinal);
+                int mc1 = mwTxt.IndexOf("public void ShowMainFromOverlay()", StringComparison.Ordinal);
+                string mcBody = (mc0 >= 0 && mc1 > mc0) ? mwTxt.Substring(mc0, mc1 - mc0) : "";
+                mvSameKey = mhBody.Length > 0 && mhBody.IndexOf("config-set", StringComparison.Ordinal) < 0
+                    && mcBody.Length > 0 && mcBody.IndexOf("config-set overlay_enabled off", StringComparison.Ordinal) >= 0
+                    && mwTxt.IndexOf("overlay_hidden", StringComparison.Ordinal) < 0
+                    && mwTxt.IndexOf("_ovHiddenThisSession", StringComparison.Ordinal) >= 0;
+            }
+            Check("⑯-9 · 两档共用一个键：本次隐藏正文里 0 处 config-set；永久关闭写 `overlay_enabled off`；没有第二套 overlay_hidden 键", mvSameKey);
+
+            // ⑯-10 源码级：变体选择只影响画法（启动读一次环境变量 + 绘制走 EdgeLampOf）
+            string progPath = vtGuiDir == null ? null : System.IO.Path.Combine(vtGuiDir, "Program.cs");
+            string progTxt = ReadIfExists(progPath);
+            bool mvWiring = progTxt.IndexOf("ReadLampVariantFromEnvironment", StringComparison.Ordinal) >= 0
+                && progTxt.IndexOf("ReadReducedMotionFromEnvironment", StringComparison.Ordinal) >= 0
+                && ovTxt.IndexOf("DesignTokens.EdgeLampOf(", StringComparison.Ordinal) >= 0
+                && ltLightTxt.IndexOf("CreateMinimalBar", StringComparison.Ordinal) >= 0
+                && ltLightTxt.IndexOf("CreateDotRing", StringComparison.Ordinal) >= 0
+                && ltLightTxt.IndexOf("CreateCapsule", StringComparison.Ordinal) >= 0;
+            Check("⑯-10 · 变体选择只影响画法：启动各读一次环境变量；界面走 EdgeLampOf；三款画法都在 StatusLight 一处", mvWiring);
 
             Console.WriteLine("== " + _pass + "/" + (_pass + _fail) + " passed, " + _fail + " failed ==");
             return _fail == 0 ? 0 : 1;

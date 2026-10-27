@@ -399,7 +399,20 @@ namespace Dsht.Gui.Avalonia
             RunCliAction("restore --path \"" + name + "\" --apply", "应用恢复");
         }
 
-        public void SetConfig(string key, string value) { InvalidateCfgCache(); RunCliAction("config-set " + key + " \"" + (value == null ? "" : value.Replace("\"", "")) + "\"", "保存设置 " + key); }
+        public void SetConfig(string key, string value)
+        {
+            // ★ 设置页的 `overlay_enabled` 开关与看板按钮 / 右键「永久关闭」是**同一个键** ✓：
+            //   本地状态先对齐（入口状态立刻正确 ✓），落盘仍走下面同一条 config-set ✓。
+            if (string.Equals(key, "overlay_enabled", StringComparison.Ordinal))
+            {
+                bool on = string.Equals(value, "on", StringComparison.OrdinalIgnoreCase);
+                _ovEnabled = on;
+                _ovHiddenThisSession = false;   // 主动开/关 ⇒ 清掉本次运行的临时隐藏 ✓
+                SyncOverlay();
+                RefreshLiveFields();
+            }
+            InvalidateCfgCache(); RunCliAction("config-set " + key + " \"" + (value == null ? "" : value.Replace("\"", "")) + "\"", "保存设置 " + key);
+        }
 
         // —— 动作串行闸门（2026-10-04 用户在工作电脑上实测："更新可以连续点好几次" ✗✗）——
         private bool _actionBusy;
@@ -2236,9 +2249,12 @@ namespace Dsht.Gui.Avalonia
                     global::Avalonia.Controls.NativeMenu menu = new global::Avalonia.Controls.NativeMenu();
                     global::Avalonia.Controls.NativeMenuItem show = new global::Avalonia.Controls.NativeMenuItem("显示 dsh-minato");
                     show.Click += delegate { Show(); Activate(); };
+                    // ★ 「本次隐藏」后的再显示入口之一（另一处 = 看板「置顶进度窗」按钮 ✓）
+                    global::Avalonia.Controls.NativeMenuItem showOv = new global::Avalonia.Controls.NativeMenuItem(OverlayMenu.TrayShowTitle);
+                    showOv.Click += delegate { ShowOverlayFromTray(); };
                     global::Avalonia.Controls.NativeMenuItem quit = new global::Avalonia.Controls.NativeMenuItem("退出");
                     quit.Click += delegate { _realExit = true; try { _tray.Dispose(); } catch { } Close(); };
-                    menu.Items.Add(show); menu.Items.Add(quit);
+                    menu.Items.Add(show); menu.Items.Add(showOv); menu.Items.Add(quit);
                     _tray.Menu = menu;
                     _tray.IsVisible = true;
                 }
@@ -2301,6 +2317,9 @@ namespace Dsht.Gui.Avalonia
         //   · 未知一律「未知」✓ 绝不显示 0 ✗（灯为灰 ✓ 计划拿不到 ⇒ 不显示数字 ✓）。
         private OverlayWindow _overlay;
         private bool _ovEnabled;
+        /// <summary>★ 只在**本次运行内**有效的"本次隐藏"（✗ 不落盘 ✗ 不新增配置键 ✗）。
+        /// 它不改变 `overlay_enabled`：真值仍只有那一个键 ✓；本字段只回答"窗口现在被用户临时藏起来了吗"。</summary>
+        private bool _ovHiddenThisSession;
         private string _ovEdge = "right";
         private double _ovOffset = 0.5;
         private int _ovScale = 1;
@@ -2312,6 +2331,10 @@ namespace Dsht.Gui.Avalonia
         private global::Avalonia.Threading.DispatcherTimer _ovTimer;
 
         public bool OverlayEnabledValue { get { return _ovEnabled; } }
+        /// <summary>本次运行内是否被「本次隐藏」藏起来了（✗ 不是配置键 ✗）。</summary>
+        public bool OverlayHiddenThisSession { get { return _ovHiddenThisSession; } }
+        /// <summary>看板顶部按钮文案（唯一出处 = <see cref="OverlayMenu.ButtonText"/> ✓）。</summary>
+        public string OverlayButtonText { get { return OverlayMenu.ButtonText(_ovEnabled, _ovHiddenThisSession); } }
         public bool OverlayShowTitleValue { get { return _ovShowTitle; } }
         public string OverlayEdgeValue { get { return _ovEdge; } }
         public double OverlayOffsetValue { get { return _ovOffset; } }
@@ -2330,7 +2353,11 @@ namespace Dsht.Gui.Avalonia
                 string t2 = ls[i] == null ? "" : ls[i].Trim();
                 try
                 {
-                    if (t2.StartsWith("CONFIG overlay_enabled ", StringComparison.Ordinal)) _ovEnabled = t2.Substring("CONFIG overlay_enabled ".Length).Trim() == "on";
+                    if (t2.StartsWith("CONFIG overlay_enabled ", StringComparison.Ordinal))
+                    {
+                        _ovEnabled = t2.Substring("CONFIG overlay_enabled ".Length).Trim() == "on";
+                        if (!_ovEnabled) _ovHiddenThisSession = false;   // 盘上已关 ⇒ "本次隐藏"没有意义 ✓
+                    }
                     else if (t2.StartsWith("CONFIG overlay_edge ", StringComparison.Ordinal))
                     {
                         string v = t2.Substring("CONFIG overlay_edge ".Length).Trim();
@@ -2400,13 +2427,72 @@ namespace Dsht.Gui.Avalonia
             PersistOverlayPrefs(a);
         }
 
-        /// <summary>开关悬浮窗（看板顶部 / 设置页都能改 ✓ 都写同一个配置键 ✓ 不新增命令 ✓）。</summary>
+        /// <summary>★ 看板顶部 / 设置页 / 托盘共用的开关入口（都写**同一个** `overlay_enabled` ✓ 不新增命令 ✓）。
+        /// <para>★ 如果功能是开着的、只是被「本次隐藏」临时藏起来 ⇒ 点一下是**显示**（✗ 不清掉持久化的开 ✗）。</para></summary>
         public void ToggleOverlay()
         {
+            if (_ovEnabled && _ovHiddenThisSession) { ShowOverlayForSession(); return; }
             _ovEnabled = !_ovEnabled;
+            if (!_ovEnabled) _ovHiddenThisSession = false;
             PersistOverlayPrefs(new string[] { "config-set overlay_enabled " + (_ovEnabled ? "on" : "off") });
             SyncOverlay();
             RefreshLiveFields();
+        }
+
+        /// <summary>★ 右键「本次隐藏」：只藏窗口，**不写任何配置** ✓（`overlay_enabled` 保持原值 ✓）。
+        /// 恢复入口：看板「置顶进度窗」按钮 / 托盘菜单「显示悬浮窗」✓。</summary>
+        public void HideOverlayForSession()
+        {
+            if (!_ovEnabled) return;
+            _ovHiddenThisSession = true;
+            if (_overlay != null && _overlay.IsVisible) _overlay.Hide();
+            StopOverlayTimer();
+            RefreshLiveFields();
+            ShowToast(OverlayMenu.SessionHideToast);
+        }
+
+        /// <summary>把「本次隐藏」的窗口重新显示（✗ 不改配置键 ✗ 只改本次运行内的可见性 ✓）。</summary>
+        public void ShowOverlayForSession()
+        {
+            _ovHiddenThisSession = false;
+            SyncOverlay();
+            RefreshLiveFields();
+        }
+
+        /// <summary>★ 右键「永久关闭」：写 `overlay_enabled=false` **落盘** ✓ 并给一句明示（可在设置里重新开启 ✓）。
+        /// <para>★ 与看板按钮 / 设置页读写的是**同一个键** ✓ —— 这里不引入第二套状态 ✗。</para></summary>
+        public void CloseOverlayPermanently()
+        {
+            _ovEnabled = false;
+            _ovHiddenThisSession = false;
+            PersistOverlayPrefs(new string[] { "config-set overlay_enabled off" });
+            SyncOverlay();
+            RefreshLiveFields();
+            ShowToast(OverlayMenu.PermanentCloseToast);
+        }
+
+        /// <summary>右键「打开主窗口」：显示并提到前台（✗ 不碰悬浮窗开关 ✗）。</summary>
+        public void ShowMainFromOverlay()
+        {
+            try
+            {
+                Show();
+                if (WindowState == WindowState.Minimized) WindowState = WindowState.Normal;
+                Activate();
+            }
+            catch { }
+        }
+
+        /// <summary>托盘菜单「显示悬浮窗」：功能若已被永久关闭 ⇒ 如实说明并打开主窗口（✗ 不悄悄改键 ✗）。</summary>
+        private void ShowOverlayFromTray()
+        {
+            if (!_ovEnabled)
+            {
+                ShowMainFromOverlay();
+                ShowToast(OverlayMenu.TrayDisabledToast);
+                return;
+            }
+            ShowOverlayForSession();
         }
 
         /// <summary>标题开关（**默认关** ✓ 提案 §11 红线 A ✓）。开启时面板上会明示标题的来源 ✓。
@@ -2438,7 +2524,12 @@ namespace Dsht.Gui.Avalonia
         {
             try
             {
-                if (!_ovEnabled) { if (_overlay != null && _overlay.IsVisible) _overlay.Hide(); StopOverlayTimer(); return; }
+                if (!_ovEnabled || _ovHiddenThisSession)
+                {
+                    if (_overlay != null && _overlay.IsVisible) _overlay.Hide();
+                    StopOverlayTimer();
+                    return;
+                }
                 if (_overlay == null) _overlay = new OverlayWindow(this);
                 _overlay.ApplyPlacementFromHost(false);
                 if (!_overlay.IsVisible) _overlay.Show();     // ★ ShowActivated=false ⇒ 不夺前台焦点 ✓
@@ -2466,7 +2557,7 @@ namespace Dsht.Gui.Avalonia
 
         private void OverlayTick()
         {
-            if (!_ovEnabled || _overlay == null) { StopOverlayTimer(); return; }
+            if (!_ovEnabled || _ovHiddenThisSession || _overlay == null) { StopOverlayTimer(); return; }
             if (IsOverviewLike) { _overlay.UpdateFromHost(); return; }   // 概览/看板页 ⇒ 搭那一拍的车 ✓ 不重复取数 ✓
             string cli = CliPath();
             if (cli == null) { _overlay.UpdateFromHost(); return; }

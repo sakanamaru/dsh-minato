@@ -1,4 +1,4 @@
-using System;
+﻿using System;
 using Avalonia;
 
 namespace Dsht.Gui.Avalonia
@@ -9,6 +9,10 @@ namespace Dsht.Gui.Avalonia
         [STAThread]
         public static void Main(string[] args)
         {
+            // ★ 评审用灯样式变体（DSHT_OVERLAY_LAMP=a|b|c）与「减少动效」各读一次 ✓
+            //   都只影响画法/动效，不落盘、不新增配置键、不碰数据口径 ✓
+            Dsht.Gui.Avalonia.Design.DesignTokens.ReadLampVariantFromEnvironment();
+            Dsht.Gui.Avalonia.Design.DesignTokens.ReadReducedMotionFromEnvironment();
             BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
         }
 

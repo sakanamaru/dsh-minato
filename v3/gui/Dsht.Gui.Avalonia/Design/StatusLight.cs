@@ -127,9 +127,132 @@ namespace Dsht.Gui.Avalonia.Design
             return g;
         }
 
+        // =====================================================================================
+        //  ⑦d 悬边灯的三种画法（2026-10-28）—— 语义与取色完全复用上面那一条路 ✓
+        //     ★ 这里只决定"形状怎么摆" ✗ 不决定"什么颜色 / 什么含义" ✗：
+        //       色值 / alpha / 尺寸 / 光晕 / 描边 / 动效全部由 DesignTokens.EdgeLampSpec 给 ✓
+        //     ★ 三种画法都不做循环发光/跳动/旋转 ✗（§12⑥ ✓）
+        // =====================================================================================
+
+        /// <summary>★ 悬边灯的变体入口（与行灯共用同一个 <see cref="Create(DesignTokens.Semantic,int,double)"/> 语义 ✓）。
+        /// <para>A 极简细条：一条窄胶囊 + 大而淡的光晕，收起时几乎只剩光。</para>
+        /// <para>B 圆点 + 轻环：去饱和圆点 + 极淡外环（默认推荐款 ✓ 与列表圆点同一视觉语言）。</para>
+        /// <para>C 双端点胶囊：细长胶囊 + 两端更亮的端帽渐变。</para>
+        /// <para>✗ 三款都不改一色一信号；✗ 都不自造色值（一律从 token 取）。</para></summary>
+        public static Control Create(DesignTokens.Semantic s, int styleKind, DesignTokens.EdgeLampSpec spec)
+        {
+            if (spec == null) return Create(s, styleKind, SizeSm);
+            if (spec.Variant == DesignTokens.LampVariant.Minimal) return CreateMinimalBar(s, styleKind, spec);
+            if (spec.Variant == DesignTokens.LampVariant.Capsule) return CreateCapsule(s, styleKind, spec);
+            return CreateDotRing(s, styleKind, spec);
+        }
+
+        /// <summary>变体的柔光晕投影（模糊/扩散/alpha 全来自 spec ✓）。</summary>
+        private static BoxShadows EdgeGlow(DesignTokens.Semantic s, int styleKind, DesignTokens.EdgeLampSpec spec)
+        {
+            return new BoxShadows(new BoxShadow
+            {
+                Blur = spec.HaloBlur,
+                Spread = spec.HaloSpread,
+                OffsetX = 0,
+                OffsetY = 0,
+                Color = ColorOf(DesignTokens.EdgeHalo(s, styleKind, spec.Variant))
+            });
+        }
+
+        /// <summary>A · 极简细条：一条窄胶囊（灯体 + 发丝灯环 + 外扩柔光晕）。</summary>
+        private static Control CreateMinimalBar(DesignTokens.Semantic s, int styleKind, DesignTokens.EdgeLampSpec spec)
+        {
+            Border bar = new Border
+            {
+                Width = spec.Width,
+                Height = spec.Height,
+                CornerRadius = new CornerRadius(spec.CornerRadius),
+                Background = BaseBrush(s, styleKind),
+                BorderBrush = new SolidColorBrush(ColorOf(DesignTokens.EdgeRing(s, styleKind, spec.Variant))),
+                BorderThickness = new Thickness(spec.RingStroke),
+                BoxShadow = EdgeGlow(s, styleKind, spec),
+                IsHitTestVisible = false
+            };
+            return bar;
+        }
+
+        /// <summary>B · 圆点 + 轻环：去饱和圆点居中，外圈一圈极淡灯环，柔光晕最克制。</summary>
+        private static Control CreateDotRing(DesignTokens.Semantic s, int styleKind, DesignTokens.EdgeLampSpec spec)
+        {
+            Grid g = new Grid { Width = spec.Width, Height = spec.Height };
+            Border halo = new Border
+            {
+                Width = spec.RingSize,
+                Height = spec.RingSize,
+                CornerRadius = new CornerRadius(spec.RingSize / 2),
+                Background = TransparentBrush(),
+                BoxShadow = EdgeGlow(s, styleKind, spec),
+                HorizontalAlignment = global::Avalonia.Layout.HorizontalAlignment.Center,
+                VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Center,
+                IsHitTestVisible = false
+            };
+            IBrush ring = new SolidColorBrush(ColorOf(DesignTokens.EdgeRing(s, styleKind, spec.Variant)));
+            Ellipse ringLine = new Ellipse
+            {
+                Width = spec.RingSize,
+                Height = spec.RingSize,
+                Fill = TransparentBrush(),
+                Stroke = ring,
+                StrokeThickness = spec.RingStroke,
+                HorizontalAlignment = global::Avalonia.Layout.HorizontalAlignment.Center,
+                VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Center,
+                IsHitTestVisible = false
+            };
+            Ellipse dot = new Ellipse
+            {
+                Width = spec.DotSize,
+                Height = spec.DotSize,
+                Fill = BaseBrush(s, styleKind),
+                Stroke = ring,
+                StrokeThickness = spec.RingStroke,
+                HorizontalAlignment = global::Avalonia.Layout.HorizontalAlignment.Center,
+                VerticalAlignment = global::Avalonia.Layout.VerticalAlignment.Center,
+                IsHitTestVisible = false
+            };
+            g.Children.Add(halo);
+            g.Children.Add(ringLine);
+            g.Children.Add(dot);
+            return g;
+        }
+
+        /// <summary>C · 双端点胶囊：细长胶囊，两端灯环更亮、中间回到去饱和底色（线性渐变 ✓ 一次性 ✓）。</summary>
+        private static Control CreateCapsule(DesignTokens.Semantic s, int styleKind, DesignTokens.EdgeLampSpec spec)
+        {
+            Color baseC = ColorOf(DesignTokens.EdgeBase(s, styleKind, spec.Variant));
+            Color endC = ColorOf(DesignTokens.EdgeRing(s, styleKind, spec.Variant));
+            LinearGradientBrush grad = new LinearGradientBrush
+            {
+                StartPoint = spec.Vertical ? new RelativePoint(0.5, 0, RelativeUnit.Relative) : new RelativePoint(0, 0.5, RelativeUnit.Relative),
+                EndPoint = spec.Vertical ? new RelativePoint(0.5, 1, RelativeUnit.Relative) : new RelativePoint(1, 0.5, RelativeUnit.Relative),
+                GradientStops = new GradientStops
+                {
+                    new GradientStop(endC, 0),
+                    new GradientStop(baseC, DesignTokens.EdgeGradientInner),
+                    new GradientStop(baseC, 1 - DesignTokens.EdgeGradientInner),
+                    new GradientStop(endC, 1)
+                }
+            };
+            Border capsule = new Border
+            {
+                Width = spec.Width,
+                Height = spec.Height,
+                CornerRadius = new CornerRadius(spec.CornerRadius),
+                Background = grad,
+                BoxShadow = EdgeGlow(s, styleKind, spec),
+                IsHitTestVisible = false
+            };
+            return capsule;
+        }
+
         /// <summary>淡入 + 轻微位移（≤200ms ✓ 减少动效 ⇒ 直接到终态 ✗ 不播 ✗）。
         /// 返回实际用的毫秒数（0 = 没播动画 ✓ 便于断言/日志 ✓）。</summary>
-        public static int FadeIn(Control c, double fromDy = 4)
+        public static int FadeIn(Control c, double fromDy = DesignTokens.LightFadeDy)
         {
             int ms = DesignTokens.Duration(DesignTokens.MotionBaseMs);
             if (c == null) return 0;

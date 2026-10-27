@@ -60,6 +60,8 @@ $tk = Src 'v3\src\Dsht.Domain\Model\ToolkitConfig.cs'
 $sess = Src 'v3\gui\Dsht.Gui.Avalonia\Markers\SessionsMarkers.cs'
 $statusLight = Src 'v3\gui\Dsht.Gui.Avalonia\Design\StatusLight.cs'
 $paletteSrc = Src 'v3\gui\Dsht.Gui.Avalonia\ViewModels\SessionRowVm.cs'
+$menu = Src 'v3\gui\Dsht.Gui.Avalonia\Markers\OverlayMenu.cs'
+$prog = Src 'v3\gui\Dsht.Gui.Avalonia\Program.cs'
 $ovCode = CodeOf $overlay
 $lightCode = CodeOf $light
 $statusLightCode = CodeOf $statusLight
@@ -126,6 +128,28 @@ Check '★ 一色一语义（口径不变）：红=异常 · 黄=注意 · 蓝=�
 
 Check '★ 色值口径一致：token 的 8 位是 #RRGGBBAA，不许把 token 直接交给 Avalonia 的 Color.Parse（8 位会被当 #AARRGGBB ⇒ 实测灯环变紫 ✗）' `
     ($statusLight -ne $null -and $statusLightCode.IndexOf('Color.Parse(') -lt 0 -and $statusLightCode.Contains('Color.FromArgb(') -and $statusLightCode.Contains('DesignTokens.Parse('))
+
+# ---- ⑨ 右键菜单两档 / 设置入口闭环 / 三款灯样式（2026-10-28）----
+Check '★ 右键菜单真的挂在灯与展开面板上（ContextMenu + BuildLampMenu；灯以外仍靠窗口区域穿透）' `
+    ($overlay -ne $null -and $overlay.Contains('_lamp.ContextMenu = BuildLampMenu()') -and $overlay.Contains('_panel.ContextMenu = BuildLampMenu()'))
+Check '★ 右键三项都接上：本次隐藏 / 永久关闭 / 打开主窗口（动作枚举来自 OverlayMenu 唯一出处）' `
+    ($overlay -ne $null -and $overlay.Contains('OverlayMenuAction.SessionHide') -and $overlay.Contains('OverlayMenuAction.PermanentClose') -and $overlay.Contains('OverlayMenuAction.OpenMain') -and $overlay.Contains('_host.HideOverlayForSession()') -and $overlay.Contains('_host.CloseOverlayPermanently()') -and $overlay.Contains('_host.ShowMainFromOverlay()'))
+Check '★ 两档文案只在 OverlayMenu 一处定义（界面文件里不重复写「本次隐藏」「永久关闭」「打开主窗口」）' `
+    ($menu -ne $null -and $menu.Contains('public const string SessionHideTitle = "本次隐藏";') -and $menu.Contains('public const string PermanentCloseTitle = "永久关闭";') -and $overlay -ne $null -and $overlay.IndexOf('"本次隐藏"') -lt 0 -and $overlay.IndexOf('"永久关闭"') -lt 0 -and $overlay.IndexOf('"打开主窗口"') -lt 0)
+$hideBody = ''
+if ($main -ne $null -and $main -match 'public void HideOverlayForSession\(\)([\s\S]*?)public void ShowOverlayForSession\(\)') { $hideBody = $Matches[1] }
+Check '★ 本次隐藏**不写配置**（方法正文 0 处 config-set）；永久关闭写 `overlay_enabled off` 落盘' `
+    ($main -ne $null -and $hideBody.Length -gt 0 -and $hideBody.IndexOf('config-set') -lt 0 -and $main.Contains('public void CloseOverlayPermanently()') -and $main.Contains('config-set overlay_enabled off'))
+Check '★ 没有第二套状态键：`overlay_hidden` 不存在；临时隐藏只在内存 `_ovHiddenThisSession`（持久化仍只有 overlay_enabled）' `
+    ($main -ne $null -and $main.IndexOf('overlay_hidden') -lt 0 -and $main.Contains('_ovHiddenThisSession'))
+Check '★ 设置页 / 看板 / 右键永久关闭写的是**同一个** key：设置页 SetConfig 特判 overlay_enabled + 看板按钮读 OverlayButtonText' `
+    ($main -ne $null -and $main.Contains('string.Equals(key, "overlay_enabled"') -and $overview -ne $null -and $overview.Contains('host.OverlayButtonText') -and $overview.Contains('host.OverlayEnabledValue') -and $overview.Contains('host.ToggleOverlay()'))
+Check '★ 「本次隐藏」的再显示入口齐全：看板按钮的隐藏态分支 + 托盘菜单「显示悬浮窗」' `
+    ($overview -ne $null -and $overview.Contains('host.OverlayHiddenThisSession') -and $overview.Contains('host.ShowOverlayForSession()') -and $main -ne $null -and $main.Contains('OverlayMenu.TrayShowTitle') -and $main.Contains('ShowOverlayFromTray()'))
+Check '★ 三款变体只影响画法：启动读一次 DSHT_OVERLAY_LAMP / 减少动效；绘制走 EdgeLampOf；三款画法都在 StatusLight 一处' `
+    ($prog -ne $null -and $prog.Contains('ReadLampVariantFromEnvironment') -and $prog.Contains('ReadReducedMotionFromEnvironment') -and $overlay -ne $null -and $overlay.Contains('DesignTokens.EdgeLampOf(') -and $statusLight -ne $null -and $statusLight.Contains('CreateMinimalBar') -and $statusLight.Contains('CreateDotRing') -and $statusLight.Contains('CreateCapsule'))
+Check '★ 三款变体的几何/透明度全部来自 token 表（OverlayWindow 里不再有自造灯尺寸；StatusLight 里 0 个 hex）' `
+    ($statusLight -ne $null -and -not (HasRawColor $statusLightCode) -and $overlay -ne $null -and $overlay.Contains('DesignTokens.LampThicknessOf(_scale)') -and $overlay.Contains('DesignTokens.LampLengthOf(_scale)') -and $overlay.Contains('DesignTokens.LampMarginOf(_scale)') -and $overlay.Contains('DesignTokens.LampDotOf('))
 
 Write-Host ("== " + $pass + "/" + ($pass + $fail) + " passed, " + $fail + " failed ==")
 if ($fail -gt 0) { exit 1 }

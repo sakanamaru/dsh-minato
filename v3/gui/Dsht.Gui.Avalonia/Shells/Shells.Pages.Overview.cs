@@ -540,11 +540,17 @@ namespace Dsht.Gui.Avalonia.Shells
                 TextBlock tb = ov.Content as TextBlock;
                 if (tb != null)
                 {
-                    string want = host.OverlayEnabledValue ? "置顶进度窗：开（点一下关掉）" : "置顶进度窗：关（点一下打开）";
+                    // ★ 文案唯一出处 = OverlayMenu.ButtonText（开 / 关 / 本次已隐藏 三态 ✓）
+                    string want = host.OverlayButtonText;
                     if (tb.Text != want) tb.Text = want;
                 }
             });
-            ov.Click += delegate { host.ToggleOverlay(); };
+            ov.Click += delegate
+            {
+                // ★ 功能开着但被「本次隐藏」藏起来 ⇒ 这一下是**显示**（✗ 不是把键关掉 ✗）
+                if (host.OverlayEnabledValue && host.OverlayHiddenThisSession) host.ShowOverlayForSession();
+                else host.ToggleOverlay();
+            };
             global::Avalonia.Automation.AutomationProperties.SetName(ov, "置顶进度窗开关");
             global::Avalonia.Automation.AutomationProperties.SetHelpText(ov, "在屏幕边缘显示一个只读的状态灯悬浮窗；不抢焦点，灯以外的区域点击会落到下面的窗口");
             c.Children.Add(row);

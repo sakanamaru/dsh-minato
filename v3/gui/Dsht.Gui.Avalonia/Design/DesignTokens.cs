@@ -407,6 +407,238 @@ namespace Dsht.Gui.Avalonia.Design
         public const double LampRowDot = 9;
 
         // =====================================================================================
+        //  ⑦d 悬边灯样式变体（2026-10-28）：极简细条 / 圆点轻环 / 双端点胶囊
+        //     ★ 三个变体只是**同一套语义 + 同一张 token 表**的三种画法 ✗ 不改一色一信号 ✗
+        //     ★ 评审期可用环境变量 DSHT_OVERLAY_LAMP=a|b|c 选看；默认值 = 推荐的那一款 ✓
+        //       （环境变量只影响画法，不落盘、不进任何标记行、不参与数据口径 ✓）
+        // =====================================================================================
+
+        /// <summary>悬边灯的三种画法。枚举值只用于确定性排序/断言，不承载语义 ✗。</summary>
+        public enum LampVariant
+        {
+            /// <summary>A · 极简细条：更窄更淡，柔光晕更外扩，收起时几乎只剩一条光。</summary>
+            Minimal = 0,
+            /// <summary>B · 圆点 + 轻环：一个去饱和圆点 + 一圈极淡外环，尺寸略放大。</summary>
+            Dot = 1,
+            /// <summary>C · 双端点胶囊：细长胶囊，两端更亮、中间渐变。</summary>
+            Capsule = 2
+        }
+
+        public const int LampVariantCount = 3;
+        public static readonly LampVariant[] LampVariants = { LampVariant.Minimal, LampVariant.Dot, LampVariant.Capsule };
+
+        /// <summary>评审期选择变体的环境变量（只读一次；✗ 不落盘 ✗）。</summary>
+        public const string OverlayLampEnv = "DSHT_OVERLAY_LAMP";
+
+        /// <summary>★ 默认变体（推荐款）：双端点胶囊 —— 保留原有"细长胶囊"的形态语言，
+        /// 更窄、更淡，两端微亮；比圆点更像"悬边灯"、比细条更好点中（理由见施工记录 §3）。</summary>
+        public const LampVariant DefaultLampVariant = LampVariant.Capsule;
+
+        private static LampVariant _lampVariant = DefaultLampVariant;
+
+        /// <summary>当前生效的变体（唯一读取点 ✓ 绘制与断言都读它 ✓）。</summary>
+        public static LampVariant OverlayLampVariant
+        {
+            get { return _lampVariant; }
+            set { _lampVariant = ClampVariant(value); }
+        }
+
+        /// <summary>越界/未知 ⇒ 默认款（✗ 不静默变成第 0 个之外的东西 ✗）。</summary>
+        public static LampVariant ClampVariant(LampVariant v)
+        {
+            return (v == LampVariant.Minimal || v == LampVariant.Dot || v == LampVariant.Capsule) ? v : DefaultLampVariant;
+        }
+
+        /// <summary>解析评审用环境变量：a/minimal/thin → A · b/dot/ring → B · c/capsule → C；
+        /// 其它/空 ⇒ 当前值（✗ 不猜成"没有变体" ✗）。</summary>
+        public static LampVariant ParseLampVariant(string v)
+        {
+            if (string.IsNullOrEmpty(v)) return _lampVariant;
+            string t = v.Trim().ToLowerInvariant();
+            if (t == "a" || t == "minimal" || t == "thin" || t == "极简") return LampVariant.Minimal;
+            if (t == "c" || t == "capsule" || t == "双端" || t == "胶囊") return LampVariant.Capsule;
+            if (t == "b" || t == "dot" || t == "ring" || t == "圆点") return LampVariant.Dot;
+            return _lampVariant;
+        }
+
+        /// <summary>从环境变量读一次（评审用 ✓ 幂等 ✓）；没设 ⇒ 保持默认款 ✓。</summary>
+        public static LampVariant ReadLampVariantFromEnvironment()
+        {
+            string v = null;
+            try { v = Environment.GetEnvironmentVariable(OverlayLampEnv); } catch { }
+            _lampVariant = ParseLampVariant(v);
+            return _lampVariant;
+        }
+
+        /// <summary>变体名（只用于施工记录/断言日志 ✓ 不是用户可见文案 ✓）。</summary>
+        public static string LampVariantName(LampVariant v)
+        {
+            if (v == LampVariant.Minimal) return "A · 极简细条";
+            if (v == LampVariant.Capsule) return "C · 双端点胶囊";
+            return "B · 圆点轻环";
+        }
+
+        // —— 变体各自的颜色 / 透明度（✗ 不在画法文件里散落 hex / alpha 字面量 ✗）——
+
+        /// <summary>变体的去饱和比例（A 更淡 ✓ B 保留一点色相 ✓ C 居中 ✓）。</summary>
+        public static double EdgeDesaturateRatioOf(LampVariant v)
+        {
+            if (v == LampVariant.Minimal) return 0.55;
+            if (v == LampVariant.Capsule) return 0.45;
+            return 0.35;
+        }
+
+        /// <summary>柔光晕 alpha（A 最外扩但更淡 ✓ B 最克制 ✓ C 居中 ✓）。</summary>
+        public static int EdgeHaloAlphaOf(LampVariant v)
+        {
+            if (v == LampVariant.Minimal) return 0x2A;
+            if (v == LampVariant.Capsule) return 0x2E;
+            return 0x1C;
+        }
+
+        /// <summary>灯环 / 端帽 alpha（B 的"轻环"极淡 ✓ C 的端帽要更亮 ✓）。</summary>
+        public static int EdgeRingAlphaOf(LampVariant v)
+        {
+            if (v == LampVariant.Minimal) return 0x50;
+            if (v == LampVariant.Capsule) return 0x6E;
+            return 0x34;
+        }
+
+        /// <summary>柔光晕模糊半径（A 更外扩 ✓ 其它沿用基础值附近 ✓）。</summary>
+        public static double EdgeHaloBlurOf(LampVariant v)
+        {
+            if (v == LampVariant.Minimal) return LightGlowBlur + 6;
+            return LightGlowBlur + 2;
+        }
+
+        /// <summary>柔光晕扩散（A 更大 ✓ 其它保持极小 ✓）。</summary>
+        public static double EdgeHaloSpreadOf(LampVariant v)
+        {
+            return v == LampVariant.Minimal ? LightGlowSpread + 2 : LightGlowSpread;
+        }
+
+        /// <summary>灯环粗细（发丝 ✓ 值仍取 token 的 <see cref="LightRingStroke"/>）。</summary>
+        public static double EdgeRingStrokeOf(LampVariant v) { return LightRingStroke; }
+
+        /// <summary>一次性淡入的位移（≤ 4px ✓ 只做一次 ✓ 减少动效时为 0 ✓）。</summary>
+        public static double EdgeFadeDyOf(LampVariant v)
+        {
+            if (v == LampVariant.Minimal) return 2;
+            if (v == LampVariant.Capsule) return 3;
+            return 4;
+        }
+
+        /// <summary>双端点胶囊的渐变内点（两端亮 → 中间底色 ✓）。</summary>
+        public const double EdgeGradientInner = 0.22;
+
+        /// <summary>变体灯体**底色**（去饱和；仍与该风格卡片面 ≥3:1 ✓ 断言逐个算 ✓）。</summary>
+        public static string EdgeBase(Semantic s, int styleKind, LampVariant v)
+        {
+            StyleSet st = Style(styleKind);
+            return Mix(st.SemanticOf(s), st.TextDim, EdgeDesaturateRatioOf(v));
+        }
+
+        /// <summary>变体柔光晕色（语义原色 + 变体 alpha ✓）。</summary>
+        public static string EdgeHalo(Semantic s, int styleKind, LampVariant v)
+        {
+            return WithAlpha(Style(styleKind).SemanticOf(s), EdgeHaloAlphaOf(v));
+        }
+
+        /// <summary>变体灯环 / 端帽色（语义原色 + 变体 alpha ✓）。</summary>
+        public static string EdgeRing(Semantic s, int styleKind, LampVariant v)
+        {
+            return WithAlpha(Style(styleKind).SemanticOf(s), EdgeRingAlphaOf(v));
+        }
+
+        /// <summary>端帽叠在底色上的**有效色**（对比度断言用 ✓ 不是实际再画一层 ✓）。</summary>
+        public static string EdgeEndEffective(Semantic s, int styleKind, LampVariant v)
+        {
+            return BlendOver(EdgeRing(s, styleKind, v), EdgeBase(s, styleKind, v));
+        }
+
+        /// <summary>半透明前景叠在不透明背景上的有效色（纯色math ✓ 断言可读 ✓）。</summary>
+        public static string BlendOver(string fgHex, string bgHex)
+        {
+            Rgb f = Parse(fgHex), b = Parse(bgHex);
+            double a = f.A / 255.0;
+            return ToHex(
+                (int)Math.Round(f.R * a + b.R * (1 - a)),
+                (int)Math.Round(f.G * a + b.G * (1 - a)),
+                (int)Math.Round(f.B * a + b.B * (1 - a)));
+        }
+
+        /// <summary>★ 一款变体在**某一档 / 某一方向**下的全部几何与透明度（唯一出处 ✓）。
+        /// 基础厚度/长度/余量/圆点由调用方从既有 token 传入 ⇒ 三款共享同一套基准值 ✓
+        /// （✗ 界面文件里不再出现任何自造灯几何 ✗）。</summary>
+        public sealed class EdgeLampSpec
+        {
+            public LampVariant Variant;
+            public bool Vertical;
+            /// <summary>贴边方向的厚度（= 卡片短边 ✓）。</summary>
+            public double Thickness;
+            /// <summary>沿边方向的长度（= 卡片长边 ✓）。</summary>
+            public double Length;
+            /// <summary>灯四周的透明余量（点击穿透的那一圈 ✓）。</summary>
+            public double Margin;
+            /// <summary>卡片的圆角半径（A/C = 半厚；B = 正圆 ✓）。</summary>
+            public double CornerRadius;
+            /// <summary>StatusLight 控件的**实际宽高**（已按边方向摆好 ✓）。</summary>
+            public double Width, Height;
+            /// <summary>B 的圆点直径；A/C 无圆点（= 0）。</summary>
+            public double DotSize;
+            /// <summary>B 的轻环直径；A/C = 0。</summary>
+            public double RingSize;
+            public double HaloBlur, HaloSpread, RingStroke, FadeDy;
+        }
+
+        /// <summary>按变体 + 贴边方向算出实际几何（✗ 不读配置、不读时钟 ✓）。</summary>
+        public static EdgeLampSpec EdgeLampOf(LampVariant variant, bool vertical,
+            double baseThickness, double baseLength, double baseMargin, double baseDot)
+        {
+            LampVariant v = ClampVariant(variant);
+            double t, l, m, dot = 0, ring = 0;
+            if (v == LampVariant.Minimal)
+            {
+                t = Math.Max(S4 + 1, baseThickness - 5);
+                l = Math.Max(S4 * 8, baseLength - 6);
+                m = baseMargin + 1;
+            }
+            else if (v == LampVariant.Dot)
+            {
+                dot = baseDot + 6;
+                t = dot + 2 * S4;
+                l = t;
+                m = baseMargin + 2;
+                ring = t - 2;
+            }
+            else
+            {
+                t = Math.Max(S4 + 2, baseThickness - 1);
+                l = baseLength + 4;
+                m = baseMargin + 1;
+            }
+            EdgeLampSpec sp = new EdgeLampSpec();
+            sp.Variant = v;
+            sp.Vertical = vertical;
+            sp.Thickness = t;
+            sp.Length = l;
+            sp.Margin = m;
+            sp.CornerRadius = t / 2;
+            sp.Width = vertical ? t : l;
+            sp.Height = vertical ? l : t;
+            sp.DotSize = dot;
+            sp.RingSize = ring;
+            sp.HaloBlur = EdgeHaloBlurOf(v);
+            sp.HaloSpread = EdgeHaloSpreadOf(v);
+            sp.RingStroke = EdgeRingStrokeOf(v);
+            sp.FadeDy = EdgeFadeDyOf(v);
+            return sp;
+        }
+
+        /// <summary>一次性淡入的基准位移（<see cref="EdgeLampSpec.FadeDy"/> 的兜底值 ✓）。</summary>
+        public const double LightFadeDy = 4;
+
+        // =====================================================================================
         //  ⑧ 纯色math（不依赖任何图形库 ⇒ 断言可在无图形环境里算对比度 ✓）
         // =====================================================================================
 
