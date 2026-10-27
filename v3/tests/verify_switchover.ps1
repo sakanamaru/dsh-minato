@@ -233,6 +233,15 @@ Remove-Item $cliExe -Force -ErrorAction SilentlyContinue
 $pure = (Invoke-External { & powershell -ExecutionPolicy Bypass -File (Join-Path $Repo 'v3\tests\verify_domain_pure.ps1') -Repo $Repo 2>&1 }) | Out-String   # 审计 M8：这一条原来**没包装** ✗ → 子进程一写 stderr 就杀掉整个门槛（输出层假绿 ✓）
 Gate 'invariant domain purity' ($LASTEXITCODE -eq 0) '零 IO / 零平台 / 零时钟耦合'
 
+# ---- 门槛⑨ 退出码契约（P0-1）：每条改过的失败分支都跑真实场景 ----
+# 只看源码里有没有 "return 1" 是文本匹配，证明不了进程真的非零退出；
+# 这里跑独立套件：失败场景 + 标记行 + rc 三条一起断言。
+$ecOut = (Invoke-External { & powershell -ExecutionPolicy Bypass -File (Join-Path $Repo 'v3\tests\verify_exit_codes.ps1') -Repo $Repo 2>&1 }) | Out-String
+$ecRc = $LASTEXITCODE
+$ecm = [regex]::Match($ecOut, '==\s*退出码契约：(\d+)/(\d+) passed,\s*(\d+) failed')
+$ecDet = if ($ecm.Success) { $ecm.Groups[1].Value + '/' + $ecm.Groups[2].Value + ' 通过（真实失败场景 + rc）' } else { '未解析到结果行' }
+Gate 'gate9 exit-code contract' ($ecRc -eq 0) $ecDet
+
 Remove-Item $exe -Force -ErrorAction SilentlyContinue   # 别把契约测试 exe 留在 %TEMP%
 
 # ---- 盲区清单（G7 ✓）：本地**覆盖不到**的检查，明写出来 ✓ 沉默才是问题 ✗ ----

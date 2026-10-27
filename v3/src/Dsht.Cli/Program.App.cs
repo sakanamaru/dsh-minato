@@ -450,73 +450,30 @@ namespace Dsht.Cli
             }
             return 0;
         }
-        /// <summary>wipe（V3 独有）：清除数据根内容 ✓ —— 卸载前的"干净清除" ✓（经典版有 ✓）。
-        /// 破坏性操作 ✗ → 多重闸门 ✓：① 先打印计划 ② 必须 --yes ③ **必须先成功做出 -pre-wipe 备份**
-        /// （没备份就不许清 ✗）④ 拒绝系统/用户级根目录 ✗ ⑤ **备份根在数据根内时拒绝** ✗（否则会连安全网一起删 ✗）。
-        /// 备份目录本身**不动** ✓；标记行：WIPE_PLAN / WIPE_REFUSED / WIPE_PRE_BACKUP / WIPE_OK / WIPE_FAIL。</summary>
+        /// <summary>wipe（V3 独有）：只打印数据根内的条目数与**手动删除路径**，从不删除任何东西。
+        /// 用户要求（2026-09-30）：清除按钮只弹手动删除路径；本命令无论有没有 --yes 都不删除。
+        /// 标记行：WIPE_PLAN / WIPE_PLAN_NOTE / WIPE_MANUAL；路径解析失败 → WIPE_FAIL。
+        /// 退出码：0 = 已给出报告（带 --yes）；1 = 未确认（缺少 --yes）或报告做不出（WIPE_FAIL）。</summary>
         private static int WipeCmd(string[] args, ServiceRegistry reg)
         {
             string data = reg.Get<IPaths>().DataRoot;
             string backups = reg.Get<IBackupSource>().BackupsRoot;
-            string dataFull, bkFull;
+            string dataFull;
             try
             {
                 dataFull = System.IO.Path.GetFullPath(data).TrimEnd(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar);
-                bkFull = System.IO.Path.GetFullPath(backups).TrimEnd(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar);
             }
-            catch (Exception ex) { Console.WriteLine("WIPE_FAIL " + ex.Message); return 0; }
-            // F1 FIX (CLI audit MAJOR): two refusals used to sit here - a drive/system-root check
-            // and a check that the backup folder is not inside the data root - and both returned
-            // before the output below. This command no longer deletes anything, so the refusals
-            // were both unnecessary and harmful: they made the one thing the command still does
-            // - print the exact path for the user to delete by hand - unreachable in precisely
-            // the two configurations where it matters most. They are gone; the dead block below
-            // keeps its own copies of the same checks for whoever restores the delete path.
+            catch (Exception ex) { Console.WriteLine("WIPE_FAIL " + ex.Message); return 1; }
             int files = 0, dirs = 0;
-            // F2 FIX (CLI audit MINOR): a failed enumeration used to leave files and dirs at 0, and
-            // the line below then said "the data root holds 0 files and 0 folders", which is a fake
-            // zero where the truth is unknown. counted distinguishes that case.
+            // 枚举失败时输出 unknown，不能报成 0 个（假的零）。
             bool counted = false;
             try { files = System.IO.Directory.GetFiles(dataFull, "*", System.IO.SearchOption.AllDirectories).Length; dirs = System.IO.Directory.GetDirectories(dataFull, "*", System.IO.SearchOption.AllDirectories).Length; counted = true; } catch { }
-            // ★★★ **用户要求（2026-09-30）**：「删除 CLI 和 GUI 备份里的清除数据操作按钮，点击只弹出手动删除路径」✓✓
-            //   → **本命令永不删除任何东西** ✓✓ 无论有没有 `--yes` ✓
-            //   → 只输出：① 数据根里有多少东西（信息 ✓）② **手动删除的确切路径** ✓
-            //   → 保留 `WIPE_PLAN` / `WIPE_PLAN_NOTE` 标记 ✓（门槛与 GUI 的解析不用改 ✓）
+            // 本命令永不删除任何东西：只输出条目数与手动删除的确切路径。
             Console.WriteLine("WIPE_PLAN " + T("数据根内有 ", "the data root holds ") + (counted ? files.ToString() : T("unknown", "unknown")) + T(" 个文件、", " files and ") + (counted ? dirs.ToString() : T("unknown", "unknown")) + T(" 个目录", " folders") + " — " + dataFull);
             Console.WriteLine("WIPE_PLAN_NOTE " + T("本工具不再执行清除。请手动删除上面那个目录；删前请先备份（备份目录：" + backups + "）", "this tool no longer wipes data - delete the folder above yourself, after backing up"));
             Console.WriteLine("WIPE_MANUAL " + dataFull);
-            return 0;
-            // ↓↓↓ 以下是**旧实现**（保留在源码里但**不可达** ✗ 因为上面已经 return ✓）
-            //     留着的唯一理由是：将来若要恢复清除能力，逻辑与五道闸门都在 ✓
-            //     但**现在它永远不会执行** ✓✓
-            if (!Has(args, "--yes"))
-            {
-                Console.WriteLine("WIPE_PLAN " + T("将删除数据根内的 ", "will delete ") + files + T(" 个文件、", " files and ") + dirs + T(" 个子目录：", " subdirectories in ") + dataFull);
-                Console.WriteLine("WIPE_PLAN_NOTE " + T("执行前必须先成功做出 -pre-wipe 备份（做不出就不清）；备份目录本身不动。确认请加 --yes", "a -pre-wipe backup MUST succeed first (no backup, no wipe); the backups root itself is untouched. Add --yes to confirm"));
-                return 0;
-            }
-            // 闸门 ③：先备份，且**必须成功** ✓✓
-            try
-            {
-                Dsht.Domain.Model.BackupResult pb = reg.Get<IBackupSource>().Create(dataFull, Dsht.Domain.Model.BackupKind.PreWipe, _cfg == null ? 3 : _cfg.KeepBackups, WorkspaceRoot(reg));
-                if (pb == null || string.IsNullOrEmpty(pb.Path)) { Console.WriteLine("WIPE_REFUSED " + T("清除前的安全备份未能创建，已拒绝执行（没备份就不清）", "the pre-wipe backup could not be created; refusing to wipe (no backup, no wipe)")); return 0; }
-                AddContentHashToMarker(pb.Path);   // 回滚锚点也要能自证完整 ✓✓
-            Console.WriteLine("WIPE_PRE_BACKUP " + pb.Path);   // 打印行必须保留 ✗（我第 53 轮把它替换成了哈希调用 ✗✗ → 用户看不到安全备份在哪 ✓）
-            }
-            catch (Exception bex) { Console.WriteLine("WIPE_REFUSED " + T("清除前的安全备份失败，已拒绝执行: ", "the pre-wipe backup failed; refusing to wipe: ") + bex.Message); return 0; }
-            // 真清：只删数据根**内容** ✓
-            int removed = 0;
-            try
-            {
-                string[] fs = System.IO.Directory.GetFiles(dataFull);
-                for (int i = 0; i < fs.Length; i++) { System.IO.File.Delete(fs[i]); removed++; }
-                string[] ds = System.IO.Directory.GetDirectories(dataFull);
-                for (int i = 0; i < ds.Length; i++) { System.IO.Directory.Delete(ds[i], true); removed++; }
-                OpLog(reg, "WARN", "wipe OK " + dataFull + " (" + removed + " entries removed, backup " + files + " files)");
-                Console.WriteLine("WIPE_OK " + removed);
-                Console.WriteLine("WIPE_NOTE " + T("备份未被删除，可随时用 restore 恢复", "backups were kept; restore can bring the data back at any time"));
-            }
-            catch (Exception wex) { OpLog(reg, "ERROR", "wipe failed: " + wex.Message); Console.WriteLine("WIPE_FAIL " + wex.Message); }
+            // 缺少 --yes 时按"拒绝执行清除"处理：什么也不删，但退出码不能是 0。
+            if (!Has(args, "--yes")) return 1;
             return 0;
         }
         /// <summary>import（V3 独有）：把**外部**备份包导入本机备份根 ✓ —— 跨机迁移的关键一环 ✓。
@@ -1060,9 +1017,22 @@ namespace Dsht.Cli
             Console.WriteLine("STOP_OBSERVED " + st.ToLowerInvariant());
             return 0;
         }
-        /// <summary>selftest：写自检报告并打印 report -> 路径。内容逐条对齐 v2.x 的 Selftest。</summary>
+        /// <summary>selftest：写自检报告并打印 report -> 路径。内容逐条对齐 v2.x 的 Selftest。
+        /// 可选 `--runquiet &lt;exe&gt; [参数…]`：诊断用，跑一次 RunQuiet 并报告结果（超时返回非零）。</summary>
         private static int SelfTest(string[] args, ServiceRegistry reg)
         {
+            int qi = -1;
+            for (int i = 0; i < args.Length; i++) { if (args[i] == "--runquiet") { qi = i; break; } }
+            if (qi >= 0)
+            {
+                if (qi + 1 >= args.Length) { Console.WriteLine("RUNQUIET_RESULT usage"); return 2; }
+                System.Text.StringBuilder qa = new System.Text.StringBuilder();
+                for (int i = qi + 2; i < args.Length; i++) { if (qa.Length > 0) qa.Append(' '); qa.Append(args[i]); }
+                int qrc = RunQuiet(args[qi + 1], qa.ToString());
+                Console.WriteLine("RUNQUIET_RESULT " + (qrc == -1 ? "timeout" : (qrc == -2 ? "start-failed" : "exited")));
+                Console.WriteLine("RUNQUIET_EXIT " + qrc);
+                return (qrc == -1 || qrc == -2) ? 1 : 0;
+            }
             System.Text.StringBuilder sb = new System.Text.StringBuilder();
             sb.AppendLine("== DeepSeek Harness Toolkit selftest ==");   // 同上
             try

@@ -1080,13 +1080,14 @@ namespace Dsht.Cli
             Console.WriteLine("CONFIGNOTE overlay_show_title " + T("【列表里是否显示会话标题】off=不显示（默认），只显示「项目名 · 会话短码」。注意：标题是模型从你的对话内容派生的，开启后它可能出现在这个悬浮窗里；本工具不会把标题写进任何文件或日志", "show session titles in the list; off by default (shows 'project - short id' instead). Titles are derived by the model from your conversation content; they are never written to any file or log"));
             return 0;
         }
-        /// <summary>config-set <key> <value>：白名单内才写盘，否则 CONFIGSET_FAIL 原因。</summary>
+        /// <summary>config-set <key> <value>：白名单内才写盘，否则 CONFIGSET_FAIL 原因。
+        /// 退出码：0 = 写入生效；2 = 用法错误（键或值未通过白名单）；1 = 写盘未生效。</summary>
         private static int ConfigSet(string[] args, ServiceRegistry reg)
         {
             string key = args.Length > 1 ? args[1] : "";
             string val = args.Length > 2 ? args[2] : "";
             string reason = ConfigValidator.Validate(key, val, CanonPath);
-            if (reason != null) { Console.WriteLine("CONFIGSET_FAIL " + reason); return 0; }
+            if (reason != null) { Console.WriteLine("CONFIGSET_FAIL " + reason); return 2; }
             _cfg = ConfigValidator.ApplyTo(_cfg, key, val, CanonPath);
             reg.Get<IConfigSource>().WriteConfig(ConfigCodec.Serialize(_cfg));
             // 回读校验 ✓：写盘可能静默失败（配置文件只读/被占用 ✗），实测曾报 CONFIGSET_OK 而文件根本没变 ✗✗。
@@ -1097,7 +1098,7 @@ namespace Dsht.Cli
             {
                 Console.WriteLine("CONFIGSET_FAIL " + T("写入未生效（配置文件可能只读或被占用）—— 已回读核对，值未改变", "the write did not take effect (the config file may be read-only or locked) - read back and the value is unchanged"));
                 _cfg = ConfigCodec.Parse(gotText, CanonPath);
-                return 0;
+                return 1;
             }
             _cfg = ConfigCodec.Parse(gotText, CanonPath);
             Console.WriteLine("CONFIGSET_OK " + key.Trim().ToLowerInvariant());

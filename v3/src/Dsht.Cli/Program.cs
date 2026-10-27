@@ -473,20 +473,44 @@ Console.WriteLine("  config-get | config-set <key> <value>");
 
 
 
-        /// <summary>跑一条命令并丢弃输出（systemctl 之类 ✓ 失败不影响主流程 ✓）。</summary>
-        private static void RunQuiet(string exe, string args)
+        /// <summary>跑一条命令并丢弃输出（systemctl 之类）。失败不影响主流程。
+        /// stdout 与 stderr **并发读取**：顺序读会在子进程写满另一路管道时互锁（双方都在等对方）。
+        /// 8 秒超时后结束整棵进程树，并打印 RUNQUIET_TIMEOUT（超时不能当成成功）。
+        /// 返回子进程退出码；-1 = 超时，-2 = 无法启动。</summary>
+        private static int RunQuiet(string exe, string args)
         {
+            System.Diagnostics.Process p = null;
             try
             {
                 System.Diagnostics.ProcessStartInfo psi = new System.Diagnostics.ProcessStartInfo(exe, args);
                 psi.UseShellExecute = false; psi.CreateNoWindow = true;
                 psi.RedirectStandardOutput = true; psi.RedirectStandardError = true;
-                using (System.Diagnostics.Process p = System.Diagnostics.Process.Start(psi))
+                p = System.Diagnostics.Process.Start(psi);
+                if (p == null) return -2;
+                System.Threading.Tasks.Task<string> outTask = p.StandardOutput.ReadToEndAsync();
+                System.Threading.Tasks.Task<string> errTask = p.StandardError.ReadToEndAsync();
+                if (!p.WaitForExit(8000))
                 {
-                    if (p != null) { p.StandardOutput.ReadToEnd(); p.StandardError.ReadToEnd(); p.WaitForExit(8000); }
+                    // Kill(true) 只存在于 .NET Core；v2 链用 .NET Framework 的 csc 编译同一份源码，
+                    // 那里只有 Kill()。用反射取带 bool 的重载，取不到就退回只结束本进程。
+                    try
+                    {
+                        System.Reflection.MethodInfo killTree = typeof(System.Diagnostics.Process).GetMethod("Kill", new System.Type[] { typeof(bool) });
+                        if (killTree != null) killTree.Invoke(p, new object[] { true });
+                        else p.Kill();
+                    }
+                    catch { try { p.Kill(); } catch { } }
+                    try { p.WaitForExit(3000); } catch { }
+                    try { System.Threading.Tasks.Task.WaitAll(new System.Threading.Tasks.Task[] { outTask, errTask }, 3000); } catch { }
+                    Console.WriteLine("RUNQUIET_TIMEOUT " + exe);
+                    return -1;
                 }
+                // WaitForExit(ms) 不保证异步读取已排空；有界等待，避免异常管道把进程再次挂住。
+                try { System.Threading.Tasks.Task.WaitAll(new System.Threading.Tasks.Task[] { outTask, errTask }, 3000); } catch { }
+                try { return p.ExitCode; } catch { return -2; }
             }
-            catch { }
+            catch { return -2; }
+            finally { if (p != null) { try { p.Dispose(); } catch { } } }
         }
 
 
@@ -1001,7 +1025,8 @@ Console.WriteLine("  config-get | config-set <key> <value>");
         }
 
 
-        /// <summary>dryrun：只读合并计划。标记与文案逐条对齐 v2.x 的 NIRestoreDryRun。</summary>
+        /// <summary>dryrun：只读合并计划。标记与文案逐条对齐 v2.x 的 NIRestoreDryRun。
+        /// 退出码：0 = 成功给出计划（DRYRUN_OK）；1 = 拒绝（无有效备份 / 无效包 / 未完成包）。</summary>
         private static int DryRun(string[] args, ServiceRegistry reg)
         {
             string pathArg = Flag(args, "--path");
@@ -1014,7 +1039,7 @@ Console.WriteLine("  config-get | config-set <key> <value>");
             {
                 List<BackupEntry> all = bk.ListRaw();
                 for (int i = all.Count - 1; i >= 0; i--) { if (BackupPackage.IsValidPackage(all[i].Snapshot)) { bkDir = all[i].Path; break; } }
-                if (bkDir == null) { Console.WriteLine("DRYRUN_FAIL " + T("无有效备份", "no valid backup")); return 0; }
+                if (bkDir == null) { Console.WriteLine("DRYRUN_FAIL " + T("无有效备份", "no valid backup")); return 1; }
                 // ★ 第 3 轮抓到：**dry-run 的自动分支也没有闸门** ✗ → 会对真实 restore 会拒的包打印 DRYRUN_OK ✗
                 //   → 同一个包两套结论 ✓（正是本文件反复强调不能有的那种不一致 ✓）
                 {
@@ -1022,7 +1047,7 @@ Console.WriteLine("  config-get | config-set <key> <value>");
                     if (!string.IsNullOrEmpty(autoTrunc2) && !Has(args, "--force"))
                     {
                         Console.WriteLine("DRYRUN_FAIL " + autoTrunc2 + T("；确认要预览它请加 --force", "; add --force to preview it anyway"));
-                        return 0;
+                        return 1;
                     }
                     if (!string.IsNullOrEmpty(autoTrunc2)) Console.WriteLine("DRYRUN_WARN " + autoTrunc2);
                 }
@@ -1032,7 +1057,7 @@ Console.WriteLine("  config-get | config-set <key> <value>");
                 string p = PathValidator.ResolveBackupPath(pathArg.Trim().Trim('"'), bk.BackupsRoot);   // 裸备份名解析到备份根内 ✓
                 if (PathUtil.IsSubPath(bk.BackupsRoot, p))
                 {
-                    if (!BackupPackage.IsValidPackage(bk.Snapshot(p))) { Console.WriteLine("DRYRUN_FAIL " + T("无效备份目录", "invalid backup directory")); return 0; }
+                    if (!BackupPackage.IsValidPackage(bk.Snapshot(p))) { Console.WriteLine("DRYRUN_FAIL " + T("无效备份目录", "invalid backup directory")); return 1; }
                     bkDir = p;
                     // 完成性闸门 ✓✓：放在**路径校验通过之后** —— 不存在的路径与根外路径都到不了这里 ✓（这正是上一版放错位置的原因 ✗）。
                     // 条件用 !IsNullOrEmpty ✓ 且只在"原因非空"时拦 ✓ → **最多少报，绝不误拦** ✓✓。
@@ -1043,14 +1068,14 @@ Console.WriteLine("  config-get | config-set <key> <value>");
                     {
                         Console.WriteLine("DRYRUN_FAIL " + truncReason + T("；确认要预览它请加 --force", "; add --force to preview it anyway"));
                         OpLog(reg, "WARN", "restore --dry-run refused a truncated backup: " + p);
-                        return 0;
+                        return 1;
                     }
                     if (!string.IsNullOrEmpty(truncReason)) Console.WriteLine("DRYRUN_WARN " + truncReason);
                 }
                 else
                 {
                     string resolved = bk.Resolve(p);
-                    if (resolved == null) { Console.WriteLine("DRYRUN_FAIL " + T("不是有效备份包", "not a valid backup package")); return 0; }
+                    if (resolved == null) { Console.WriteLine("DRYRUN_FAIL " + T("不是有效备份包", "not a valid backup package")); return 1; }
                     bkDir = resolved;
                 }
             }

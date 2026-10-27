@@ -204,7 +204,8 @@ namespace Dsht.Cli
         ///   → 卸载时**理论上**会被一起清 ✗（安装器已加保险：显式跳过 backup/ ✓✓）
         ///   → 但**放在安装目录之外才真正稳妥** ✓ → 用户需要一个**看得见、改得动**的入口 ✓✓
         ///
-        /// 标记行：BACKUP_DIR / BACKUP_DIR_OK / BACKUP_DIR_RESET / BACKUP_DIR_FAIL</summary>
+        /// 标记行：BACKUP_DIR / BACKUP_DIR_OK / BACKUP_DIR_RESET / BACKUP_DIR_FAIL
+        /// 退出码：0 = 查看/设置/恢复默认成功；2 = 用法错误（相对路径）；1 = 执行失败（删不掉、建不出、存不下）。</summary>
         private static int BackupDirCmd(string[] args, ServiceRegistry reg)
         {
             IBackupSource bk = reg.Get<IBackupSource>();
@@ -223,12 +224,12 @@ namespace Dsht.Cli
                     catch (Exception dex)
                     {
                         Console.WriteLine("BACKUP_DIR_FAIL " + T("无法恢复默认（删不掉设置文件）：" + dex.Message, "cannot reset: " + dex.Message));
-                        return 0;
+                        return 1;
                     }
                     if (System.IO.File.Exists(sel))
                     {
                         Console.WriteLine("BACKUP_DIR_FAIL " + T("设置文件删掉后仍然存在，请手动删除：" + sel, "the settings file still exists: " + sel));
-                        return 0;
+                        return 1;
                     }
                 }
                 Console.WriteLine("BACKUP_DIR_RESET " + bk.BackupsRoot + " " + T("已恢复默认备份位置", "reset to the default backups folder"));
@@ -249,28 +250,28 @@ namespace Dsht.Cli
             if (!System.IO.Path.IsPathRooted(set))
             {
                 Console.WriteLine("BACKUP_DIR_FAIL " + T("必须是绝对路径；相对路径会随当前目录变化：" + set, "the path must be absolute: " + set));
-                return 0;
+                return 2;
             }
             string full;
             try { full = System.IO.Path.GetFullPath(set); }
-            catch (Exception ex) { Console.WriteLine("BACKUP_DIR_FAIL " + T("路径无效：" + ex.Message, "invalid path: " + ex.Message)); return 0; }
+            catch (Exception ex) { Console.WriteLine("BACKUP_DIR_FAIL " + T("路径无效：" + ex.Message, "invalid path: " + ex.Message)); return 2; }
             try { System.IO.Directory.CreateDirectory(full); }
-            catch (Exception ex) { Console.WriteLine("BACKUP_DIR_FAIL " + T("无法创建目录：" + ex.Message, "cannot create folder: " + ex.Message)); return 0; }
+            catch (Exception ex) { Console.WriteLine("BACKUP_DIR_FAIL " + T("无法创建目录：" + ex.Message, "cannot create folder: " + ex.Message)); return 1; }
             // ✓✓ **实测抓到的**：`Z:\no\such\drive\x` 竟然"创建成功"了 ✗（不可用盘符时 `CreateDirectory` 不抛 ✓）
             //   → **必须**再确认它**真的存在** ✓✓（不信任 API 的返回值 ✓ 只看事实 ✓）
             if (!System.IO.Directory.Exists(full))
             {
                 Console.WriteLine("BACKUP_DIR_FAIL " + T("目录创建后并不存在，路径不可用：" + full, "the folder does not exist after creating it: " + full));
-                return 0;
+                return 1;
             }
             try
             {
-                if (string.IsNullOrEmpty(sel)) { Console.WriteLine("BACKUP_DIR_FAIL " + T("取不到状态目录，无法保存设置", "cannot resolve the state dir")); return 0; }
+                if (string.IsNullOrEmpty(sel)) { Console.WriteLine("BACKUP_DIR_FAIL " + T("取不到状态目录，无法保存设置", "cannot resolve the state dir")); return 1; }
                 // ★ 同一处修复 ✓：**全新安装上 StateDir 可能还不存在** ✗ → 先建目录再写 ✓（见 `--to` 的说明 ✓）
                 try { string sp2 = System.IO.Path.GetDirectoryName(sel); if (!string.IsNullOrEmpty(sp2)) System.IO.Directory.CreateDirectory(sp2); } catch { }
                 System.IO.File.WriteAllText(sel, full, new System.Text.UTF8Encoding(false));
             }
-            catch (Exception ex) { Console.WriteLine("BACKUP_DIR_FAIL " + T("无法保存设置：" + ex.Message, "cannot save the setting: " + ex.Message)); return 0; }
+            catch (Exception ex) { Console.WriteLine("BACKUP_DIR_FAIL " + T("无法保存设置：" + ex.Message, "cannot save the setting: " + ex.Message)); return 1; }
 
             Console.WriteLine("BACKUP_DIR_OK " + full + " " + T("以后的备份都写到这里（已有备份不会被移动，仍留在原处）", "future backups go here; existing ones are not moved"));
             return 0;

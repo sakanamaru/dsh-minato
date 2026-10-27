@@ -176,7 +176,8 @@ try {
 
     Section "3. 非法值仍然被拒（修复没有放宽校验 ✗）"
     $r3 = Run-Cli $exe @("config-set", "no_such_key", "x")
-    Check "未知键 → CONFIGSET_FAIL unknown-key（且退出码仍是 0，与命令契约一致）" (Marker $r3.out 'CONFIGSET_FAIL unknown-key')
+    Check "未知键 → CONFIGSET_FAIL unknown-key" (Marker $r3.out 'CONFIGSET_FAIL unknown-key')
+    Check "未知键 → 退出码 2（用法错误，P0-1 契约）" ($r3.rc -eq 2)
     $r3b = Run-Cli $exe @("config-set", "ws", "")
     Check "空值 = 清空 → CONFIGSET_OK ws" (Marker $r3b.out 'CONFIGSET_OK ws')
     $text2 = Read-Text $cfgPath

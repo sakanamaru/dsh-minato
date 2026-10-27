@@ -183,12 +183,21 @@ This section states only what the code does. If a claim here is not backed by th
 - **`backup-export` was broken in every published release from 3.0.0 through 3.0.6**: it always failed on a
   non-empty package (files were copied but the sibling `.manifest` was not written, and `BKEXPORT_FAIL` was printed).
   **Fixed in 3.0.7** (`BKEXPORT_OK` + sibling marker + end-to-end assertions).
-- **CLI exit codes in those same releases could not drive scripts**: refusals and failures still exited 0. Script against
-  the marker lines (`BACKUP_FAIL` / `RESTORE_FAIL` / `BKEXPORT_FAIL` …) instead. **Fixed in 3.0.7** (failure = 1,
-  usage error = 2, self-integrity = 3).
+- **CLI exit codes**: `0` for success and for plans/read-only previews; `1` for a refusal or a failed operation; `2` for a usage
+  error; `3` when the startup self-integrity check refuses to run. The table lists the commands whose failure paths are exercised
+  end to end; for commands not listed, a failure path may still return `0`, so scripts should also check the marker line:
+
+  | Command | Success / plan | Refusal or failure | Usage error |
+  |---|---|---|---|
+  | `config-set` | `0`: `CONFIGSET_OK` | `1`: write did not take effect (`CONFIGSET_FAIL`) | `2`: unknown key or invalid value (`CONFIGSET_FAIL`) |
+  | `backup-dir` | `0`: `BACKUP_DIR` / `BACKUP_DIR_OK` / `BACKUP_DIR_RESET` | `1`: cannot delete, create or save (`BACKUP_DIR_FAIL`) | `2`: relative or unparsable path (`BACKUP_DIR_FAIL`) |
+  | `restore --dry-run` | `0`: `DRYRUN_OK` | `1`: no valid backup, invalid or incomplete package (`DRYRUN_FAIL`) | — |
+  | `wipe` | `0`: with `--yes`, prints the manual delete path only | `1`: missing `--yes` (not confirmed); `WIPE_FAIL` (cannot even compute the path) | — |
+
+  `wipe` never deletes anything regardless of exit code; that is intentional, not a failure.
 - **Test counts are not proof of individual safety promises**: an all-green contract/GUI/plugin suite only shows
-  regression coverage — the two promises above were broken while every suite was green. Treat per-promise
-  end-to-end assertions and fix records as the evidence.
+  regression coverage — the broken export command and the inaccurate exit codes both existed while every suite was
+  green. Treat per-promise end-to-end assertions and fix records as the evidence.
 - **Subagent-inclusive statistics are not implemented yet** (含子代理统计：未实现（待第二批；需读原始日志）):
   the on-disk session projection carries no lineage fields at all (verified across the full store), so a
   projection-only "include subagents" count would silently miss edges. The GUI scope selector greys those modes
