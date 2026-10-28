@@ -86,6 +86,9 @@ namespace Dsht.Domain.Services
             // ——— 悬边状态灯悬浮窗（2026-10-26 · 提案 §11 ✓）：六个键 ✓ 白名单与 ApplyTo 双保险 ✓ ———
             if (k == "overlay_enabled" || k == "overlay_show_title") return (v == "on" || v == "off") ? null : "bad-value";
             if (k == "overlay_edge") return (v == "left" || v == "right" || v == "top" || v == "bottom") ? null : "bad-value";
+            // ★ 悬边灯样式（2026-10-28 ✓）：只认三个**语义值** line / dot / capsule ✓
+            //   （✗ 不收 a/b/c 位置代号 ✗ —— 配置里看到 a/b/c 就是非法值 ⇒ 拒绝写入 ✓）
+            if (k == "overlay_light_style") return ConfigCodec.IsOverlayLightStyle(v) ? null : "bad-value";
             if (k == "overlay_offset")
             {
                 decimal off;
@@ -155,6 +158,8 @@ namespace Dsht.Domain.Services
             else if (k == "gui_style") { int n; if (int.TryParse(v, out n) && n >= 0 && n <= 3) c.GuiStyle = n; }
             // —— 悬边状态灯悬浮窗（2026-10-26 · 提案 §11 ✓）——
             else if (k == "overlay_enabled") c.OverlayEnabled = v != "off";
+            // ★ 悬边灯样式：只存归一化后的三个语义值 ✓（越界/畸形保持原值 ✓ Validate 已拦 ✓ 双保险 ✓）
+            else if (k == "overlay_light_style") { if (ConfigCodec.IsOverlayLightStyle(v)) c.OverlayLightStyle = v.Trim().ToLowerInvariant(); }
             else if (k == "overlay_edge") { if (v == "left" || v == "right" || v == "top" || v == "bottom") c.OverlayEdge = v; }
             else if (k == "overlay_offset")
             {

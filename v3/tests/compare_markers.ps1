@@ -128,7 +128,8 @@ $cases = @(
     # needsService：**只有服务在运行时才允许跑**——否则 v2.x 会真的把受控备份恢复进真实 ~/.dsh。
     @{ name = 'restore (latest)'; args = @('restore'); full = $true; needsService = $true },
     # ★ 2026-10-26 悬边状态灯（提案 §11）：v3 新增六个纯 GUI 偏好键（v2.x 没有 ⇒ 属**预期的契约增量** ✓）
-    @{ name = 'config-get';          args = @('config-get'); full = $true; ignore = 'CONFIGNOTE |CONFIG (browser_mode|ui_parallel|scan_children|gui_start_page|gui_auto_refresh|gui_shell|gui_style|balance_key|auto_start_target|sessions_default_level|sessions_price_in_per_mtok|sessions_price_cache_read_per_mtok|sessions_price_cache_write_per_mtok|sessions_price_out_per_mtok|sessions_budget_usd_per_day|overlay_enabled|overlay_edge|overlay_offset|overlay_scale|overlay_screen|overlay_show_title)( |$)' },
+    # ★ 2026-10-28 灯样式键 overlay_light_style：第七个同类键（同一预期增量 ✓ 不进比对清单 ⇒ 不假红 ✓）
+    @{ name = 'config-get';          args = @('config-get'); full = $true; ignore = 'CONFIGNOTE |CONFIG (browser_mode|ui_parallel|scan_children|gui_start_page|gui_auto_refresh|gui_shell|gui_style|balance_key|auto_start_target|sessions_default_level|sessions_price_in_per_mtok|sessions_price_cache_read_per_mtok|sessions_price_cache_write_per_mtok|sessions_price_out_per_mtok|sessions_budget_usd_per_day|overlay_enabled|overlay_light_style|overlay_edge|overlay_offset|overlay_scale|overlay_screen|overlay_show_title)( |$)' },
     @{ name = 'doctor';               args = @('doctor'); full = $true; ignore = '^\[(OK|WARN|ERROR)\] Integrity |^\[(OK|WARN|ERROR)\] Network |^\[(OK|WARN|ERROR)\] Backup |^\[(OK|WARN|ERROR)\] Workspace 数据大小|另检测到官方桌面端|端口 3080 未监听'; ignoreSummary = $true },
     # doctor --report：比对**报告正文**（postFile 模式）。
     # 忽略：生成时间/Toolkit/系统三行（时间戳与版本必然不同）、自身完整性条目（v2.x 的 exe 在清单里但本地构建

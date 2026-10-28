@@ -184,6 +184,27 @@ try {
     $wsLine2 = ([regex]::Match($text2, '(?m)^ws=(.*)$')).Groups[1].Value.Trim()
     Check "清空之后 ws= 行变空（能设上也能清掉 ✓）" ($wsLine2 -eq "")
 
+    Section "3b. 悬边灯样式键：三值可设 + 非法值回落默认且有明确提示（2026-10-28）"
+    $r5a = Run-Cli $exe @("config-set", "overlay_light_style", "line")
+    Check "三个语义值之一 line → CONFIGSET_OK + 退出码 0" ((Marker $r5a.out 'CONFIGSET_OK overlay_light_style') -and ($r5a.rc -eq 0))
+    $r5b = Run-Cli $exe @("config-get")
+    $styleLine = ([regex]::Match($r5b.out, '(?m)^CONFIG overlay_light_style (.*)$')).Groups[1].Value.Trim()
+    Check "config-get 回读 = line（设置页与悬浮窗读的就是这一行 ✓）" ($styleLine -eq "line")
+    $r5c = Run-Cli $exe @("config-set", "overlay_light_style", "banana")
+    Check "非法值 banana → CONFIGSET_FAIL bad-value + 退出码 2（✗ 不崩 ✗ 不静默写默认 ✓）" ((Marker $r5c.out 'CONFIGSET_FAIL bad-value') -and ($r5c.rc -eq 2))
+    $styleAfterBad = ([regex]::Match((Read-Text $cfgPath), '(?m)^overlay_light_style=(.*)$')).Groups[1].Value.Trim()
+    Check "非法值没有把盘上的值改掉（仍是 line ✓）" ($styleAfterBad -eq "line")
+    # 手改配置（真实用户会遇到）：直接写一个不认识的值 → 解析回落默认 + config-get 明说
+    $t3 = [regex]::Replace((Read-Text $cfgPath), '(?m)^overlay_light_style=.*$', 'overlay_light_style=紫')
+    [System.IO.File]::WriteAllText($cfgPath, $t3)
+    $r5d = Run-Cli $exe @("config-get")
+    Check "非法值回落默认：CONFIG overlay_light_style dot 且退出码 0（✗ 不崩 ✗）" ((Marker $r5d.out '^CONFIG overlay_light_style dot$') -and ($r5d.rc -eq 0))
+    $r5e = @(($r5d.out -split "`n") | Where-Object { $_ -match '^CONFIGWARN overlay_light_style ' })
+    Check "且**有一句明确提示**：CONFIGWARN overlay_light_style 恰一行，含「紫」「无法识别」「默认」" ($r5e.Count -eq 1 -and $r5e[0].Contains("紫") -and $r5e[0].Contains("无法识别") -and $r5e[0].Contains("默认"))
+    $r5f = Run-Cli $exe @("config-set", "overlay_light_style", "dot")
+    $r5g = Run-Cli $exe @("config-get")
+    Check "在设置里选一次即可改回来：dot → CONFIGSET_OK，且提示行消失（合法值不编提示 ✗）" ((Marker $r5f.out 'CONFIGSET_OK overlay_light_style') -and -not (Marker $r5g.out 'CONFIGWARN overlay_light_style'))
+
     Section "4. 零越界（真实默认数据根 / 真实状态目录 快照对照）"
     # ⚠ 基线是在跑命令前**重新取**的 ✓：`~/.dsh` 上还跑着本机的 dsh 会话（它自己每秒都在写 ✗）
     #   → 拿"脚本开头"的快照去比会**假红**（实测：`shio-bridge` / `llm-deepseek` 的 mtime 变了 ✓ 与本工具无关 ✓）

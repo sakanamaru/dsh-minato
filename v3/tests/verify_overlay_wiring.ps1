@@ -104,7 +104,7 @@ Check '★ 排序 = lastPromptAt 倒序（提案 §11 逐字：会话按先后�
 # ---- ⑦ 四色灯的信号来源真的接在既有取数上（不新起进程、不加新标记行） ----
 Check '红灯②的信号 = CLI 已有的 SESSIONS_SNAPSHOT_STALE 诊断行（不新增标记行）' ($sess -ne $null -and $sess.Contains('SESSIONS_SNAPSHOT_STALE'))
 Check '红灯③的信号 = update-center 的 state=content-mismatch（复用既有判定，不重算哈希）' ($main -ne $null -and $main.Contains('state=content-mismatch'))
-Check '六个 overlay_* 键在主窗口被读到（与设置页 / CONFIG 打印同一批键）' ($main -ne $null -and $main.Contains('CONFIG overlay_enabled ') -and $main.Contains('CONFIG overlay_edge ') -and $main.Contains('CONFIG overlay_offset ') -and $main.Contains('CONFIG overlay_scale ') -and $main.Contains('CONFIG overlay_screen ') -and $main.Contains('CONFIG overlay_show_title '))
+Check '七个 overlay_* 键在主窗口被读到（与设置页 / CONFIG 打印同一批键）' ($main -ne $null -and $main.Contains('CONFIG overlay_enabled ') -and $main.Contains('CONFIG overlay_light_style ') -and $main.Contains('CONFIG overlay_edge ') -and $main.Contains('CONFIG overlay_offset ') -and $main.Contains('CONFIG overlay_scale ') -and $main.Contains('CONFIG overlay_screen ') -and $main.Contains('CONFIG overlay_show_title '))
 
 # ---- ⑧ ★ 状态灯接进设计 token 表（2026-10-26）：取色点 / 画法唯一性 / 明暗取值来源 ----
 #   为什么这条要在这里钉：GUI 逻辑测试能断言 token 表本身（⑮-3/⑮-4），
@@ -146,10 +146,46 @@ Check '★ 设置页 / 看板 / 右键永久关闭写的是**同一个** key：�
     ($main -ne $null -and $main.Contains('string.Equals(key, "overlay_enabled"') -and $overview -ne $null -and $overview.Contains('host.OverlayButtonText') -and $overview.Contains('host.OverlayEnabledValue') -and $overview.Contains('host.ToggleOverlay()'))
 Check '★ 「本次隐藏」的再显示入口齐全：看板按钮的隐藏态分支 + 托盘菜单「显示悬浮窗」' `
     ($overview -ne $null -and $overview.Contains('host.OverlayHiddenThisSession') -and $overview.Contains('host.ShowOverlayForSession()') -and $main -ne $null -and $main.Contains('OverlayMenu.TrayShowTitle') -and $main.Contains('ShowOverlayFromTray()'))
-Check '★ 三款变体只影响画法：启动读一次 DSHT_OVERLAY_LAMP / 减少动效；绘制走 EdgeLampOf；三款画法都在 StatusLight 一处' `
-    ($prog -ne $null -and $prog.Contains('ReadLampVariantFromEnvironment') -and $prog.Contains('ReadReducedMotionFromEnvironment') -and $overlay -ne $null -and $overlay.Contains('DesignTokens.EdgeLampOf(') -and $statusLight -ne $null -and $statusLight.Contains('CreateMinimalBar') -and $statusLight.Contains('CreateDotRing') -and $statusLight.Contains('CreateCapsule'))
+Check '★ 三款变体只影响画法：启动只读「减少动效」（灯样式✗不再走环境变量✗）；绘制走 EdgeLampOf；三款画法都在 StatusLight 一处' `
+    ($prog -ne $null -and $prog.Contains('ReadReducedMotionFromEnvironment') -and $prog.IndexOf('ReadLampVariantFromEnvironment') -lt 0 -and $overlay -ne $null -and $overlay.Contains('DesignTokens.EdgeLampOf(') -and $statusLight -ne $null -and $statusLight.Contains('CreateMinimalBar') -and $statusLight.Contains('CreateDotRing') -and $statusLight.Contains('CreateCapsule'))
 Check '★ 三款变体的几何/透明度全部来自 token 表（OverlayWindow 里不再有自造灯尺寸；StatusLight 里 0 个 hex）' `
     ($statusLight -ne $null -and -not (HasRawColor $statusLightCode) -and $overlay -ne $null -and $overlay.Contains('DesignTokens.LampThicknessOf(_scale)') -and $overlay.Contains('DesignTokens.LampLengthOf(_scale)') -and $overlay.Contains('DesignTokens.LampMarginOf(_scale)') -and $overlay.Contains('DesignTokens.LampDotOf('))
+
+# ---- ⑩ 悬边灯样式：默认 B + 设置里三选一 + 即时生效（2026-10-28）----
+#   ① 默认 = B（域模型默认值与设计 token 默认值同一款，两处各自可证伪）
+#   ② 四处同步（ConfigCodec 解析+序列化 / ConfigValidator 白名单+落值 / CLI CONFIG+CONFIGNOTE）
+#   ③ 设置页三选一：三个选项都可见（✗ 不做下拉藏起来 ✗）+ 名称 + 一句人话 + 小预览 + 默认角标
+#   ④ 同一个键：设置页写、悬浮窗读；改完立刻重画（✗ 不重启 ✗）
+#   ⑤ 没有第二套状态键（评审环境变量已移除）
+$codec = Src 'v3\src\Dsht.Domain\Services\ConfigCodec.cs'
+$validator = Src 'v3\src\Dsht.Domain\Services\ConfigValidator.cs'
+$opsSrc = Src 'v3\src\Dsht.Cli\Program.Ops.cs'
+$design = Src 'v3\gui\Dsht.Gui.Avalonia\Design\DesignTokens.cs'
+$catalog = Src 'v3\gui\Dsht.Gui.Avalonia\Markers\OverlayStyleCatalog.cs'
+$operations = Src 'v3\gui\Dsht.Gui.Avalonia\Shells\Shells.Pages.Operations.cs'
+
+Check '★ 默认样式 = B（dot）：ToolkitConfig 默认值与设计 token 默认值同一款（✗ 改回 C 即红）' `
+    ($tk -ne $null -and $tk.Contains('public string OverlayLightStyle = "dot";') -and $design -ne $null -and $design.Contains('public const LampVariant DefaultLampVariant = LampVariant.Dot;') -and $design.Contains('public const string DefaultLampStyleKey = "dot";') -and $catalog -ne $null -and $catalog.Contains('DefaultKey = DesignTokens.DefaultLampStyleKey;'))
+Check '★ 两份白名单逐字一致（CLI ConfigCodec 与 GUI DesignTokens 都是 line / dot / capsule；✗ 各写一套就红 ✗）' `
+    ($codec -ne $null -and $design -ne $null -and $codec.Contains('{ "line", "dot", "capsule" }') -and $design.Contains('{ "line", "dot", "capsule" }'))
+Check '★ 四处同步 1/4：ConfigCodec 解析 + 序列化都带 overlay_light_style（✗ 漏一处 = 重启就忘 ✗）' `
+    ($codec -ne $null -and (CountOf $codec 'overlay_light_style') -ge 2 -and $codec.Contains('IsOverlayLightStyle'))
+Check '★ 四处同步 2/4：ConfigValidator 白名单 + ApplyTo 都认这个键（✗ 只加一处 ⇒ config-set 报 unknown-key ✗）' `
+    ($validator -ne $null -and (CountOf $validator 'overlay_light_style') -ge 2 -and $validator.Contains('ConfigCodec.IsOverlayLightStyle(v)'))
+Check '★ 四处同步 3/4 + 4/4：CLI 打印 CONFIG overlay_light_style 且 CONFIGNOTE 说明三值（✗ 漏一处设置页就没有说明 ✗）' `
+    ($opsSrc -ne $null -and $opsSrc.Contains('CONFIG overlay_light_style ') -and $opsSrc.Contains('CONFIGNOTE overlay_light_style '))
+Check '★ 非法值：回落默认**且有一句明确提示**（CONFIGWARN 只在配置原文非法时出现 ✗ 不静默当默认 ✓）' `
+    ($opsSrc -ne $null -and $opsSrc.Contains('CONFIGWARN overlay_light_style ') -and $opsSrc.Contains('ConfigCodec.IsOverlayLightStyle(ovStyleRaw)'))
+Check '★ 设置页三选一：三个选项都可见（OverlayStyleCatalog.Keys）+ 名称 + 一句人话 + 小预览（✗ 不做下拉藏起来 ✗）' `
+    ($operations -ne $null -and $operations.Contains('OverlayLightStyleChooser(') -and $operations.Contains('OverlayStyleCatalog.Keys') -and $operations.Contains('OverlayStyleCatalog.NameOf(') -and $operations.Contains('OverlayStyleCatalog.BlurbOf(') -and $operations.Contains('OverlayStylePreview(') -and $operations.Contains('OverlayStyleCatalog.DefaultBadge'))
+Check '★ 默认态可读：默认款有自己的角标（「默认」）且与「当前使用」分开（换到别的样式后仍看得出哪个是默认）' `
+    ($catalog -ne $null -and $catalog.Contains('public const string DefaultBadge = "默认";') -and $catalog.Contains('public const string CurrentBadge = "当前使用";') -and $catalog.Contains('public static bool IsDefault(string key)'))
+Check '★ 同一个键：设置页写 overlay_light_style，悬浮窗读主窗口的 OverlayLightStyleValue（✗ 没有第二个键 ✗）' `
+    ($main -ne $null -and $main.Contains('CONFIG overlay_light_style ') -and $main.Contains('public string OverlayLightStyleValue') -and $overlay -ne $null -and $overlay.Contains('_host.OverlayLightStyleValue') -and $operations -ne $null -and $operations.Contains('SetConfig(OverlayStyleCatalog.Key'))
+Check '★ 切换后**即时生效**：SetConfig 特判该键 → 本地先换 → 悬浮窗立刻重画（✗ 不等重启 / 不等下一拍 ✗）' `
+    ($main -ne $null -and $main.Contains('if (string.Equals(key, "overlay_light_style", StringComparison.Ordinal))') -and $main.Contains('_ovLightStyle = OverlayStyleCatalog.NormalizeKey(value);') -and $main.Contains('if (_overlay != null) _overlay.UpdateFromHost();'))
+Check '★ 没有第二套状态键：环境变量 DSHT_OVERLAY_LAMP / overlay_light_style_variant 都不存在（✗ 谁加回来即红 ✗）' `
+    ($main -ne $null -and $main.IndexOf('DSHT_OVERLAY_LAMP') -lt 0 -and $main.IndexOf('overlay_light_style_variant') -lt 0 -and $prog -ne $null -and $prog.IndexOf('ReadLampVariantFromEnvironment') -lt 0 -and $design -ne $null -and $design.IndexOf('DSHT_OVERLAY_LAMP') -lt 0)
 
 Write-Host ("== " + $pass + "/" + ($pass + $fail) + " passed, " + $fail + " failed ==")
 if ($fail -gt 0) { exit 1 }

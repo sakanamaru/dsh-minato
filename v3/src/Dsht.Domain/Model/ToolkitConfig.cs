@@ -83,6 +83,13 @@ namespace Dsht.Domain.Model
         /// 标题是 LLM 从对话内容派生的 ✓ 属提示词派生数据 ✓ 开启时界面必须**明示**这一点 ✓
         /// 且**绝不写盘/写日志**（本键只存开关本身 ✓ 不存任何标题文本 ✓）。</summary>
         public bool OverlayShowTitle = false;
+        /// <summary>悬边灯的**画法样式**（2026-10-28 维护者拍板：默认 = B 圆点 + 轻环）。
+        /// 取值**语义化**（✗ 不用 a/b/c 这种位置代号 ✗）：
+        /// <c>line</c> = A 极简细条 · <c>dot</c> = B 圆点 + 轻环（默认）· <c>capsule</c> = C 双端胶囊。
+        /// 纯 GUI 偏好 ✓（CLI 自己不消费它，只替 GUI 存 —— 与 gui_style 同类 ✓）。
+        /// ★ 只改**画法**：颜色含义 / 优先级 / 点击穿透都不变 ✓（✗ 不是数据口径 ✗）。
+        /// ★ 非法值 ⇒ 回落默认 + 一句明确提示（✗ 不崩 ✗ 不静默当默认 ✓）。</summary>
+        public string OverlayLightStyle = "dot";
 
         public ToolkitConfig Copy()
         {
@@ -91,7 +98,7 @@ namespace Dsht.Domain.Model
             c.CheckUpdate = CheckUpdate; c.CheckDshUpdate = CheckDshUpdate; c.DshVersions = DshVersions;
             c.UpdateChannel = UpdateChannel; c.CloseAction = CloseAction; c.AutoStart = AutoStart; c.AutoStartTarget = AutoStartTarget; c.BrowserMode = BrowserMode; c.UiParallel = UiParallel; c.ScanChildren = ScanChildren; c.GuiStartPage = GuiStartPage; c.GuiAutoRefresh = GuiAutoRefresh; c.GuiShell = GuiShell; c.GuiStyle = GuiStyle; c.BalanceKey = BalanceKey;
             c.SessionsDefaultLevel = SessionsDefaultLevel; c.SessionsPriceInPerMTok = SessionsPriceInPerMTok; c.SessionsPriceCacheReadPerMTok = SessionsPriceCacheReadPerMTok; c.SessionsPriceCacheWritePerMTok = SessionsPriceCacheWritePerMTok; c.SessionsPriceOutPerMTok = SessionsPriceOutPerMTok; c.SessionsBudgetUsdPerDay = SessionsBudgetUsdPerDay;
-            c.OverlayEnabled = OverlayEnabled; c.OverlayEdge = OverlayEdge; c.OverlayOffset = OverlayOffset; c.OverlayScale = OverlayScale; c.OverlayScreen = OverlayScreen; c.OverlayShowTitle = OverlayShowTitle;
+            c.OverlayEnabled = OverlayEnabled; c.OverlayEdge = OverlayEdge; c.OverlayOffset = OverlayOffset; c.OverlayScale = OverlayScale; c.OverlayScreen = OverlayScreen; c.OverlayShowTitle = OverlayShowTitle; c.OverlayLightStyle = OverlayLightStyle;
             return c;
         }
     }

@@ -13,6 +13,24 @@ namespace Dsht.Domain.Services
     /// 序列化固定键顺序 + CRLF，与 v2.x 一致（便于比对）。</summary>
     public static class ConfigCodec
     {
+        /// <summary>★ 悬边灯样式的三个**语义取值**（唯一白名单 ✓ 语义化 · ✗ 不是 a/b/c 位置代号 ✗）：
+        /// <c>line</c> = A 极简细条 · <c>dot</c> = B 圆点 + 轻环 · <c>capsule</c> = C 双端胶囊。
+        /// ★ 与 GUI 的 <c>DesignTokens.LampStyleKeys</c> 必须逐字一致（两边各有断言盯着 ✓）。</summary>
+        public static readonly string[] OverlayLightStyles = { "line", "dot", "capsule" };
+
+        /// <summary>悬边灯样式的**默认值** = <c>dot</c>（B 圆点 + 轻环 ✓ 2026-10-28 维护者拍板）。
+        /// ★ 与 GUI 的 <c>DesignTokens.DefaultLampStyleKey</c> 是同一款（✗ 不是两套默认 ✗）。</summary>
+        public const string DefaultOverlayLightStyle = "dot";
+
+        /// <summary>这个值是不是合法的悬边灯样式（trim + 忽略大小写 ✓；非法一律 false ✗ 不猜 ✗）。</summary>
+        public static bool IsOverlayLightStyle(string raw)
+        {
+            if (raw == null) return false;
+            string v = raw.Trim().ToLowerInvariant();
+            for (int i = 0; i < OverlayLightStyles.Length; i++) if (OverlayLightStyles[i] == v) return true;
+            return false;
+        }
+
         public static ToolkitConfig Parse(string text, Func<string, string> canonicalizePath)
         {
             ToolkitConfig c = new ToolkitConfig();
@@ -121,6 +139,14 @@ namespace Dsht.Domain.Services
                 string v = t.Substring("overlay_enabled=".Length).Trim().ToLowerInvariant();
                 if (v.Length > 0) c.OverlayEnabled = v != "off";
             }
+            else if (t.StartsWith("overlay_light_style=", StringComparison.Ordinal))
+            {
+                // ★ 三个语义值之外**不认** ⇒ 保持默认 dot ✓（✗ 不猜 ✗）。
+                //   这里的"回落"不是静默：`config-get` 会读**原始文本**发现非法值 ⇒ 打一行 CONFIGWARN 明说 ✓
+                //   （✗ 不崩 ✗ 不把非法值当合法存下去 ✓）
+                string v = t.Substring("overlay_light_style=".Length).Trim().ToLowerInvariant();
+                if (IsOverlayLightStyle(v)) c.OverlayLightStyle = v;
+            }
             else if (t.StartsWith("overlay_edge=", StringComparison.Ordinal))
             {
                 string v = t.Substring("overlay_edge=".Length).Trim().ToLowerInvariant();
@@ -186,6 +212,7 @@ namespace Dsht.Domain.Services
             sb.Append("sessions_budget_usd_per_day=").Append(c.SessionsBudgetUsdPerDay.ToString(System.Globalization.CultureInfo.InvariantCulture)).Append("\r\n");
             // —— 悬边状态灯悬浮窗（2026-10-26 · 提案 §11 ✓）——
             sb.Append("overlay_enabled=").Append(c.OverlayEnabled ? "on" : "off").Append("\r\n");
+            sb.Append("overlay_light_style=").Append(string.IsNullOrEmpty(c.OverlayLightStyle) ? DefaultOverlayLightStyle : c.OverlayLightStyle).Append("\r\n");
             sb.Append("overlay_edge=").Append(c.OverlayEdge).Append("\r\n");
             sb.Append("overlay_offset=").Append(c.OverlayOffset.ToString(System.Globalization.CultureInfo.InvariantCulture)).Append("\r\n");
             sb.Append("overlay_scale=").Append(c.OverlayScale).Append("\r\n");

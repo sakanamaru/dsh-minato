@@ -409,8 +409,9 @@ namespace Dsht.Gui.Avalonia.Design
         // =====================================================================================
         //  ⑦d 悬边灯样式变体（2026-10-28）：极简细条 / 圆点轻环 / 双端点胶囊
         //     ★ 三个变体只是**同一套语义 + 同一张 token 表**的三种画法 ✗ 不改一色一信号 ✗
-        //     ★ 评审期可用环境变量 DSHT_OVERLAY_LAMP=a|b|c 选看；默认值 = 推荐的那一款 ✓
-        //       （环境变量只影响画法，不落盘、不进任何标记行、不参与数据口径 ✓）
+        //     ★ 选择它的**唯一来源** = 配置键 `overlay_light_style`（语义值 line / dot / capsule ✓）
+        //       ✗ 没有第二套状态键 ✗ —— 评审期那个环境变量已移除（设置页才是选择入口 ✓）。
+        //     ★ 默认 = B 圆点 + 轻环（维护者 2026-10-28 拍板 ✓ 此前默认是 C ✗）。
         // =====================================================================================
 
         /// <summary>悬边灯的三种画法。枚举值只用于确定性排序/断言，不承载语义 ✗。</summary>
@@ -427,21 +428,18 @@ namespace Dsht.Gui.Avalonia.Design
         public const int LampVariantCount = 3;
         public static readonly LampVariant[] LampVariants = { LampVariant.Minimal, LampVariant.Dot, LampVariant.Capsule };
 
-        /// <summary>评审期选择变体的环境变量（只读一次；✗ 不落盘 ✗）。</summary>
-        public const string OverlayLampEnv = "DSHT_OVERLAY_LAMP";
+        /// <summary>★ 默认变体（维护者 2026-10-28 拍板）：**B 圆点 + 轻环** ——
+        /// 圆点最好点中；这是"没配过这个键"时实际画出来的那一款 ✓。</summary>
+        public const LampVariant DefaultLampVariant = LampVariant.Dot;
 
-        /// <summary>★ 默认变体（推荐款）：双端点胶囊 —— 保留原有"细长胶囊"的形态语言，
-        /// 更窄、更淡，两端微亮；比圆点更像"悬边灯"、比细条更好点中（理由见施工记录 §3）。</summary>
-        public const LampVariant DefaultLampVariant = LampVariant.Capsule;
+        /// <summary>★ 配置键 `overlay_light_style` 的三个**语义取值**（✗ 不用 a/b/c 位置代号 ✗）。
+        /// 顺序 = A/B/C（设置页按它排列 ✓）；必须与 CLI 的 `ConfigCodec.OverlayLightStyles`
+        /// **逐字一致**（两边各有断言盯着 ✓ 改一处即红 ✓）。</summary>
+        public static readonly string[] LampStyleKeys = { "line", "dot", "capsule" };
 
-        private static LampVariant _lampVariant = DefaultLampVariant;
-
-        /// <summary>当前生效的变体（唯一读取点 ✓ 绘制与断言都读它 ✓）。</summary>
-        public static LampVariant OverlayLampVariant
-        {
-            get { return _lampVariant; }
-            set { _lampVariant = ClampVariant(value); }
-        }
+        /// <summary>默认样式的**语义键**（= B 圆点 + 轻环 ✓ 与 <see cref="DefaultLampVariant"/> 同一款；
+        /// 两者的一致性有断言盯着 ✓ 不许各写一份默认 ✗）。</summary>
+        public const string DefaultLampStyleKey = "dot";
 
         /// <summary>越界/未知 ⇒ 默认款（✗ 不静默变成第 0 个之外的东西 ✗）。</summary>
         public static LampVariant ClampVariant(LampVariant v)
@@ -449,28 +447,38 @@ namespace Dsht.Gui.Avalonia.Design
             return (v == LampVariant.Minimal || v == LampVariant.Dot || v == LampVariant.Capsule) ? v : DefaultLampVariant;
         }
 
-        /// <summary>解析评审用环境变量：a/minimal/thin → A · b/dot/ring → B · c/capsule → C；
-        /// 其它/空 ⇒ 当前值（✗ 不猜成"没有变体" ✗）。</summary>
-        public static LampVariant ParseLampVariant(string v)
+        /// <summary>变体 → 语义键（line / dot / capsule ✓）。</summary>
+        public static string LampStyleKeyOf(LampVariant v)
         {
-            if (string.IsNullOrEmpty(v)) return _lampVariant;
-            string t = v.Trim().ToLowerInvariant();
-            if (t == "a" || t == "minimal" || t == "thin" || t == "极简") return LampVariant.Minimal;
-            if (t == "c" || t == "capsule" || t == "双端" || t == "胶囊") return LampVariant.Capsule;
-            if (t == "b" || t == "dot" || t == "ring" || t == "圆点") return LampVariant.Dot;
-            return _lampVariant;
+            if (v == LampVariant.Minimal) return "line";
+            if (v == LampVariant.Capsule) return "capsule";
+            return "dot";
         }
 
-        /// <summary>从环境变量读一次（评审用 ✓ 幂等 ✓）；没设 ⇒ 保持默认款 ✓。</summary>
-        public static LampVariant ReadLampVariantFromEnvironment()
+        /// <summary>这个字符串是不是合法的样式键（trim + 忽略大小写 ✓ 非法一律 false ✗ 不猜 ✗）。</summary>
+        public static bool IsLampStyleKey(string raw)
         {
-            string v = null;
-            try { v = Environment.GetEnvironmentVariable(OverlayLampEnv); } catch { }
-            _lampVariant = ParseLampVariant(v);
-            return _lampVariant;
+            if (raw == null) return false;
+            string t = raw.Trim().ToLowerInvariant();
+            for (int i = 0; i < LampStyleKeys.Length; i++) if (LampStyleKeys[i] == t) return true;
+            return false;
         }
 
-        /// <summary>变体名（只用于施工记录/断言日志 ✓ 不是用户可见文案 ✓）。</summary>
+        /// <summary>语义键 → 变体（**严格的三个值** ✓ 其它/空 ⇒ 默认款 ✓ 不猜 ✗）。
+        /// <para>★ 这是"配置里的值 → 实际画出来的那一款"的**唯一映射点** ✓
+        /// （设置页预览与悬边灯都走它 ⇒ 选中的就是看到的 ✓）。</para></summary>
+        public static LampVariant ParseLampStyle(string raw)
+        {
+            if (raw == null) return DefaultLampVariant;
+            string t = raw.Trim().ToLowerInvariant();
+            if (t == "line") return LampVariant.Minimal;
+            if (t == "capsule") return LampVariant.Capsule;
+            if (t == "dot") return LampVariant.Dot;
+            return DefaultLampVariant;
+        }
+
+        /// <summary>变体名（只用于施工记录/断言日志 ✓ 不是用户可见文案 ✓ —— 用户看到的名字在
+        /// `Markers/OverlayStyleCatalog.cs` 一处）。</summary>
         public static string LampVariantName(LampVariant v)
         {
             if (v == LampVariant.Minimal) return "A · 极简细条";
@@ -637,6 +645,21 @@ namespace Dsht.Gui.Avalonia.Design
 
         /// <summary>一次性淡入的基准位移（<see cref="EdgeLampSpec.FadeDy"/> 的兜底值 ✓）。</summary>
         public const double LightFadeDy = 4;
+
+        // =====================================================================================
+        //  ⑦e 设置页"三选一"的小预览（2026-10-28）
+        //     ★ 预览就是**同一款灯**按比例缩小：几何走 EdgeLampOf ✓ 画法走 StatusLight.Create ✓
+        //       ✗ 不另画一套 ✗ 也不自造色值 ✗；这里只给"缩小多少 / 预览框多大"这几个尺寸 ✓
+        // =====================================================================================
+
+        /// <summary>预览缩放（悬边灯标准档 1 的几何 × 它 ⇒ 78px 的胶囊缩到约 47px ✓）。</summary>
+        public const double StylePreviewScale = 0.6;
+        /// <summary>预览小方块的宽（4 的倍数 ✓ 三种样式都放得下）。</summary>
+        public const double StylePreviewWidth = 132;
+        /// <summary>预览小方块的高（4 的倍数 ✓ 最长的胶囊 47px 也放得下）。</summary>
+        public const double StylePreviewHeight = 64;
+        /// <summary>预览里示意"屏幕边缘"的那条发丝线宽度（贴右缘 ✓ 让"这是悬边灯"一眼可读）。</summary>
+        public const double StylePreviewEdgeWidth = 2;
 
         // =====================================================================================
         //  ⑧ 纯色math（不依赖任何图形库 ⇒ 断言可在无图形环境里算对比度 ✓）

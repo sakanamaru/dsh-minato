@@ -1859,16 +1859,16 @@ namespace Dsht.Gui.LogicTests
             bool mnTone = !OverlayMenu.HasMark(mnAll) && !OverlayMenu.HasBuilderTone(mnAll);
             Check("⑯-4 · 右键菜单 / 回执 / 托盘文案：零 ✓/✗ 记号、零施工语气（✗ 用户可见即红）", mnTone);
 
-            // ⑯-5 三款变体：枚举完整、名字互不相同、解析可逆
+            // ⑯-5 三款变体：枚举完整、名字互不相同、语义键可逆（取值语义化 ✓ ✗ 不是 a/b/c 位置代号 ✗）
             bool mvList = DesignTokens.LampVariants.Length == DesignTokens.LampVariantCount
                 && DesignTokens.LampVariantCount == 3
                 && DesignTokens.LampVariantName(DesignTokens.LampVariant.Minimal) != DesignTokens.LampVariantName(DesignTokens.LampVariant.Dot)
                 && DesignTokens.LampVariantName(DesignTokens.LampVariant.Dot) != DesignTokens.LampVariantName(DesignTokens.LampVariant.Capsule)
-                && DesignTokens.ParseLampVariant("a") == DesignTokens.LampVariant.Minimal
-                && DesignTokens.ParseLampVariant("b") == DesignTokens.LampVariant.Dot
-                && DesignTokens.ParseLampVariant("c") == DesignTokens.LampVariant.Capsule
+                && DesignTokens.ParseLampStyle("line") == DesignTokens.LampVariant.Minimal
+                && DesignTokens.ParseLampStyle("dot") == DesignTokens.LampVariant.Dot
+                && DesignTokens.ParseLampStyle("capsule") == DesignTokens.LampVariant.Capsule
                 && DesignTokens.ClampVariant((DesignTokens.LampVariant)99) == DesignTokens.DefaultLampVariant;
-            Check("⑯-5 · 三款变体枚举 / 名字 / 环境变量解析都完整（a→A · b→B · c→C；未知回落默认款 ✓）", mvList);
+            Check("⑯-5 · 三款变体枚举 / 名字 / 语义键解析都完整（line→A · dot→B · capsule→C；未知回落默认款 ✓）", mvList);
 
             // ⑯-6 三款几何真的不同 + 全部来自 token（B 的圆点比旧圆点大 ✓）
             bool mvGeom = true;
@@ -1956,16 +1956,102 @@ namespace Dsht.Gui.LogicTests
             }
             Check("⑯-9 · 两档共用一个键：本次隐藏正文里 0 处 config-set；永久关闭写 `overlay_enabled off`；没有第二套 overlay_hidden 键", mvSameKey);
 
-            // ⑯-10 源码级：变体选择只影响画法（启动读一次环境变量 + 绘制走 EdgeLampOf）
+            // ⑯-10 源码级：样式选择只影响画法（选择来自**配置键** ✓ 绘制走 EdgeLampOf ✓ 三款画法一处）
             string progPath = vtGuiDir == null ? null : System.IO.Path.Combine(vtGuiDir, "Program.cs");
             string progTxt = ReadIfExists(progPath);
-            bool mvWiring = progTxt.IndexOf("ReadLampVariantFromEnvironment", StringComparison.Ordinal) >= 0
+            bool mvWiring = progTxt.IndexOf("ReadLampVariantFromEnvironment", StringComparison.Ordinal) < 0   // 评审环境变量已移除 ✗ 不是第二套状态 ✗
                 && progTxt.IndexOf("ReadReducedMotionFromEnvironment", StringComparison.Ordinal) >= 0
+                && ovTxt.IndexOf("_host.OverlayLightStyleValue", StringComparison.Ordinal) >= 0
+                && ovTxt.IndexOf("OverlayStyleCatalog.NormalizeKey", StringComparison.Ordinal) >= 0
                 && ovTxt.IndexOf("DesignTokens.EdgeLampOf(", StringComparison.Ordinal) >= 0
                 && ltLightTxt.IndexOf("CreateMinimalBar", StringComparison.Ordinal) >= 0
                 && ltLightTxt.IndexOf("CreateDotRing", StringComparison.Ordinal) >= 0
                 && ltLightTxt.IndexOf("CreateCapsule", StringComparison.Ordinal) >= 0;
-            Check("⑯-10 · 变体选择只影响画法：启动各读一次环境变量；界面走 EdgeLampOf；三款画法都在 StatusLight 一处", mvWiring);
+            Check("⑯-10 · 样式选择只影响画法：选择来自配置键（✗ 不再有评审环境变量 ✗）；界面走 EdgeLampOf；三款画法都在 StatusLight 一处", mvWiring);
+
+            // ===== ⑯b 悬边灯样式：默认 B + 设置三选一 + 即时生效（2026-10-28）=====
+            Console.WriteLine();
+            Console.WriteLine("== 悬边灯样式：默认 = B · 设置里三选一 · 即时生效 ==");
+
+            // ⑯-11 默认 = B，且"默认键"与"默认变体"是**同一款**（✗ 不许两处各写一份默认 ✗）
+            bool mvdDefault = DesignTokens.DefaultLampVariant == DesignTokens.LampVariant.Dot
+                && DesignTokens.DefaultLampStyleKey == "dot"
+                && DesignTokens.ParseLampStyle(DesignTokens.DefaultLampStyleKey) == DesignTokens.DefaultLampVariant
+                && OverlayStyleCatalog.DefaultKey == "dot"
+                && OverlayStyleCatalog.IsDefault("dot") && !OverlayStyleCatalog.IsDefault("line") && !OverlayStyleCatalog.IsDefault("capsule")
+                && OverlayStyleCatalog.BlurbOf("dot").Contains("默认")
+                && OverlayStyleCatalog.NormalizeKey("") == "dot";
+            Check("⑯-11 · 默认样式 = **B 圆点 + 轻环**：DefaultLampVariant / DefaultLampStyleKey / Catalog.DefaultKey 三处同款（✗ 改回 C 即红）", mvdDefault);
+
+            // ⑯-12 三个语义值都能生效（键 ↔ 变体可逆）；a/b/c 位置代号不是合法取值
+            bool mvdThree = DesignTokens.LampStyleKeys.Length == 3
+                && OverlayStyleCatalog.Keys.Length == 3
+                && OverlayStyleCatalog.Keys[0] == "line" && OverlayStyleCatalog.Keys[1] == "dot" && OverlayStyleCatalog.Keys[2] == "capsule"
+                && DesignTokens.LampStyleKeyOf(DesignTokens.ParseLampStyle("line")) == "line"
+                && DesignTokens.LampStyleKeyOf(DesignTokens.ParseLampStyle("dot")) == "dot"
+                && DesignTokens.LampStyleKeyOf(DesignTokens.ParseLampStyle("capsule")) == "capsule"
+                && DesignTokens.LampStyleKeyOf(DesignTokens.LampVariant.Minimal) == "line"
+                && DesignTokens.LampStyleKeyOf(DesignTokens.LampVariant.Dot) == "dot"
+                && DesignTokens.LampStyleKeyOf(DesignTokens.LampVariant.Capsule) == "capsule"
+                && !OverlayStyleCatalog.IsValidKey("a") && !OverlayStyleCatalog.IsValidKey("b") && !OverlayStyleCatalog.IsValidKey("c")
+                && OverlayStyleCatalog.IsValidKey("LINE") && OverlayStyleCatalog.NormalizeKey(" Capsule ") == "capsule";
+            Check("⑯-12 · 三个语义值都能生效（line / dot / capsule ↔ 三款变体可逆）· a/b/c 位置代号被拒（✗ 不猜 ✗）", mvdThree);
+
+            // ⑯-13 非法值回落默认 + **一句明确提示**（提示由 CLI 的 CONFIGWARN 行给；界面原样转述）
+            string mvdWarn = OverlayStyleCatalog.WarningFromOutput("CONFIGGET_OK\nCONFIG overlay_light_style dot\nCONFIGWARN overlay_light_style 设置里的悬边灯样式「banana」无法识别，已按默认「圆点 + 轻环」处理；在设置里选一次即可改回来\n");
+            bool mvdFallback = DesignTokens.ParseLampStyle("banana") == DesignTokens.LampVariant.Dot
+                && DesignTokens.ParseLampStyle(null) == DesignTokens.LampVariant.Dot
+                && OverlayStyleCatalog.NormalizeKey("banana") == "dot"
+                && OverlayStyleCatalog.NormalizeKey(null) == "dot"
+                && mvdWarn.Contains("banana") && mvdWarn.Contains("无法识别") && mvdWarn.Contains("圆点") && mvdWarn.Contains("默认")
+                && OverlayStyleCatalog.WarningFromOutput("CONFIGGET_OK\nCONFIG overlay_light_style dot\n") == ""      // 合法 ⇒ 不编提示 ✗
+                && OverlayStyleCatalog.WarningFromOutput("") == "";
+            Check("⑯-13 · 非法值回落默认（dot）**且有一句明确提示**（转述 CONFIGWARN 原文；合法时空串 ✗ 不编 ✗）", mvdFallback);
+
+            // ⑯-14 设置页三选一的文案：三个都不同、默认可见、零 ✓/✗、零施工语气
+            string mvdCopy = OverlayStyleCatalog.SectionTitle + "|" + OverlayStyleCatalog.SectionNote + "|"
+                + OverlayStyleCatalog.DefaultBadge + "|" + OverlayStyleCatalog.CurrentBadge + "|" + OverlayStyleCatalog.CurrentText("dot")
+                + "|" + OverlayStyleCatalog.StaleCliHint;
+            for (int mdi = 0; mdi < OverlayStyleCatalog.Keys.Length; mdi++)
+                mvdCopy += "|" + OverlayStyleCatalog.NameOf(OverlayStyleCatalog.Keys[mdi]) + "|" + OverlayStyleCatalog.BlurbOf(OverlayStyleCatalog.Keys[mdi]);
+            bool mvdCopyOk = OverlayStyleCatalog.NameOf("line") != OverlayStyleCatalog.NameOf("dot")
+                && OverlayStyleCatalog.NameOf("dot") != OverlayStyleCatalog.NameOf("capsule")
+                && OverlayStyleCatalog.BlurbOf("line") != OverlayStyleCatalog.BlurbOf("dot")
+                && OverlayStyleCatalog.BlurbOf("dot") != OverlayStyleCatalog.BlurbOf("capsule")
+                && OverlayStyleCatalog.BlurbOf("line").Contains("最不打扰")
+                && OverlayStyleCatalog.BlurbOf("dot").Contains("最好点中")
+                && OverlayStyleCatalog.BlurbOf("capsule").Contains("胶囊形态")
+                && OverlayStyleCatalog.NameOf("line").Contains("A") && OverlayStyleCatalog.NameOf("dot").Contains("B") && OverlayStyleCatalog.NameOf("capsule").Contains("C")
+                && OverlayStyleCatalog.CurrentText("capsule").Contains("双端胶囊")
+                && !OverlayMenu.HasMark(mvdCopy) && !OverlayMenu.HasBuilderTone(mvdCopy);
+            Check("⑯-14 · 三选一文案：三个名称/人话互不相同、默认款自带「默认」、当前款说「当前使用」、零 ✓/✗ 记号与施工语气", mvdCopyOk);
+
+            // ⑯-15 源码级：设置页三选一 + 设置与悬浮窗读**同一个**键 + 改设置立刻重画 + 没有第二套状态键
+            string mwTxt2 = ReadIfExists(vtGuiDir == null ? null : System.IO.Path.Combine(vtGuiDir, "MainWindow.axaml.cs"));
+            string opsTxt = ReadIfExists(vtGuiDir == null ? null : System.IO.Path.Combine(vtGuiDir, "Shells", "Shells.Pages.Operations.cs"));
+            string setCfgBody = "";
+            if (!string.IsNullOrEmpty(mwTxt2))
+            {
+                int s0 = mwTxt2.IndexOf("public void SetConfig(string key, string value)", StringComparison.Ordinal);
+                int s1 = mwTxt2.IndexOf("// —— 动作串行闸门", StringComparison.Ordinal);
+                if (s0 >= 0 && s1 > s0) setCfgBody = mwTxt2.Substring(s0, s1 - s0);
+            }
+            bool mvdWiring2 = mwTxt2.IndexOf("CONFIG overlay_light_style ", StringComparison.Ordinal) >= 0
+                && mwTxt2.IndexOf("public string OverlayLightStyleValue", StringComparison.Ordinal) >= 0
+                && setCfgBody.IndexOf("string.Equals(key, \"overlay_light_style\"", StringComparison.Ordinal) >= 0
+                && setCfgBody.IndexOf("_ovLightStyle = OverlayStyleCatalog.NormalizeKey(value);", StringComparison.Ordinal) >= 0
+                && setCfgBody.IndexOf("if (_overlay != null) _overlay.UpdateFromHost();", StringComparison.Ordinal) >= 0   // 立刻重画（✗ 不等重启/下一拍 ✗）
+                && mwTxt2.IndexOf("DSHT_OVERLAY_LAMP", StringComparison.Ordinal) < 0
+                && mwTxt2.IndexOf("overlay_light_style_variant", StringComparison.Ordinal) < 0
+                && ovTxt.IndexOf("_host.OverlayLightStyleValue", StringComparison.Ordinal) >= 0
+                && opsTxt.IndexOf("OverlayLightStyleChooser(", StringComparison.Ordinal) >= 0
+                && opsTxt.IndexOf("OverlayStyleCatalog.Keys", StringComparison.Ordinal) >= 0
+                && opsTxt.IndexOf("OverlayStylePreview(", StringComparison.Ordinal) >= 0
+                && opsTxt.IndexOf("OverlayStyleCatalog.NameOf(", StringComparison.Ordinal) >= 0
+                && opsTxt.IndexOf("OverlayStyleCatalog.BlurbOf(", StringComparison.Ordinal) >= 0
+                && opsTxt.IndexOf("OverlayStyleCatalog.DefaultBadge", StringComparison.Ordinal) >= 0
+                && opsTxt.IndexOf("SetConfig(OverlayStyleCatalog.Key", StringComparison.Ordinal) >= 0;
+            Check("⑯-15 · 接线：设置页三选一（三个选项 + 预览）· 设置/悬浮窗读同一个键 · 改设置立刻重画 · 无第二套状态键", mvdWiring2);
 
             Console.WriteLine("== " + _pass + "/" + (_pass + _fail) + " passed, " + _fail + " failed ==");
             return _fail == 0 ? 0 : 1;

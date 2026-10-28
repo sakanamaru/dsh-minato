@@ -81,7 +81,7 @@ namespace Dsht.Cli
             if (cmd == "backup-dir") return BackupDirCmd(args, reg);   // ✓ 备份位置查看/设置 ✓（用户要求"备份路径在备份页面里设置并且显示" ✓）
             if (cmd == "doctor") return Doctor(args, reg);
             if (cmd == "version") { Console.WriteLine("DSHT_VERSION " + ToolkitVersion); return 0; }
-            if (cmd == "config-get") return ConfigGet();
+            if (cmd == "config-get") return ConfigGet(reg);
             if (cmd == "config-set") return ConfigSet(args, reg);
             if (cmd == "bootdiag") return BootDiag(args, reg);
             if (cmd == "restore") return Restore(args, reg);

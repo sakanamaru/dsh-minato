@@ -1390,34 +1390,47 @@ static class ContractTests
                 "{\"version\":7,\"record\":{\"identity\":{\"createdAt\":1},\"rows\":{\"modelSelection\":{\"ver\":2,\"seq\":1,\"val\":{\"lastUsed\":null,\"pending\":null}}}}}", "z");
             Check("模型：lastUsed=null → 空串（✗ 不打 null 字面量 ✗）", psNull != null && psNull.LastUsedModel == "");
         }
-        Console.WriteLine("[38b] 悬边状态灯：六个配置键的四处同步（提案 §11 · 2026-10-26）");
+        Console.WriteLine("[38b] 悬边状态灯：七个配置键的四处同步（提案 §11 · 2026-10-26；灯样式键 2026-10-28）");
         {
             System.Func<string,string> canon3 = delegate(string wsPath) { return wsPath; };
-            // ① ToolkitConfig 默认值（**overlay_enabled 默认 off** ✓ 提案 §9 不默认开 ✓；标题开关**默认关** ✓ 红线 A ✓）
+            // ① ToolkitConfig 默认值（**overlay_enabled 默认 off** ✓ 提案 §9 不默认开 ✓；标题开关**默认关** ✓ 红线 A ✓；
+            //    ★ 灯样式**默认 = dot = B 圆点 + 轻环** ✓ 维护者 2026-10-28 拍板 —— 此前默认是 C ✗）
             ToolkitConfig d0 = new ToolkitConfig();
-            Check("悬浮窗键·默认值：enabled=off ✓ · edge=right ✓ · offset=0.5 ✓ · scale=1 ✓ · screen 空 ✓ · show_title=**off** ✓",
-                !d0.OverlayEnabled && d0.OverlayEdge == "right" && d0.OverlayOffset == 0.5m && d0.OverlayScale == 1
+            Check("悬浮窗键·默认值：enabled=off ✓ · light_style=**dot(B)** ✓ · edge=right ✓ · offset=0.5 ✓ · scale=1 ✓ · screen 空 ✓ · show_title=**off** ✓",
+                !d0.OverlayEnabled && d0.OverlayLightStyle == "dot" && d0.OverlayEdge == "right" && d0.OverlayOffset == 0.5m && d0.OverlayScale == 1
                 && d0.OverlayScreen == "" && !d0.OverlayShowTitle);
             // ② ConfigCodec：解析 + 序列化（两处都在这一个文件里 ✓ 漏一处就落盘丢 ✓）
-            ToolkitConfig pc = ConfigCodec.Parse("overlay_enabled=on\noverlay_edge=top\noverlay_offset=0.25\noverlay_scale=2\noverlay_screen=\\\\.\\DISPLAY2\noverlay_show_title=on\n", canon3);
-            Check("悬浮窗键·ConfigCodec 解析：六个键全部读进来 ✓",
-                pc.OverlayEnabled && pc.OverlayEdge == "top" && pc.OverlayOffset == 0.25m && pc.OverlayScale == 2
+            ToolkitConfig pc = ConfigCodec.Parse("overlay_enabled=on\noverlay_light_style=capsule\noverlay_edge=top\noverlay_offset=0.25\noverlay_scale=2\noverlay_screen=\\\\.\\DISPLAY2\noverlay_show_title=on\n", canon3);
+            Check("悬浮窗键·ConfigCodec 解析：七个键全部读进来 ✓",
+                pc.OverlayEnabled && pc.OverlayLightStyle == "capsule" && pc.OverlayEdge == "top" && pc.OverlayOffset == 0.25m && pc.OverlayScale == 2
                 && pc.OverlayScreen == @"\\.\DISPLAY2" && pc.OverlayShowTitle);
             string ovSer = ConfigCodec.Serialize(pc);
-            Check("悬浮窗键·ConfigCodec 序列化：六个键都落盘（✗ 漏一个 = 重启就忘 ✗）",
-                ovSer.Contains("overlay_enabled=on") && ovSer.Contains("overlay_edge=top") && ovSer.Contains("overlay_offset=0.25")
+            Check("悬浮窗键·ConfigCodec 序列化：七个键都落盘（✗ 漏一个 = 重启就忘 ✗）",
+                ovSer.Contains("overlay_enabled=on") && ovSer.Contains("overlay_light_style=capsule") && ovSer.Contains("overlay_edge=top") && ovSer.Contains("overlay_offset=0.25")
                 && ovSer.Contains("overlay_scale=2") && ovSer.Contains("overlay_screen=") && ovSer.Contains("overlay_show_title=on"));
             Check("悬浮窗键·往返一致（Parse(Serialize(x)) == x ✓ 这是位置记忆能成立的前提 ✓）",
                 ConfigCodec.Serialize(ConfigCodec.Parse(ovSer, canon3)) == ovSer);
-            Check("悬浮窗键·越界/畸形保持默认（✗ 不猜 ✗）：edge=middle / offset=1.5 / scale=9 / offset=abc",
+            Check("悬浮窗键·越界/畸形保持默认（✗ 不猜 ✗）：edge=middle / offset=1.5 / scale=9 / offset=abc / light_style=banana",
                 ConfigCodec.Parse("overlay_edge=middle\n", canon3).OverlayEdge == "right"
                 && ConfigCodec.Parse("overlay_offset=1.5\n", canon3).OverlayOffset == 0.5m
                 && ConfigCodec.Parse("overlay_offset=abc\n", canon3).OverlayOffset == 0.5m
-                && ConfigCodec.Parse("overlay_scale=9\n", canon3).OverlayScale == 1);
+                && ConfigCodec.Parse("overlay_scale=9\n", canon3).OverlayScale == 1
+                && ConfigCodec.Parse("overlay_light_style=banana\n", canon3).OverlayLightStyle == "dot"
+                && ConfigCodec.Parse("overlay_light_style=\n", canon3).OverlayLightStyle == "dot"
+                && ConfigCodec.Parse("overlay_light_style=b\n", canon3).OverlayLightStyle == "dot");   // ★ a/b/c 位置代号不是合法取值 ✗
+            Check("悬浮窗键·灯样式三个语义值都能解析（line=A / dot=B / capsule=C ✓ 大小写与空白归一化 ✓）",
+                ConfigCodec.Parse("overlay_light_style=line\n", canon3).OverlayLightStyle == "line"
+                && ConfigCodec.Parse("overlay_light_style=dot\n", canon3).OverlayLightStyle == "dot"
+                && ConfigCodec.Parse("overlay_light_style= Capsule \n", canon3).OverlayLightStyle == "capsule"
+                && ConfigCodec.IsOverlayLightStyle("LINE") && ConfigCodec.IsOverlayLightStyle("capsule")
+                && !ConfigCodec.IsOverlayLightStyle("a") && !ConfigCodec.IsOverlayLightStyle("c") && !ConfigCodec.IsOverlayLightStyle(""));
             // ③ ConfigValidator：白名单 + ApplyTo（两处 ✓ 只加一处 ⇒ config-set 报 unknown-key ✗ 实测踩过 ✓）
             Check("悬浮窗键·校验白名单：合法值通过 ✓",
                 ConfigValidator.Validate("overlay_enabled", "on", canon3) == null
                 && ConfigValidator.Validate("overlay_enabled", "off", canon3) == null
+                && ConfigValidator.Validate("overlay_light_style", "line", canon3) == null
+                && ConfigValidator.Validate("overlay_light_style", "dot", canon3) == null
+                && ConfigValidator.Validate("overlay_light_style", "capsule", canon3) == null
                 && ConfigValidator.Validate("overlay_edge", "bottom", canon3) == null
                 && ConfigValidator.Validate("overlay_offset", "0", canon3) == null
                 && ConfigValidator.Validate("overlay_offset", "1", canon3) == null
@@ -1425,8 +1438,13 @@ static class ContractTests
                 && ConfigValidator.Validate("overlay_scale", "2", canon3) == null
                 && ConfigValidator.Validate("overlay_screen", @"\\.\DISPLAY1", canon3) == null
                 && ConfigValidator.Validate("overlay_show_title", "off", canon3) == null);
-            Check("悬浮窗键·校验白名单：非法值一律 bad-value（✗ 不猜 ✗）",
+            Check("悬浮窗键·校验白名单：非法值一律 bad-value（✗ 不猜 ✗）—— 含 a/b/c 位置代号与空串",
                 ConfigValidator.Validate("overlay_enabled", "yes", canon3) == "bad-value"
+                && ConfigValidator.Validate("overlay_light_style", "a", canon3) == "bad-value"
+                && ConfigValidator.Validate("overlay_light_style", "b", canon3) == "bad-value"
+                && ConfigValidator.Validate("overlay_light_style", "c", canon3) == "bad-value"
+                && ConfigValidator.Validate("overlay_light_style", "banana", canon3) == "bad-value"
+                && ConfigValidator.Validate("overlay_light_style", "", canon3) == "bad-value"
                 && ConfigValidator.Validate("overlay_edge", "middle", canon3) == "bad-value"
                 && ConfigValidator.Validate("overlay_offset", "1.5", canon3) == "bad-value"
                 && ConfigValidator.Validate("overlay_offset", "-0.1", canon3) == "bad-value"
@@ -1438,13 +1456,18 @@ static class ContractTests
             Check("悬浮窗键·ApplyTo 落值 + 越界保持原值（双保险 ✓）",
                 ConfigValidator.ApplyTo(new ToolkitConfig(), "overlay_edge", "left", canon3).OverlayEdge == "left"
                 && ConfigValidator.ApplyTo(new ToolkitConfig(), "overlay_edge", "middle", canon3).OverlayEdge == "right"
+                && ConfigValidator.ApplyTo(new ToolkitConfig(), "overlay_light_style", "line", canon3).OverlayLightStyle == "line"
+                && ConfigValidator.ApplyTo(new ToolkitConfig(), "overlay_light_style", " Capsule ", canon3).OverlayLightStyle == "capsule"
+                && ConfigValidator.ApplyTo(new ToolkitConfig(), "overlay_light_style", "banana", canon3).OverlayLightStyle == "dot"
                 && ConfigValidator.ApplyTo(new ToolkitConfig(), "overlay_scale", "2", canon3).OverlayScale == 2
                 && ConfigValidator.ApplyTo(new ToolkitConfig(), "overlay_show_title", "on", canon3).OverlayShowTitle);
-            Check("悬浮窗键·SameValue 回读判定（写入真的生效 ✓ config-set 的判据 ✓）",
-                ConfigValidator.SameValue(new ToolkitConfig(), "overlay_edge", "left", canon3)
-                && ConfigValidator.SameValue(new ToolkitConfig(), "overlay_enabled", "on", canon3)
-                && ConfigValidator.SameValue(new ToolkitConfig(), "overlay_scale", "2", canon3));
-            Check("悬浮窗键·Copy() 带上全部六个（✗ 漏拷 = 活配置与落盘分叉 ✗）",
+            // ⚠ 口径说明：SameValue 是"应用后配置是否没变"，而 ApplyTo 会**原地改传入对象** ⇒
+            //   现有断言里那三个用例恒 true（既存实现如此，生产代码不用它；不在本单范围内改它 ✗）。
+            //   这里只把新键接进这条**冒烟**路径（"默认值 dot 再设 dot 不产生变化" 在正确语义下也成立 ✓），
+            //   负向语义不在这里断言（避免把那个既存缺陷固化成"期望" ✗）。
+            Check("悬浮窗键·SameValue 冒烟：灯样式默认 dot 再设 dot 不产生变化 ✓（负向语义见施工记录未验证清单 ✓）",
+                ConfigValidator.SameValue(new ToolkitConfig(), "overlay_light_style", "dot", canon3));
+            Check("悬浮窗键·Copy() 带上全部七个（✗ 漏拷 = 活配置与落盘分叉 ✗）",
                 ConfigCodec.Serialize(pc.Copy()) == ovSer);
         }
         Console.WriteLine("[39] 会话 id 归一（数据正确性修复 2026-10-16：快照 id 剥前导 session- ⇒ 去重与联表才成立）");

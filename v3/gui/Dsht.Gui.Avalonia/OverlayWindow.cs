@@ -52,11 +52,15 @@ namespace Dsht.Gui.Avalonia
         private readonly MainWindow _host;
         private readonly ParkedMemory _memory = new ParkedMemory();
 
-        // —— 布局偏好（来自既有配置键 ✓ 六个键都在 ToolkitConfig 里 ✓）——
+        // —— 布局偏好（来自既有配置键 ✓ 七个键都在 ToolkitConfig 里 ✓）——
         private string _edge = "right";
         private double _offset = 0.5;
         private int _scale = 1;
         private string _screen = "";
+        /// <summary>悬边灯样式（配置键 `overlay_light_style` 的原值 ✓ 语义键 dot/line/capsule ✓）。</summary>
+        private string _lightStyle = OverlayStyleCatalog.DefaultKey;
+        /// <summary>当前实际画哪一款（由 <see cref="_lightStyle"/> 经**唯一映射点**算出来 ✓）。</summary>
+        private DesignTokens.LampVariant _variant = DesignTokens.DefaultLampVariant;
 
         // —— 视觉树 ——
         private Border _lamp;
@@ -192,7 +196,9 @@ namespace Dsht.Gui.Avalonia
         }
 
         /// <summary>当前档位 + 边方向 + 变体下的灯几何（**全部从 token 表算** ✓
-        /// 基础厚度/长度/余量/圆点也由既有 token 给 ✓ ✗ 界面文件里没有自造灯几何 ✗）。</summary>
+        /// 基础厚度/长度/余量/圆点也由既有 token 给 ✓ ✗ 界面文件里没有自造灯几何 ✗）。
+        /// <para>★ 变体来自**配置键** `overlay_light_style`（<see cref="_variant"/> ✓ 由
+        /// <see cref="OverlayStyleCatalog.VariantOf"/> 映射）；✗ 不是环境变量 ✗ 也不是第二套状态 ✗。</para></summary>
         private DesignTokens.EdgeLampSpec EdgeSpec()
         {
             double t = DesignTokens.LampThicknessOf(_scale);
@@ -200,7 +206,7 @@ namespace Dsht.Gui.Avalonia
             double m = DesignTokens.LampMarginOf(_scale);
             double dot = DesignTokens.LampDotOf(t);
             bool vert = _edge == "left" || _edge == "right";
-            return DesignTokens.EdgeLampOf(DesignTokens.OverlayLampVariant, vert, t, l, m, dot);
+            return DesignTokens.EdgeLampOf(_variant, vert, t, l, m, dot);
         }
 
         /// <summary>灯体卡片的外观（四风格 + 三变体共用；✗ 不变色 ≠ 不改画法 ✗）。
@@ -471,15 +477,20 @@ namespace Dsht.Gui.Avalonia
 
         // ================================================================ 位置 / 尺寸（✗ 不许跑到屏幕外 ✗）
 
-        /// <summary>从主窗口已解析的配置里取六个键 ✓（**不新起进程** ✓ 主窗口那份 config-get 是共用的 ✓）。</summary>
+        /// <summary>从主窗口已解析的配置里取七个键 ✓（**不新起进程** ✓ 主窗口那份 config-get 是共用的 ✓）。
+        /// <para>★ 灯样式也在这条路上（与位置/尺寸同一份配置 ✓ 设置页改了它 ⇒ 这里立刻跟着换 ✓）。</para></summary>
         public void ApplyPlacementFromHost(bool force)
         {
             string e = _host.OverlayEdgeValue;
             double o = _host.OverlayOffsetValue;
             int s = _host.OverlayScaleValue;
             string scr = _host.OverlayScreenValue;
-            bool changed = force || e != _edge || Math.Abs(o - _offset) > 0.0001 || s != _scale || !string.Equals(scr, _screen, StringComparison.Ordinal);
-            _edge = e; _offset = o; _scale = s; _screen = scr;
+            string style = OverlayStyleCatalog.NormalizeKey(_host.OverlayLightStyleValue);
+            bool changed = force || e != _edge || Math.Abs(o - _offset) > 0.0001 || s != _scale
+                || !string.Equals(scr, _screen, StringComparison.Ordinal)
+                || !string.Equals(style, _lightStyle, StringComparison.Ordinal);
+            _edge = e; _offset = o; _scale = s; _screen = scr; _lightStyle = style;
+            _variant = OverlayStyleCatalog.VariantOf(_lightStyle);
             if (changed) { ApplySize(); ApplyPosition(); }
         }
 

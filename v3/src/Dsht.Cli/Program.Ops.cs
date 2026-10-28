@@ -1013,8 +1013,33 @@ namespace Dsht.Cli
             catch (Exception ex) { Console.WriteLine("AUTOSTART_FAIL " + ex.Message); }
             return 0;
         }
-        /// <summary>config-get：CONFIGGET_OK + 每行 CONFIG <key> <value>（顺序与 v2.x 一致）。</summary>
-        private static int ConfigGet()
+        /// <summary>从**配置原文**里取一个键的值（只用于"非法值如实提示" ✓）。
+        /// <para>✗ 解析仍以 <see cref="ConfigCodec.Parse"/> 为唯一规则 ✗ —— 这里只是把**盘上写的那个字符串**
+        /// 原样读回来，好让 `CONFIGWARN` 能说出它到底写了什么 ✓（README 式的"手改配置"是用户会遇到的真场景 ✓）。
+        /// 读不到/读失败 ⇒ 空串 ✓（✗ 不猜 ✗ 不因此报错 ✗）。</para></summary>
+        private static string RawConfigValue(ServiceRegistry reg, string key)
+        {
+            try
+            {
+                string text = reg.Get<IConfigSource>().ReadConfig();
+                if (string.IsNullOrEmpty(text)) return "";
+                string[] ls = text.Replace("\r\n", "\n").Replace('\r', '\n').Split('\n');
+                string prefix = key + "=";
+                for (int i = 0; i < ls.Length; i++)
+                {
+                    string t = (ls[i] == null ? "" : ls[i]).Trim();
+                    if (t.StartsWith(prefix, StringComparison.Ordinal)) return t.Substring(prefix.Length).Trim();
+                }
+            }
+            catch { }
+            return "";
+        }
+
+        /// <summary>config-get：CONFIGGET_OK + 每行 CONFIG <key> <value>（顺序与 v2.x 一致）。
+        /// <para>★ 2026-10-28：多了一个 `CONFIGWARN` 行——**只在**配置原文里的悬边灯样式是非法值时出现：
+        /// 那时解析已回落默认（`dot` ✓），这一行把"回落了、为什么"明说出来
+        /// （✗ 不崩 ✗ 不静默当默认 ✓）。合法/缺省时不打任何多余行 ✓（既有输出逐字不变 ✓）。</para></summary>
+        private static int ConfigGet(ServiceRegistry reg)
         {
             Console.WriteLine("CONFIGGET_OK");
             Console.WriteLine("CONFIG lang " + _cfg.Lang);
@@ -1046,6 +1071,11 @@ namespace Dsht.Cli
             Console.WriteLine("CONFIG sessions_budget_usd_per_day " + _cfg.SessionsBudgetUsdPerDay.ToString(System.Globalization.CultureInfo.InvariantCulture));   // ★ 成本面板 v3.2（2026-10-16 ✓ 维护者已确认键名 ✓）0 = 未设 → 不作超限判定 ✓
             // —— 悬边状态灯悬浮窗（2026-10-26 · 提案 §11 ✓✓）：六个纯 GUI 偏好键（位置/尺寸记忆 + 标题开关 ✓）——
             Console.WriteLine("CONFIG overlay_enabled " + (_cfg.OverlayEnabled ? "on" : "off"));
+            Console.WriteLine("CONFIG overlay_light_style " + _cfg.OverlayLightStyle);   // ★ 悬边灯样式（2026-10-28 ✓ dot=B 默认 / line=A / capsule=C）
+            // ★ 非法值 ⇒ 已回落默认，这里补**一句明确提示**（✗ 不静默当默认 ✓ 读原文才看得见非法值 ✓）
+            string ovStyleRaw = RawConfigValue(reg, "overlay_light_style");
+            if (ovStyleRaw.Length > 0 && !ConfigCodec.IsOverlayLightStyle(ovStyleRaw))
+                Console.WriteLine("CONFIGWARN overlay_light_style " + T("设置里的悬边灯样式「" + ovStyleRaw + "」无法识别，已按默认「圆点 + 轻环」处理；在设置里选一次即可改回来", "the saved lamp style '" + ovStyleRaw + "' is not recognized; falling back to the default (dot + light ring). Pick one in settings to fix it"));
             Console.WriteLine("CONFIG overlay_edge " + _cfg.OverlayEdge);
             Console.WriteLine("CONFIG overlay_offset " + _cfg.OverlayOffset.ToString(System.Globalization.CultureInfo.InvariantCulture));
             Console.WriteLine("CONFIG overlay_scale " + _cfg.OverlayScale);
@@ -1073,6 +1103,7 @@ namespace Dsht.Cli
             Console.WriteLine("CONFIGNOTE host " + T("【dsh 监听地址】127.0.0.1 或 localhost（探测与显示用的回环名，功能等价）", "loopback name used for probing/display: 127.0.0.1 or localhost"));
             // —— 悬边状态灯悬浮窗（2026-10-26 · 提案 §11 ✓）：用户可见文案 ✓ 不带施工语气 ✓ ——
             Console.WriteLine("CONFIGNOTE overlay_enabled " + T("【置顶进度窗】on=在屏幕边缘常驻一个状态灯（悬停或点击展开列表）/ off=不显示（默认）。它只读本地状态，不抢焦点，灯以外的区域点击会落到下面的窗口", "edge status lamp: on = a small always-on-top lamp on a screen edge (hover or click to expand) / off = hidden (default); read-only, never steals focus, clicks outside the lamp go to the window underneath"));
+            Console.WriteLine("CONFIGNOTE overlay_light_style " + T("【悬边灯样式】dot=圆点 + 轻环（默认，最好点中）/ line=极简细条（最不打扰）/ capsule=双端胶囊（保留胶囊形态）——只改灯的形态：颜色含义、优先级与点击穿透都不变；改完立刻生效", "lamp style: dot = round dot with a light ring (default, easiest to hit) / line = minimal thin bar (least intrusive) / capsule = two-ended capsule (keeps the capsule shape). Only the shape changes; colour meaning, priority and click-through stay the same; applies immediately"));
             Console.WriteLine("CONFIGNOTE overlay_edge " + T("【状态灯贴哪一边】left=左 / right=右（默认）/ top=上 / bottom=下", "which screen edge the lamp sticks to"));
             Console.WriteLine("CONFIGNOTE overlay_offset " + T("【状态灯在那条边上的位置】0~1 的比例（0.5=居中，默认）；拖动它会记住新位置", "position along that edge, 0-1 (0.5 = centered); dragging remembers the new spot"));
             Console.WriteLine("CONFIGNOTE overlay_scale " + T("【状态灯尺寸档】0=紧凑 / 1=标准（默认）/ 2=宽松——只缩放灯与列表的字号与厚度", "lamp size: 0 compact / 1 standard / 2 roomy"));

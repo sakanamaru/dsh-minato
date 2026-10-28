@@ -129,6 +129,7 @@ namespace Dsht.Gui.Avalonia.Markers
                     case "sessions_budget_usd_per_day": return "每日预算上限（美元 / 天；0 或留空=不设上限，只在看板提示）";
                     // ★ 悬边状态灯悬浮窗（2026-10-26 · 提案 §11 ✓）：六个纯 GUI 偏好键 ✓
                     case "overlay_enabled": return "置顶进度窗：屏幕边缘的状态灯（默认关）";
+                    case "overlay_light_style": return "悬边灯样式（line=极简细条 / dot=圆点 + 轻环（默认）/ capsule=双端胶囊）";
                     case "overlay_edge": return "状态灯贴哪一边（left / right / top / bottom）";
                     case "overlay_offset": return "状态灯在那条边上的位置（0~1；0.5=居中）";
                     case "overlay_scale": return "状态灯尺寸档（0=紧凑 / 1=标准 / 2=宽松）";

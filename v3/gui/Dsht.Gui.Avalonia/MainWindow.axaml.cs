@@ -411,6 +411,15 @@ namespace Dsht.Gui.Avalonia
                 SyncOverlay();
                 RefreshLiveFields();
             }
+            // ★ 设置页「悬边灯样式」三选一：同样是**同一个键** `overlay_light_style` ✓
+            //   本地状态先换 ⇒ 悬浮窗与设置页预览**立刻**跟着换（✗ 不需要重启 ✗ 不需要等下一拍取数 ✗）；
+            //   落盘仍走下面同一条 `config-set` ✓（✗ 不新增命令 ✗ 不写第二份状态 ✗）
+            if (string.Equals(key, "overlay_light_style", StringComparison.Ordinal))
+            {
+                _ovLightStyle = OverlayStyleCatalog.NormalizeKey(value);
+                if (_overlay != null) _overlay.UpdateFromHost();   // 立刻按新样式重画（几何/圆角/画法都重算 ✓）
+                RefreshLiveFields();
+            }
             InvalidateCfgCache(); RunCliAction("config-set " + key + " \"" + (value == null ? "" : value.Replace("\"", "")) + "\"", "保存设置 " + key);
         }
 
@@ -2325,6 +2334,8 @@ namespace Dsht.Gui.Avalonia
         private int _ovScale = 1;
         private string _ovScreen = "";
         private bool _ovShowTitle;
+        /// <summary>悬边灯样式（配置键 `overlay_light_style` ✓ 语义键 dot/line/capsule ✓ 默认 dot = B）。</summary>
+        private string _ovLightStyle = OverlayStyleCatalog.DefaultKey;
         /// <summary>更新页那一次取数里看到的「插件与随包不一致」（`state=content-mismatch` ✓ 红灯③的唯一信号 ✓）。
         /// ★ 只有 GUI **真的取过** `update-center` 才作数 ✓ —— 不为此再起进程 ✗ 取不到 ⇒ 那盏灯不亮 ✓。</summary>
         private bool _ovPluginSeen, _ovPluginMismatch;
@@ -2340,6 +2351,9 @@ namespace Dsht.Gui.Avalonia
         public double OverlayOffsetValue { get { return _ovOffset; } }
         public int OverlayScaleValue { get { return _ovScale; } }
         public string OverlayScreenValue { get { return _ovScreen; } }
+        /// <summary>悬边灯样式（**设置页与悬浮窗读的就是这一个** ✓ 语义键 dot/line/capsule ✓
+        /// ✗ 没有第二套状态 / 第二个键 ✗）。</summary>
+        public string OverlayLightStyleValue { get { return _ovLightStyle; } }
 
         /// <summary>解析六个悬浮窗配置键（与 `ParseTroubleshootSwitches` 同一份 config-get ✓ 不多起进程 ✓）。
         /// ★ 写盘进行中**跳过**（`_ovWriting`）：那一刻本地值比盘上的旧值新 ✓
@@ -2374,6 +2388,11 @@ namespace Dsht.Gui.Avalonia
                     }
                     else if (t2.StartsWith("CONFIG overlay_screen ", StringComparison.Ordinal)) _ovScreen = t2.Substring("CONFIG overlay_screen ".Length).Trim();
                     else if (t2.StartsWith("CONFIG overlay_show_title ", StringComparison.Ordinal)) _ovShowTitle = t2.Substring("CONFIG overlay_show_title ".Length).Trim() == "on";
+                    else if (t2.StartsWith("CONFIG overlay_light_style ", StringComparison.Ordinal))
+                    {
+                        // ★ 只认三个语义值 ✓ 其它 ⇒ 默认（CLI 会同时给 CONFIGWARN 一行作提示 ✓ 界面原样转述 ✓）
+                        _ovLightStyle = OverlayStyleCatalog.NormalizeKey(t2.Substring("CONFIG overlay_light_style ".Length).Trim());
+                    }
                 }
                 catch { }
             }

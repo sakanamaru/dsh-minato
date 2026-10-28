@@ -8,6 +8,7 @@ using Avalonia.Layout;
 using Avalonia.Media;
 using FluentIcons.Avalonia;
 using FluentIcons.Common;
+using Dsht.Gui.Avalonia.Design;
 using Dsht.Gui.Avalonia.Markers;
 using Dsht.Gui.Avalonia.ViewModels;
 
@@ -1271,9 +1272,17 @@ namespace Dsht.Gui.Avalonia.Shells
 
             string[] costKeys = new string[] { "sessions_price_in_per_mtok", "sessions_price_out_per_mtok", "sessions_price_cache_read_per_mtok", "sessions_price_cache_write_per_mtok", "sessions_budget_usd_per_day" };
 
+            // ★ 置顶进度窗**单独成组**（2026-10-28）：新键 `overlay_light_style` 与它六个同族键放在一起 ——
+            //   用户在原「置顶进度窗」入口附近就能看到三选一 ✓（✗ 不埋进「其它」✗ 也不做成下拉藏起来 ✗：
+            //   三个选项、名称、一句人话与小预览**全部可见** ✓）
+            string[] overlayKeys = new string[] { "overlay_enabled", "overlay_light_style", "overlay_edge", "overlay_offset", "overlay_scale", "overlay_screen", "overlay_show_title" };
+
             List<ConfigItem> placed = new List<ConfigItem>();
 
             RenderSettingsGroup(s, host, PickItems(items, guiKeys, placed), "界面与启动（含排障开关）", null);
+
+            string overlayNote = "悬边灯只读本地状态：不抢焦点，灯以外的区域点击会落到下面的窗口。样式三选一只换灯的形态，颜色含义、优先级与点击穿透都不变，选完立刻生效。";
+            RenderSettingsGroup(s, host, PickItems(items, overlayKeys, placed), "置顶进度窗（屏幕边缘状态灯）", overlayNote);
 
             RenderSettingsGroup(s, host, PickItems(items, dshKeys, placed), "dsh · 更新 · 数据", null);
 
@@ -1317,8 +1326,168 @@ namespace Dsht.Gui.Avalonia.Shells
 
             s.Children.Add(Card(head, new Thickness(0), new Thickness(16, 12)));
 
-            for (int i = 0; i < group.Count; i++) s.Children.Add(SettingsItemCard(host, group[i]));
+            // ★ 悬边灯样式的编辑入口是**三选一卡片**（2026-10-28 ✓）：
+            //   所以这个键**不出**通用设置卡（✗ 不再给它一个输入框/下拉 ✗），
+            //   而是在「置顶进度窗」开关那张卡后面紧跟三选一 ✓（顺序：开关 → 样式 → 位置/尺寸/标题 ✓）
+            bool styleCardAdded = false;
+            for (int i = 0; i < group.Count; i++)
+            {
+                ConfigItem it = group[i];
+                if (it == null) continue;
+                if (it.Key == OverlayStyleCatalog.Key)
+                {
+                    if (!styleCardAdded) { s.Children.Add(OverlayLightStyleChooser(host, group)); styleCardAdded = true; }
+                    continue;
+                }
+                s.Children.Add(SettingsItemCard(host, it));
+                if (!styleCardAdded && it.Key == "overlay_enabled")
+                {
+                    s.Children.Add(OverlayLightStyleChooser(host, group));
+                    styleCardAdded = true;
+                }
+            }
+            // 旧 CLI 没有 overlay_enabled 这一项时也要能看到三选一（能显示"升级后可选" ✓ 不装作能选 ✗）
+            if (!styleCardAdded && FindItem(group, OverlayStyleCatalog.Key) != null) s.Children.Add(OverlayLightStyleChooser(host, group));
 
+        }
+
+        /// <summary>★ 悬边灯样式「三选一」卡片（2026-10-28）：**三个选项都可见**（✗ 不做下拉藏起来 ✗），
+        /// 每个都有名称 + 一句人话 + 小预览；默认款带「默认」角标，当前款带「当前使用」角标。
+        ///
+        /// <para>【点一下发生什么】写**同一个**配置键 `overlay_light_style`（走既有 `config-set` ✓）⇒
+        /// <see cref="MainWindow.SetConfig"/> 先把本地状态换掉并让悬浮窗立刻重画 ✓（✗ 不需要重启 ✗）；
+        /// 落盘完成后设置页重建 ⇒「当前使用」跟着走 ✓。</para>
+        ///
+        /// <para>【预览是什么】**同一款灯**按比例缩小：几何走 <see cref="DesignTokens.EdgeLampOf"/> ✓
+        /// 画法走 <see cref="StatusLight.Create"/> ✓ 尺寸/缩放全在 token 表 ✓
+        /// （✗ 不另画一套 ✗ 不散落色值 ✗ 也不必真渲染一个悬浮窗 ✓）。</para></summary>
+        private static Control OverlayLightStyleChooser(MainWindow host, List<ConfigItem> group)
+        {
+            ConfigItem item = FindItem(group, OverlayStyleCatalog.Key);
+            bool present = item != null || OverlayStyleCatalog.Present(host.RawOutput);
+            string current = OverlayStyleCatalog.ValueFromOutput(host.RawOutput);
+
+            StackPanel col = new StackPanel { Spacing = ShapeTokens.S12 };
+
+            StackPanel head = new StackPanel { Orientation = Orientation.Horizontal, Spacing = ShapeTokens.S12 };
+            head.Children.Add(T(OverlayStyleCatalog.SectionTitle, ShapeTokens.FsEm, Palette.Text, FontWeight.SemiBold));
+            head.Children.Add(Chip(OverlayStyleCatalog.CurrentText(current), Palette.Accent, Palette.AccentSoft));
+            col.Children.Add(head);
+
+            TextBlock note = T(OverlayStyleCatalog.SectionNote, ShapeTokens.FsFoot, Palette.TextDim);
+            note.TextWrapping = TextWrapping.Wrap;
+            col.Children.Add(note);
+
+            // CLI 给的回落提示**原样转述**（配置原文里的值非法时才有 ✓ ✗ 界面不另编原因 ✗）
+            string warn = OverlayStyleCatalog.WarningFromOutput(host.RawOutput);
+            if (!string.IsNullOrEmpty(warn))
+            {
+                TextBlock wt = T(warn, ShapeTokens.FsFoot, Palette.Warn);
+                wt.TextWrapping = TextWrapping.Wrap;
+                col.Children.Add(wt);
+            }
+            if (!present)
+            {
+                TextBlock stale = T(OverlayStyleCatalog.StaleCliHint, ShapeTokens.FsFoot, Palette.TextFaint);
+                stale.TextWrapping = TextWrapping.Wrap;
+                col.Children.Add(stale);
+            }
+
+            WrapPanel opts = new WrapPanel { Orientation = Orientation.Horizontal };
+            for (int i = 0; i < OverlayStyleCatalog.Keys.Length; i++)
+                opts.Children.Add(OverlayStyleOption(host, OverlayStyleCatalog.Keys[i], current, present));
+            col.Children.Add(opts);
+
+            return Card(col, new Thickness(0), new Thickness(ShapeTokens.S16, ShapeTokens.S12));
+        }
+
+        /// <summary>一个样式选项：预览 + 名称 + 默认角标 + 一句人话 + 当前态（整块可点 ✓）。</summary>
+        private static Control OverlayStyleOption(MainWindow host, string key, string current, bool clickable)
+        {
+            bool selected = key == current;
+            bool isDefault = OverlayStyleCatalog.IsDefault(key);
+
+            StackPanel inner = new StackPanel { Spacing = ShapeTokens.S8 };
+            inner.Children.Add(OverlayStylePreview(key));
+
+            StackPanel title = new StackPanel { Orientation = Orientation.Horizontal, Spacing = ShapeTokens.S8 };
+            title.Children.Add(T(OverlayStyleCatalog.NameOf(key), ShapeTokens.FsBody, Palette.Text, FontWeight.SemiBold));
+            if (isDefault) title.Children.Add(Chip(OverlayStyleCatalog.DefaultBadge, Palette.TextDim, Palette.CardHover));
+            inner.Children.Add(title);
+
+            TextBlock blurb = T(OverlayStyleCatalog.BlurbOf(key), ShapeTokens.FsFoot, Palette.TextDim);
+            blurb.TextWrapping = TextWrapping.Wrap;
+            inner.Children.Add(blurb);
+
+            // 当前态用文字说清（✗ 不靠颜色单独表达 ✗ 色弱也读得出）
+            inner.Children.Add(T(selected ? OverlayStyleCatalog.CurrentBadge : "", ShapeTokens.FsFoot, selected ? Palette.Accent : Palette.TextFaint));
+
+            Button b = new Button
+            {
+                Content = inner,
+                Background = selected ? Palette.AccentSoft : Palette.InsetBg,
+                BorderBrush = selected ? Palette.Accent : Palette.Border,
+                BorderThickness = new Thickness(ShapeTokens.Stroke),
+                CornerRadius = new CornerRadius(ShapeTokens.RCtrl),
+                Padding = new Thickness(ShapeTokens.S12),
+                Margin = new Thickness(0, 0, ShapeTokens.S12, ShapeTokens.S8),
+                HorizontalContentAlignment = HorizontalAlignment.Left,
+                IsEnabled = clickable
+            };
+            if (clickable) b.Click += delegate { if (!selected) host.SetConfig(OverlayStyleCatalog.Key, key); };
+            // 无障碍名 = 选项名（UI 自动化按名字点得到 ✓ 截图/探针也靠它 ✓）
+            global::Avalonia.Automation.AutomationProperties.SetName(b, OverlayStyleCatalog.NameOf(key));
+            return b;
+        }
+
+        /// <summary>小预览：右边一条"屏幕边缘"发丝线 + **同一款灯**按 token 比例缩小（✗ 不自造几何/色值 ✗）。</summary>
+        private static Control OverlayStylePreview(string key)
+        {
+            DesignTokens.EdgeLampSpec spec = DesignTokens.EdgeLampOf(
+                OverlayStyleCatalog.VariantOf(key), true,
+                DesignTokens.LampThicknessOf(1), DesignTokens.LampLengthOf(1),
+                DesignTokens.LampMarginOf(1), DesignTokens.LampDotOf(DesignTokens.LampThicknessOf(1)));
+
+            Border lampCard = new Border
+            {
+                Width = spec.Width,
+                Height = spec.Height,
+                Background = Palette.CardBg,
+                BorderBrush = Palette.BorderStrong,
+                BorderThickness = new Thickness(ShapeTokens.Stroke),
+                CornerRadius = new CornerRadius(spec.CornerRadius),
+                Child = StatusLight.Create(DesignTokens.Semantic.Accent, Palette.StyleKind, spec)
+            };
+            LayoutTransformControl scaled = new LayoutTransformControl
+            {
+                LayoutTransform = new ScaleTransform(DesignTokens.StylePreviewScale, DesignTokens.StylePreviewScale),
+                Child = lampCard,
+                HorizontalAlignment = HorizontalAlignment.Center,
+                VerticalAlignment = VerticalAlignment.Center
+            };
+
+            Grid box = new Grid
+            {
+                Width = DesignTokens.StylePreviewWidth,
+                Height = DesignTokens.StylePreviewHeight,
+                Background = Palette.CardBg,
+                ClipToBounds = true
+            };
+            box.Children.Add(new Border
+            {
+                Width = DesignTokens.StylePreviewEdgeWidth,
+                Background = Palette.BorderStrong,
+                HorizontalAlignment = HorizontalAlignment.Right
+            });
+            box.Children.Add(scaled);
+
+            return new Border
+            {
+                Background = Palette.InsetBg,
+                CornerRadius = new CornerRadius(ShapeTokens.RCtrl),
+                Padding = new Thickness(ShapeTokens.S4),
+                Child = box
+            };
         }
 
         /// <summary>按键名在配置项里找一项（找不到 → null ✗ 不抛 ✓）——设置页分组提示用 ✓。</summary>

@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using Avalonia;
 
 namespace Dsht.Gui.Avalonia
@@ -9,9 +9,10 @@ namespace Dsht.Gui.Avalonia
         [STAThread]
         public static void Main(string[] args)
         {
-            // ★ 评审用灯样式变体（DSHT_OVERLAY_LAMP=a|b|c）与「减少动效」各读一次 ✓
-            //   都只影响画法/动效，不落盘、不新增配置键、不碰数据口径 ✓
-            Dsht.Gui.Avalonia.Design.DesignTokens.ReadLampVariantFromEnvironment();
+            // ★ 启动只读「减少动效」这一个环境变量 ✓
+            //   灯样式**不再走环境变量**（2026-10-28：唯一来源 = 配置键 `overlay_light_style` ✓
+            //   设置页三选一改它 ⇒ 没有第二套状态 ✓）
+            Dsht.Gui.Avalonia.Design.DesignTokens.ReadReducedMotionFromEnvironment();
             Dsht.Gui.Avalonia.Design.DesignTokens.ReadReducedMotionFromEnvironment();
             BuildAvaloniaApp().StartWithClassicDesktopLifetime(args);
         }
