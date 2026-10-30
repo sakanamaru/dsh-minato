@@ -22,6 +22,10 @@
          于是"5 语义色 × 明暗两套都在 / 间距是 4 的倍数 / 字号 ≤3 档 / 动效 ≤200ms / 状态灯对比度"
          这些断言能在**无图形环境**里直接读真值 ✓（✗ 不靠正则去猜源码 ✗ 源码扫描只用于"散落 hex"）。 -->
     <Compile Include="..\Dsht.Gui.Avalonia\Design\DesignTokens.cs" Link="DesignTokens.cs" />
+    <!-- ★ 2026-10-30（W2 · task-5）：CliRunner 是**纯 System.Diagnostics**（零 Avalonia 类型）⇒
+         它能被本工程直接编译，于是"stderr 逐行前缀 / 超时分档 / 失败分类 / 缓存键与容量"这些
+         纯逻辑可以在无图形环境里断言（✗ 不靠正则猜源码 ✗）。-->
+    <Compile Include="..\Dsht.Gui.Avalonia\Services\CliRunner.cs" Link="CliRunner.cs" />
   </ItemGroup>
   <ItemGroup>
     <Compile Include="..\..\src\Dsht.Domain\Services\MarkerText.cs" Link="MarkerText.cs" />

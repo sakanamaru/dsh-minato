@@ -14,6 +14,7 @@ using Avalonia.Styling;
 using FluentIcons.Avalonia;
 using FluentIcons.Common;
 using Dsht.Gui.Avalonia.Markers;
+using Dsht.Gui.Avalonia.Services;
 using Dsht.Gui.Avalonia.ViewModels;
 
 namespace Dsht.Gui.Avalonia
@@ -485,14 +486,13 @@ namespace Dsht.Gui.Avalonia
             //     ← 正是我在提交信息里说"不会发生"的那件事 ✓ **打脸** ✓
             //   ✓ 现在：**写完成后、最终 Refresh 之前**再清** ✓✓（见 320 行之后 ✓）
             Refresh();
-            string outp = cli == null ? "未找到工具箱 CLI。" : await System.Threading.Tasks.Task.Run(delegate { return Run(cli, args); });
-            // U9：动作结果的级别 → toast 边框色（error=红 / warn=橙 / info=中性 ✓ 成功不再顶橙边 ✓）
-            _lastActionLevel = "info";
-            if (outp != null)
-            {
-                if (outp.IndexOf("_FAIL", StringComparison.Ordinal) >= 0) _lastActionLevel = "error";
-                else if (outp.IndexOf("WARN", StringComparison.Ordinal) >= 0 || outp.IndexOf("未生效", StringComparison.Ordinal) >= 0 || outp.IndexOf("不完整", StringComparison.Ordinal) >= 0 || outp.IndexOf("拒绝", StringComparison.Ordinal) >= 0) _lastActionLevel = "warn";
-            }
+            // ★ F-11 修复（2026-10-30）：动作结果用**结构化结果**判级别 —— 超时 / 进程起不来现在判 error ✓
+            //   （✗ 原来只按输出里有没有 `_FAIL`/WARN 猜：超时文案是裸文本 → 被判 info 成功色 ✓）
+            CliResult actionRes = cli == null
+                ? CliResult.Failure("未找到工具箱 CLI。", "cli path is empty")
+                : await System.Threading.Tasks.Task.Run(delegate { return CliRunner.Run(cli, args); });
+            _lastActionLevel = CliRunner.ClassifyLevel(actionRes);
+            string outp = actionRes.Text == null ? "" : actionRes.Text;
             _actionLog = label + "结果：" + Environment.NewLine + outp.Trim();
             InvalidateCliCache();   // F4 FIX: 写**完成**之后清 ✓ 此时缓存里必然是写前状态 ✓ 紧接着的 Refresh 会重新跑命令 ✓✓
             Refresh();
@@ -2631,173 +2631,36 @@ namespace Dsht.Gui.Avalonia
             c.BridgePresent = d != null && d.IsLiveSource;
             return c;
         }
-        // ================================================================ CLI 结果短缓存（性能）
+        // ================================================================ CLI 进程执行（唯一实现 = Services/CliRunner.cs）
 
-        /// <summary>只读 CLI 命令的**短缓存** ✓✓
-        ///
-        /// **用户反馈（2026-09-30）**：「按钮交互还是有延迟，并且不低」✓✓
-        ///   根因：**每次刷新都要启动 CLI 子进程** ✗ 而 CLI 是 **66 MB 自包含 exe** ✓
-        ///     → 一次调用就是几百毫秒的进程启动 ✓ 概览页一次刷新要 4 个 ✓ → **1~2 秒** ✗✗
-        ///
-        /// **纪律（重要 ✓）**：
-        ///   · **只缓存只读命令** ✓（`status --detail` / `profiles` / `sessions` / `backup-list` / `config-get` ✓）
-        ///   · **写操作绝不缓存** ✗（`backup` / `start` / `stop` / `config-set` / `wipe` … 一律直接跑 ✓✓）
-        ///   · TTL 很短 ✓（默认 4 秒 ✓）→ 用户看到的仍是"刚刚"的状态 ✓ 不会显示过期数据 ✓
-        ///   · **写操作会清空整个缓存** ✓✓（点完"停止"再刷新，看到的必须是新状态 ✓）
-        ///
-        /// 为什么这样是**诚实**的：这些命令读的都是**磁盘上的持久状态** ✓
-        ///   4 秒内的两次读取结果**本来就一样** ✓ → 复用**不是**在猜 ✓ 是省掉一次必然相同的进程启动 ✓✓
-        ///   （`status` 里的"运行中"也一样：它查的是进程是否存在 ✓ 4 秒内不会变 ✓）</summary>
-        private static readonly System.Collections.Generic.Dictionary<string, string> _cliCache =
-            new System.Collections.Generic.Dictionary<string, string>(StringComparer.Ordinal);
-        private static readonly System.Collections.Generic.Dictionary<string, DateTime> _cliCacheAt =
-            new System.Collections.Generic.Dictionary<string, DateTime>(StringComparer.Ordinal);
-        // ★★★ **F5 修复（GUI 审计 MAJOR —— 数据竞争）** ✓✓
-        //   ✗ 普通 `Dictionary` ✗ 而概览页的 `Task.WhenAll(tPf, tSe, tBk)` 会**三个线程同时写** ✗✗
-        //     → 丢条目 ✓ 桶链错乱（**可能取到另一条命令的输出** ✗✗）✓ 甚至抛异常 ✓
-        //     → 而异常被 fire-and-forget 吞掉 ✓ → **页面空白或显示旧数据** ✗
-        //   ✓ 现在：**一把锁** ✓✓（读写都进锁 ✓ 微秒级 ✓ 命令本身在锁外跑 ✓ 不串行化 ✓✓）
-        private static readonly object _cliCacheLock = new object();
-        private const double CliCacheTtlSec = 4.0;
+        // ★ W2 / F-10 / F-11 / F-12 / F-13 / F-08（2026-10-30）：三份运行器（Run / RunQuick / RunStreaming）
+        //   与两份 stderr 拼装已合并到 Services/CliRunner.cs —— 逐行 stderr 前缀、超时预算 + Kill(true) 杀树、
+        //   结构化结果（Ok / TimedOut）只在那里实现一次。
+        //   本文件保留这三个**私有静态包装**，是为了让 130+ 个调用点一字不改（✗ 不制造大 diff ✗）：
+        //   · Run          = 拿文本（失败/超时也给人话文本；需要区分失败的地方直接用 CliRunner.Run 的结构化结果）
+        //   · RunCached    = 只读命令的 4 秒短缓存（键 = CLI 路径 + 参数；失败/超时不入缓存；≤128 条 FIFO）
+        //   · RunStreaming = 流式（stdout 逐行回调；超时保留已收行再追加超时行 —— F-12）
+        private static string Run(string cli, string args)
+        {
+            return CliRunner.Run(cli, args).Text;
+        }
 
-        /// <summary>跑一条**只读**命令，带短缓存 ✓✓。写操作请直接用 `Run` ✗ 不要走这里 ✓。</summary>
         private static string RunCached(string cli, string args)
         {
-            if (string.IsNullOrEmpty(cli) || string.IsNullOrEmpty(args)) return Run(cli, args);
-            lock (_cliCacheLock)
-            {
-                DateTime at;
-                string hit;
-                if (_cliCache.TryGetValue(args, out hit) && _cliCacheAt.TryGetValue(args, out at)
-                    && (System.DateTime.UtcNow - at).TotalSeconds < CliCacheTtlSec)
-                {
-                    return hit;
-                }
-            }
-            string outp = Run(cli, args);   // F5 FIX: run OUTSIDE the lock so the three parallel tasks do not serialise
-            lock (_cliCacheLock)
-            {
-                _cliCache[args] = outp;
-                _cliCacheAt[args] = System.DateTime.UtcNow;
-            }
-            return outp;
+            return CliRunner.CliCache.GetOrRun(cli, args, delegate { return CliRunner.Run(cli, args); }).Text;
+        }
+
+        private static string RunStreaming(string cli, string args, System.Action<string> onLine)
+        {
+            return CliRunner.RunStreaming(cli, args, onLine).Text;
         }
 
         /// <summary>清空只读缓存 ✓✓。**任何写操作之后都要调它** ✓
         ///   （否则点完"停止"再刷新，4 秒内还会看到"运行中" ✗✗ —— 那就是**撒谎** ✓）</summary>
         private static void InvalidateCliCache()
         {
-            try { lock (_cliCacheLock) { _cliCache.Clear(); _cliCacheAt.Clear(); } } catch { }   // F5 FIX: clear under the lock too
+            CliRunner.CliCache.Clear();
             InvalidateCfgCache();   // ✓ config 缓存一起清 ✓（写操作可能改了配置 ✓）
-        }
-
-
-        /// <summary>按命令给超时上限（2026-10-06 优化 #4）：原来 30 秒一刀切 ✗ 会把跑了一半的
-        /// npm install / 大备份 / 大恢复直接杀掉（留半截状态 ✗ 交接 §9 挂账的高危项）。
-        /// 长任务 10 分钟封顶 ✓ 其余维持 30 秒 —— 挂住的只读命令快速反馈更重要 ✓。
-        /// RunStreaming 保持 30 秒：它跑的 doctor/update-center 是会自行收尾的只读流 ✓。</summary>
-        private static int TimeoutForMs(string args)
-        {
-            if (string.IsNullOrEmpty(args)) return 30000;
-            string a = args.TrimStart();
-            string[] longCmds = new string[] { "update ", "install ", "uninstall ", "backup ", "backup-export", "backup-delete", "restore ", "import ", "bridge-install" };
-            for (int i = 0; i < longCmds.Length; i++) if (a.StartsWith(longCmds[i], StringComparison.Ordinal)) return 600000;
-            if (a == "update" || a == "install" || a == "uninstall" || a == "backup" || a == "restore" || a == "import") return 600000;
-            return 30000;
-        }
-
-        private static string Run(string cli, string args)
-        {
-            try
-            {
-                ProcessStartInfo psi = new ProcessStartInfo(cli, args);
-                psi.RedirectStandardOutput = true;
-                psi.RedirectStandardError = true;
-                psi.UseShellExecute = false;
-                psi.CreateNoWindow = true;
-                psi.StandardOutputEncoding = new UTF8Encoding(false);
-                psi.StandardErrorEncoding = new UTF8Encoding(false);
-                using (Process p = Process.Start(psi))
-                {
-                    StringBuilder sb = new StringBuilder();
-                    string err = "";
-                    System.Threading.Tasks.Task<string> soT = System.Threading.Tasks.Task.Run(delegate { return p.StandardOutput.ReadToEnd(); });
-                    System.Threading.Tasks.Task<string> seT = System.Threading.Tasks.Task.Run(delegate { return p.StandardError.ReadToEnd(); });
-                    int limitMs = TimeoutForMs(args);
-                    if (!p.WaitForExit(limitMs)) { try { p.Kill(); } catch { } return "（超时 " + (limitMs / 1000) + " 秒，已结束该进程）"; }
-                    sb.Append(soT.Result);
-                    err = seT.Result;
-                    if (!string.IsNullOrEmpty(err)) sb.Append(Environment.NewLine).Append("[stderr] ").Append(err);
-                    return sb.Length == 0 ? "（无输出）" : sb.ToString();
-                }
-            }
-            catch (Exception ex)
-            {
-                return "运行 CLI 失败: " + ex.Message;
-            }
-        }
-
-        /// <summary>流式跑一条 CLI 命令 ✓（`--stream` 专用 ✓）：stdout **每读到一行就回调**。
-        ///   ★ 回调发生在**后台线程** → GUI 侧必须自己包 Dispatcher.UIThread.Post ✓（见 StreamLine ✓）。
-        ///   stderr 用后台任务**先排空** ✓✓ —— 与 Run 同一套防死锁姿势 ✓
-        ///   （子进程往 stderr 狂写时管道写满会把自己卡死 ✗）。
-        ///   返回完整全文 ✓（供 `_rawOutput` 与解析器收尾用 ✓）。</summary>
-        private static string RunStreaming(string cli, string args, System.Action<string> onLine)
-        {
-            try
-            {
-                ProcessStartInfo psi = new ProcessStartInfo(cli, args);
-                psi.RedirectStandardOutput = true;
-                psi.RedirectStandardError = true;
-                psi.UseShellExecute = false;
-                psi.CreateNoWindow = true;
-                psi.StandardOutputEncoding = new UTF8Encoding(false);
-                psi.StandardErrorEncoding = new UTF8Encoding(false);
-                using (Process p = Process.Start(psi))
-                {
-                    System.Threading.Tasks.Task<string> seT = System.Threading.Tasks.Task.Run(delegate { return p.StandardError.ReadToEnd(); });
-                    StringBuilder sb = new StringBuilder();
-                    string ln;
-                    while ((ln = p.StandardOutput.ReadLine()) != null)
-                    {
-                        sb.Append(ln).Append("\r\n");
-                        if (onLine != null) { try { onLine(ln); } catch { } }
-                    }
-                    if (!p.WaitForExit(30000)) { try { p.Kill(); } catch { } return "（超时 30 秒，已结束该进程）"; }   // 只读流保持 30 秒（见 TimeoutForMs 注释 ✓）
-                    string err = seT.Result;
-                    // ★★★ 2026-10-11 **实测抓到的解析污染** ✗✗（更新页上凭空多出一张 webui 卡 ✓）
-                    //   本方法返回的全文**同时**喂给页面解析器（`_rawOutput` ✓ 更新页/体检页都按标记行解析它 ✓）
-                    //   ✗ 旧写法把 stderr 拼成 `"[stderr] " + err` ✗ —— 只有**第一行**带前缀 ✓
-                    //   → stderr 里换行之后的每一行都成了"裸标记行" ✗
-                    //   → 真机实证：CLI 往 stderr 打了一行诊断（INTEGRITY_SKIPPED ✓ 中文 ✓ 里面根本没有标记词 ✓）
-                    //     而**它前面那段 NOTE 长文**换行后恰好以 `UPDATECENTER_ITEM webui …` 开头 ✓
-                    //     （NOTE 是自由文本 ✓ 我们自己的 CLI 就会这么换行 ✓）
-                    //     → 那个续行被当成**第二张 webui 卡**渲染出来 ✓✓（同一张卡出现两遍 ✗）
-                    //   ✓ 现在：stderr 的**每一行**都带 `[stderr] ` 前缀 ✓ → 不可能被误认成标记行 ✓
-                    //     诊断**仍然可见**（✗ 不静默丢掉 ✗）—— 只是不再冒充 CLI 的标准输出 ✓
-                    if (!string.IsNullOrEmpty(err)) sb.Append(PrefixStderr(err));
-                    return sb.Length == 0 ? "（无输出）" : sb.ToString();
-                }
-            }
-            catch (Exception ex)
-            {
-                return "运行 CLI 失败: " + ex.Message;
-            }
-        }
-
-        /// <summary>把 CLI 的 stderr 逐行打上 `[stderr] ` 前缀 ✓（**每一行**都要 ✗ 只给第一行打 =
-        /// 后面每一行都变成"裸标记行"✗ → 会被页面解析器当成真条目 ✓ 真机实测过 ✓）。
-        /// 空行跳过（不追加无意义的空行 ✓）。</summary>
-        private static string PrefixStderr(string err)
-        {
-            StringBuilder o = new StringBuilder();
-            string[] ls = err.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n');
-            for (int i = 0; i < ls.Length; i++)
-            {
-                if (ls[i].Length == 0) continue;
-                o.Append("[stderr] ").Append(ls[i]).Append("\r\n");
-            }
-            return o.ToString();
         }
 
         /// <summary>把流式行**投递回 UI 线程** ✓：追加进原文 + 体检页记入逐行列表 + 立即重画 ✓✓。
