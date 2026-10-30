@@ -23,6 +23,36 @@ $srcDir = Join-Path $Repo 'v3\src'
 if (-not (Test-Path $srcDir)) { Write-Host "SKIP: 找不到 v3\src（-Repo 指向仓库根）"; exit 2 }
 $files = @(Get-ChildItem $srcDir -Recurse -Filter *.cs | Where-Object { $_.FullName -notmatch '\\obj\\' -and $_.FullName -notmatch '\\bin\\' })
 
+# ---- B-06（2026-10-30 审查）：抽出「命令表」与「Usage() 方法体」，供下面的覆盖率检查用 ----
+# 判据只认派发器里的 `cmd == "..."`（排除注释行 ✓）；命令名必须逐个都出现在 Usage() 里 ✓
+# 注意：只扫 Usage() 方法体 ✗ —— 扫整份 Program.cs 的话派发器自己就有这些名字 → 假绿 ✓
+$cmdInCode = New-Object System.Collections.Generic.List[string]
+foreach ($f in $files) {
+  $hits = Select-String -Path $f.FullName -Pattern 'cmd == "' -SimpleMatch -ErrorAction SilentlyContinue
+  foreach ($h in $hits) {
+    if ($h.Line.Trim() -match '^(//|/\*|\*|///)') { continue }
+    # 用 Matches 取**该行全部**命令名 ✓ —— Match 只取第一个，同一行有两个比较时会漏 ✓
+    # （对照实验发现的：把 about 那行改成 else if 形式后，about 被误报为"表里多余" ✗）
+    foreach ($m in [regex]::Matches($h.Line, 'cmd == "([a-z0-9\-]+)"')) {
+      if (-not $cmdInCode.Contains($m.Groups[1].Value)) { $cmdInCode.Add($m.Groups[1].Value) }
+    }
+  }
+}
+$usageText = ""
+$usageProg = @($files | Where-Object { $_.Name -eq 'Program.cs' -and $_.FullName -match '\\Dsht\.Cli\\' } | Select-Object -First 1)
+if ($null -ne $usageProg) {
+  $usageProgText = [System.IO.File]::ReadAllText($usageProg.FullName)
+  $uStart = $usageProgText.IndexOf('private static void Usage()')
+  if ($uStart -ge 0) {
+    $uBrace = $usageProgText.IndexOf('{', $uStart)
+    if ($uBrace -ge 0) {
+      $uEnd = $usageProgText.IndexOf("`r`n        }", $uBrace)
+      if ($uEnd -lt 0) { $uEnd = $usageProgText.IndexOf("`n        }", $uBrace) }
+      if ($uEnd -gt $uBrace) { $usageText = $usageProgText.Substring($uBrace, $uEnd - $uBrace) }
+    }
+  }
+}
+
 # 每项：名称 / 关键字符串 / 最少代码处数
 $checks = @(
   @('备份不完整诚实',            'BACKUP_INCOMPLETE', 1),
@@ -95,6 +125,10 @@ $checks = @(
   @('命令 version',              'cmd == "version"', 1),
   @('命令 wipe',                 'cmd == "wipe"', 1),
   @('命令 overview',           'cmd == "overview"', 1),
+  # ---- B-06（2026-10-30 审查）：命令表里的**每一条**命令都必须在 Usage() 速查里出现 ✓ ----
+  # 抽的是 Usage() 方法体本身（不是整份源码）✓ 判据见上面的 $usageText / $cmdInCode ✓
+  # 缺一条 = 用户按“全部命令”看不到它 ✓（bridge-install / autostart / backup-dir 就漏过 ✓）
+  @('Usage 覆盖命令表',         '@@USAGE_COVERAGE@@', 1),
   # ---- 更早轮次的关键闸门（V3 自身 ✓）----
   # F-I FIX (CLI final review): this asserted WIPE_REFUSED, but that marker only exists in the block that
   # sits BELOW the command's `return 0` - the wipe command no longer deletes anything, so that guard is
@@ -119,7 +153,21 @@ $checks = @(
 )
 $miss = @()
 foreach ($c in $checks) {
-  $code = 0
+  # ---- 特殊检查：Usage() 速查必须覆盖命令表里的每一条命令名（B-06）----
+  if ($c[0] -eq 'Usage 覆盖命令表') {
+    $missingUsage = @()
+    if ($cmdInCode.Count -eq 0) { $missingUsage = @('（命令表抽取失败）') }
+    elseif ($usageText.Length -eq 0) { $missingUsage = @('（Usage() 方法体抽取失败）') }
+    else {
+      foreach ($name in $cmdInCode) {
+        $pat = '(?<![a-z0-9\-])' + [regex]::Escape($name) + '(?![a-z0-9\-])'
+        if (-not [regex]::IsMatch($usageText, $pat)) { $missingUsage += $name }
+      }
+    }
+    if ($missingUsage.Count -eq 0) { Write-Host ("  [OK]   " + $c[0].PadRight(22) + "  覆盖命令表 " + $cmdInCode.Count + " 个命令") }
+    else { $miss += ("Usage 速查缺少命令：" + ($missingUsage -join ', ')); Write-Host ("  [MISS] " + $c[0].PadRight(22) + "  Usage 里缺少：" + ($missingUsage -join ', ')) }
+    continue
+  }
   foreach ($f in $files) {
     $hits = Select-String -Path $f.FullName -Pattern $c[1] -SimpleMatch -ErrorAction SilentlyContinue
     foreach ($h in $hits) { if ($h.Line.Trim() -notmatch '^(//|/\*|\*|///)') { $code++ } }
@@ -130,18 +178,8 @@ foreach ($c in $checks) {
 # ---- 自检：命令面检查表必须与代码里的命令**一一对应** ----
 # 为什么：这张表是手写的。若有人新增命令却忘了加检查，表会**慢慢过时**而没人发现。
 # 这条自检让"代码里有 N 个命令 → 表里也必须正好 N 个"，两边都不许漏。
-$inCode = New-Object System.Collections.Generic.List[string]
-foreach ($f in $files) {
-  $hits = Select-String -Path $f.FullName -Pattern 'cmd == "' -SimpleMatch -ErrorAction SilentlyContinue
-  foreach ($h in $hits) {
-    if ($h.Line.Trim() -match '^(//|/\*|\*|///)') { continue }
-    # 用 Matches 取**该行全部**命令名 ✓ —— Match 只取第一个，同一行有两个比较时会漏 ✓
-    # （对照实验发现的：把 about 那行改成 else if 形式后，about 被误报为"表里多余" ✗）
-    foreach ($m in [regex]::Matches($h.Line, 'cmd == "([a-z0-9\-]+)"')) {
-      if (-not $inCode.Contains($m.Groups[1].Value)) { $inCode.Add($m.Groups[1].Value) }
-    }
-  }
-}
+# 命令表复用上面抽好的 $cmdInCode ✓（判据与 Usage 覆盖检查同源，避免两套解析漂移 ✓）
+$inCode = $cmdInCode
 $inTable = New-Object System.Collections.Generic.List[string]
 foreach ($c in $checks) { if ($c[0] -like '命令 *') { $inTable.Add(($c[0] -replace '^命令 ', '')) } }
 $onlyCode = @($inCode | Where-Object { -not $inTable.Contains($_) })
@@ -154,7 +192,8 @@ if ($onlyCode.Count -eq 0 -and $onlyTable.Count -eq 0) { Write-Host "  [OK]   �
 # （命令面有"一一对应"自检 ✓ 但总项数一直没有断言 ✗ —— 本轮补上 ✓）
 # 审计发现（门槛完整性审计 §5.3）：原来是 67，而表里有 **71** 项 → **最多 4 项可被静默删掉** ✗
 # → 现在**必须正好等于表长** ✓（任何一项被删都会红 ✓）
-$EXPECTED_MIN_CHECKS = 72   # ★ 成本面板 v3.2 新增一条（命令 cost）→ 72 ✓（删掉任何一条仍会红 ✓）
+# B-06（2026-10-30）：新增「Usage 覆盖命令表」1 项 → 74 + 1 = 75 ✓（删掉任何一条仍会红 ✓）
+$EXPECTED_MIN_CHECKS = 75   # ★ 成本面板 v3.2 新增 1 条（cost）· B-06 新增 1 条（Usage 覆盖）→ 75 ✓
 if ($checks.Count -lt $EXPECTED_MIN_CHECKS) {
     $miss += ("检查表项数不足：" + $checks.Count + " < " + $EXPECTED_MIN_CHECKS)
     Write-Host ("  [MISS] 检查表项数不足：只有 " + $checks.Count + " 项（需 >= " + $EXPECTED_MIN_CHECKS + "）")

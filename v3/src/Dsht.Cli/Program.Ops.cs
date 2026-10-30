@@ -366,6 +366,7 @@ namespace Dsht.Cli
                 if (bar <= 0) continue;
                 string exe = tries[i].Substring(0, bar);
                 string arg = tries[i].Substring(bar + 1);
+                System.Diagnostics.Process p = null;
                 try
                 {
                     System.Diagnostics.ProcessStartInfo psi = new System.Diagnostics.ProcessStartInfo(exe, arg);
@@ -373,26 +374,38 @@ namespace Dsht.Cli
                     psi.CreateNoWindow = true;
                     psi.RedirectStandardOutput = true;
                     psi.RedirectStandardError = true;
-                    using (System.Diagnostics.Process p = System.Diagnostics.Process.Start(psi))
+                    p = System.Diagnostics.Process.Start(psi);
+                    if (p == null) continue;
+                    // 与 RunQuiet 同姿势：stdout/stderr **并发**读 ✗ —— 顺序 ReadToEnd 会在子进程写满另一路管道时互锁
+                    //（双方都在等对方 ✓ 8 秒计时器根本轮不到 ✗ → 更新页永久卡死 ✓）
+                    System.Threading.Tasks.Task<string> outTask = p.StandardOutput.ReadToEndAsync();
+                    System.Threading.Tasks.Task<string> errTask = p.StandardError.ReadToEndAsync();
+                    if (!p.WaitForExit(8000))
                     {
-                        if (p == null) continue;
-                        string outp = p.StandardOutput.ReadToEnd();
-                        p.StandardError.ReadToEnd();
-                        p.WaitForExit(8000);
-                        if (string.IsNullOrEmpty(outp)) continue;
-                        string[] ls = outp.Replace("\r\n", "\n").Split('\n');
-                        for (int k = 0; k < ls.Length; k++)
-                        {
-                            string s = ls[k].Trim();
-                            if (s.Length == 0) continue;
-                            // npm 有时输出 git+https://…git → 去掉前缀后缀 ✓ 便于直接点开 ✓
-                            if (s.StartsWith("git+", StringComparison.Ordinal)) s = s.Substring(4);
-                            if (s.EndsWith(".git", StringComparison.Ordinal)) s = s.Substring(0, s.Length - 4);
-                            if (s.StartsWith("http", StringComparison.OrdinalIgnoreCase)) return s;
-                        }
+                        // 超时：结束整棵进程树 + 有界收尾（绝不留下孤儿进程 ✓ 也不在失败时当成成功 ✓）
+                        KillProcessTree(p);
+                        try { p.WaitForExit(3000); } catch { }
+                        try { System.Threading.Tasks.Task.WaitAll(new System.Threading.Tasks.Task[] { outTask, errTask }, 3000); } catch { }
+                        continue;   // 换下一个候选；全失败则由调用方按空串处理 ✓
+                    }
+                    // WaitForExit(ms) 不保证异步读取已排空：有界等待，避免异常管道把这里再次挂住 ✓
+                    try { System.Threading.Tasks.Task.WaitAll(new System.Threading.Tasks.Task[] { outTask, errTask }, 3000); } catch { }
+                    string outp = "";
+                    try { if (outTask.IsCompleted && !outTask.IsFaulted && !outTask.IsCanceled) outp = outTask.Result ?? ""; } catch { }
+                    if (string.IsNullOrEmpty(outp)) continue;
+                    string[] ls = outp.Replace("\r\n", "\n").Split('\n');
+                    for (int k = 0; k < ls.Length; k++)
+                    {
+                        string s = ls[k].Trim();
+                        if (s.Length == 0) continue;
+                        // npm 有时输出 git+https://…git → 去掉前缀后缀 ✓ 便于直接点开 ✓
+                        if (s.StartsWith("git+", StringComparison.Ordinal)) s = s.Substring(4);
+                        if (s.EndsWith(".git", StringComparison.Ordinal)) s = s.Substring(0, s.Length - 4);
+                        if (s.StartsWith("http", StringComparison.OrdinalIgnoreCase)) return s;
                     }
                 }
                 catch { }
+                finally { if (p != null) { try { p.Dispose(); } catch { } } }
             }
             return "";
         }

@@ -4,6 +4,9 @@
     <Nullable>disable</Nullable>
     <ImplicitUsings>disable</ImplicitUsings>
     <LangVersion>latest</LangVersion>
+    <!-- B-01：Node 下载校验块曾被放进 if 内 `continue` 之后 → 不可达（CS0162）→ 校验形同虚设。
+         只把 CS0162 当错误（不开全局 WarningsAsErrors）：再写出不可达的安全校验就构建失败。 -->
+    <WarningsAsErrors>CS0162</WarningsAsErrors>
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Dsht.Domain\Dsht.Domain.csproj" />
