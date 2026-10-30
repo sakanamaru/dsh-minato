@@ -1,4 +1,4 @@
-# dsh-minato 安装器构建脚本（Windows ✓）
+﻿# dsh-minato 安装器构建脚本（Windows ✓）
 #
 # 为什么用 Roslyn csc 而不是 in-box csc（踩过的坑 ✓）：
 #   · in-box 的 `Framework64\v4.0.30319\csc.exe` 只有 **C# 5** ✗ —— 连字符串插值都编不过（CS1056）✓
