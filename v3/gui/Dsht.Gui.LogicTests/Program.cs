@@ -1480,7 +1480,11 @@ namespace Dsht.Gui.LogicTests
                     string vtRel = ShortPath(vtGuiDir, vtFiles[vi]);
                     string vtTxt = System.IO.File.ReadAllText(vtFiles[vi]);
                     int vtH = HexCount(vtTxt);
-                    if (vtRel == vtTokenRel) vtHexTok += vtH;
+                    // ★ 2026-10-30 修 Linux CI 假红：ShortPath 在 Linux 上返回 `Design/DesignTokens.cs`
+                    //   而白名单常量写的是 `Design\DesignTokens.cs` ⇒ 直接 == 比较不匹配 ✗
+                    //   ⇒ token 表自己的 hex 被算成"业务文件散落" ⇒ ⑭-1 与 ⑭-6 双红（Windows 侧却绿 ✗）
+                    //   修法：两侧都归一成 '/' 再比 ✓（Windows 上行为不变 ✓）
+                    if (NormalizeRel(vtRel) == NormalizeRel(vtTokenRel)) vtHexTok += vtH;
                     else if (vtH > 0) { vtHexBiz += vtH; vtHexBad.Add(vtRel + " x" + vtH); }
 
                     bool vtIsWhite = false;
@@ -2202,6 +2206,17 @@ namespace Dsht.Gui.LogicTests
             }
             catch { }
             return full;
+        }
+
+        /// <summary>
+        /// 把相对路径的分隔符统一成 '/' 再比较 ✗（2026-10-30 修 Linux CI 假红）：
+        /// `ShortPath` 在 Linux 上返回 `Design/DesignTokens.cs`，而白名单常量写的是 `Design\DesignTokens.cs`
+        /// ⇒ 直接 `==` 在 Linux 上不匹配 ✗ ⇒ token 表自己的 hex 被算成"业务文件散落" ⇒ ⑭-1 ⑭-6 双红，
+        /// 而 Windows 侧同一份代码却是绿的 ✗ —— 这正是"只在单平台通过"的那类假绿/假红 ✓ 两侧归一后再比 ✓
+        /// </summary>
+        private static string NormalizeRel(string rel)
+        {
+            return rel == null ? "" : rel.Replace('\\', '/');
         }
 
         /// <summary>收尾 (a) 的**可证伪**判据：程序集里还有没有"状态胶囊"的**界面构建器**。
