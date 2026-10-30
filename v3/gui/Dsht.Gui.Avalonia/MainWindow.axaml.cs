@@ -649,12 +649,6 @@ namespace Dsht.Gui.Avalonia
         //   **先看计划**（只读 ✓ 不加 --yes 时 CLI 只输出 WIPE_PLAN ✓ 一个字节都不删 ✓）
         public void WipePlan() { RunCliAction("wipe", "清除计划（只读，未删除任何东西）"); }
 
-        // **真清除** ✓（`--yes` ✓ → CLI 会**先做安全备份且必须成功** ✓ 再删 ✓
-        //   `WIPE_PRE_BACKUP <路径>` 会显示在页面上 ✓ → 用户能看到安全备份在哪 ✓✓）
-        /// <summary>**已停用** ✓✓（用户要求删除清除数据操作 ✓ 只保留"显示手动删除路径" ✓）。
-        /// 留着方法体是为了不动调用点 ✓ 但它**不再做任何删除** ✓（CLI 的 wipe 本身也永不删除了 ✓✓）。</summary>
-        public void DoWipe() { RunCliAction("wipe", "查看手动删除路径（清除功能已停用；只读）"); }
-
         public void ExportLog()
         {
             string path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "dsh-minato-log-export.txt");
@@ -667,49 +661,6 @@ namespace Dsht.Gui.Avalonia
         /// <summary>只停**官方桌面端**（Electron 多进程 → CLI 用 StopTree 杀整棵 ✓ 不动 web ✓）。</summary>
         public void StopDesktopOnly() { RunCliAction("stop --target desktop --yes", "停止桌面端"); }
 
-        private void RunCoreAction(string verb, string label)
-        {
-            string core = ToolkitCore();
-            if (core == null)
-            {
-                _actionLog = "无法" + label + "：" + CoreMissingText();
-                BuildShell();
-                return;
-            }
-            _actionLog = "已发起" + label + "…（" + Path.GetFileName(core) + " " + verb + "）";
-            BuildShell();
-            string outp = RunQuick(core, verb, 8);
-            _actionLog = label + "结果：" + Environment.NewLine + outp.Trim();
-            Refresh();
-        }
-
-        /// <summary>短超时运行（启动/停止这类命令可能一直挂着，不能把界面卡住 30 秒）。</summary>
-        private static string RunQuick(string cli, string args, int seconds)
-        {
-            try
-            {
-                ProcessStartInfo psi = new ProcessStartInfo(cli, args);
-                psi.RedirectStandardOutput = true;
-                psi.RedirectStandardError = true;
-                psi.UseShellExecute = false;
-                psi.CreateNoWindow = true;
-                psi.StandardOutputEncoding = new UTF8Encoding(false);
-                psi.StandardErrorEncoding = new UTF8Encoding(false);
-                using (Process p = Process.Start(psi))
-                {
-                    StringBuilder sb = new StringBuilder();
-                    string err = "";
-                    System.Threading.Tasks.Task<string> soT = System.Threading.Tasks.Task.Run(delegate { return p.StandardOutput.ReadToEnd(); });
-                    System.Threading.Tasks.Task<string> seT = System.Threading.Tasks.Task.Run(delegate { return p.StandardError.ReadToEnd(); });
-                    if (!p.WaitForExit(seconds * 1000)) { try { p.Kill(); } catch { } return "（超过 " + seconds + " 秒未结束，已结束该进程）"; }
-                    sb.Append(soT.Result);
-                    err = seT.Result;
-                    if (!string.IsNullOrEmpty(err)) sb.Append(Environment.NewLine).Append("[stderr] ").Append(err);
-                    return sb.Length == 0 ? "（无输出）" : sb.ToString();
-                }
-            }
-            catch (Exception ex) { return "执行失败：" + ex.Message; }
-        }
         /// <summary>窗口图标（任务栏/标题栏）。资源 URI 用**程序集名** dsht-gui —— 用命名空间会静默失败。</summary>
         private void SetWindowIcon()
         {
@@ -722,14 +673,7 @@ namespace Dsht.Gui.Avalonia
             }
             catch { /* 图标缺失不影响功能 */ }
         }
-        /// <summary>核心程序不可用时的说明（区分"平台不支持"与"文件缺失"）。</summary>
-        private static string CoreMissingText()
-        {
-            if (!System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows))
-                return "此功能需要 Windows 专有的 v2.x 核心（DeepSeek Harness Toolkit.exe）—— 当前平台不支持。"
-                     + Environment.NewLine + "跨平台可用的替代：状态/概览/会话/token/形态与插件/备份清单/设置（都走 V3 CLI）。";
-            return "未找到工具箱核心程序（DeepSeek Harness Toolkit.exe）：请把它与 GUI 放在同一目录，或设置环境变量 DSHT_CORE。";
-        }
+
         private void InitializeComponent()
         {
             AvaloniaXamlLoader.Load(this);
@@ -1121,23 +1065,6 @@ namespace Dsht.Gui.Avalonia
         private string _profilesRoot = "";
         public string ProfilesRoot { get { return _profilesRoot; } }
 
-        /// <summary>找工具箱核心程序（有 profilepatch 的那个 v2.x exe）。</summary>
-        private static string ToolkitCore()
-        {
-            string env = Environment.GetEnvironmentVariable("DSHT_CORE");
-            if (!string.IsNullOrEmpty(env) && File.Exists(env)) return env;
-            string dir = AppDomain.CurrentDomain.BaseDirectory;
-            if (!System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows))
-                return null;   // v2.x 核心是 Windows/.NET Framework 专有：非 Windows 上不是"文件缺失"，而是平台不支持
-            string[] names = new string[] { "DeepSeek Harness Toolkit.exe", "dsht.exe" };
-            for (int i = 0; i < names.Length; i++)
-            {
-                string p = Path.Combine(dir, names[i]);
-                if (File.Exists(p)) return p;
-            }
-            return null;
-        }
-        public void SetProfileSearch(string text) { ProfileSearch = text == null ? "" : text; BuildShell(); }
         public List<SessionRowVm> Rows { get { return _rows; } }
         /// <summary>当前视图要显示的列表（过滤后 ✓；默认 = 全部 ✓）。</summary>
         public List<SessionRowVm> ListSource { get { return _listSource == null ? _rows : _listSource; } }
@@ -2010,7 +1937,6 @@ namespace Dsht.Gui.Avalonia
             {
                 _rawOutput = await System.Threading.Tasks.Task.Run(delegate { return RunCached(cli, "profiles"); });
                 _profiles = ProfilesMarkers.Parse(_rawOutput);
-                for (int i = 0; i < _rawOutput.Length && _profilesRoot.Length == 0; i++) { }
                 _profilesRoot = ProfilesRootFrom(cli);
                 return;
             }
@@ -2633,7 +2559,7 @@ namespace Dsht.Gui.Avalonia
         }
         // ================================================================ CLI 进程执行（唯一实现 = Services/CliRunner.cs）
 
-        // ★ W2 / F-10 / F-11 / F-12 / F-13 / F-08（2026-10-30）：三份运行器（Run / RunQuick / RunStreaming）
+        // ★ W2 / F-10 / F-11 / F-12 / F-13 / F-08（2026-10-30）：三份旧运行器（普通 / 短超时 / 流式）
         //   与两份 stderr 拼装已合并到 Services/CliRunner.cs —— 逐行 stderr 前缀、超时预算 + Kill(true) 杀树、
         //   结构化结果（Ok / TimedOut）只在那里实现一次。
         //   本文件保留这三个**私有静态包装**，是为了让 130+ 个调用点一字不改（✗ 不制造大 diff ✗）：

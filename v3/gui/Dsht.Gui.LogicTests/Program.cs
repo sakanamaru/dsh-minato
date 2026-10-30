@@ -2137,6 +2137,17 @@ namespace Dsht.Gui.LogicTests
                 && CliRunner.ClassifyLevel(CliResult.Success("WARN 部分未生效", 0)) == "warn"
                 && CliRunner.ClassifyLevel(CliResult.Success("拒绝执行", 0)) == "warn"
                 && CliRunner.ClassifyLevel(null) == "error");
+            // W2-11 死代码清空（源码级 · 可证伪）：空循环 + v2 核心死簇 + 零调用者的两个方法
+            string mwTxtW2 = ReadIfExists(vtGuiDir == null ? null : System.IO.Path.Combine(vtGuiDir, "MainWindow.axaml.cs"));
+            Check("W2-11 · 死代码清空：空 for 循环 / RunCoreAction / RunQuick / ToolkitCore / CoreMissingText / DoWipe / SetProfileSearch 在 MainWindow 里 0 处残留",
+                vtGuiDir != null && mwTxtW2.Length > 0
+                && mwTxtW2.IndexOf("_profilesRoot.Length == 0; i++) { }", StringComparison.Ordinal) < 0
+                && mwTxtW2.IndexOf("RunCoreAction", StringComparison.Ordinal) < 0
+                && mwTxtW2.IndexOf("RunQuick", StringComparison.Ordinal) < 0
+                && mwTxtW2.IndexOf("ToolkitCore", StringComparison.Ordinal) < 0
+                && mwTxtW2.IndexOf("CoreMissingText", StringComparison.Ordinal) < 0
+                && mwTxtW2.IndexOf("DoWipe", StringComparison.Ordinal) < 0
+                && mwTxtW2.IndexOf("SetProfileSearch", StringComparison.Ordinal) < 0);
             Console.WriteLine("== " + _pass + "/" + (_pass + _fail) + " passed, " + _fail + " failed ==");
             return _fail == 0 ? 0 : 1;
         }
