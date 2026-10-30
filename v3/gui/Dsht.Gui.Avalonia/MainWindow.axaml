@@ -12,21 +12,21 @@
   <!-- 颜色全部由 code-behind 的 ApplyChrome() 按 Palette 设置（风格切换时重刷），这里不写死任何颜色。 -->
   <Grid RowDefinitions="Auto,*">
     <!-- 顶栏：品牌 + 非官方声明 + 布局/风格切换器 -->
-    <Border x:Name="AppBar" Grid.Row="0" Padding="16,9" BorderThickness="0,0,0,1">
+    <Border x:Name="AppBar" Grid.Row="0" Padding="16,8" BorderThickness="0,0,0,1">
       <Grid ColumnDefinitions="Auto,*,Auto">
         <StackPanel Grid.Column="0" Orientation="Horizontal" Spacing="11" VerticalAlignment="Center">
           <StackPanel VerticalAlignment="Center" Spacing="1">
-            <TextBlock x:Name="BrandTitle" Text="dsh-minato" FontSize="13.5" FontWeight="SemiBold" />
-            <TextBlock x:Name="BrandSub" Text="V3 · 跨平台 GUI" FontSize="10.5" />
+            <TextBlock x:Name="BrandTitle" Text="dsh-minato" FontSize="13" FontWeight="SemiBold" />
+            <TextBlock x:Name="BrandSub" Text="V3 · 跨平台 GUI" FontSize="11" />
           </StackPanel>
         </StackPanel>
-        <StackPanel x:Name="AppBarRight" Grid.Column="2" Orientation="Horizontal" Spacing="10" VerticalAlignment="Center">
-          <Border x:Name="DisclaimerPill" CornerRadius="999" Padding="10,5" VerticalAlignment="Center">
+        <StackPanel x:Name="AppBarRight" Grid.Column="2" Orientation="Horizontal" Spacing="8" VerticalAlignment="Center">
+          <Border x:Name="DisclaimerPill" CornerRadius="999" Padding="12,4" VerticalAlignment="Center">
             <StackPanel Orientation="Horizontal" Spacing="6">
-              <TextBlock x:Name="DisclaimerIcon" Text="⚠" FontSize="11" VerticalAlignment="Center" />
-              <TextBlock x:Name="DisclaimerText" Text="非官方工具，与 DeepSeek 官方无关 · 只读本地状态 · 不上传任何数据（更新检查会访问 GitHub）" FontSize="11" VerticalAlignment="Center" />
+              <TextBlock x:Name="DisclaimerText" Text="非官方工具 · 只读本地 · 检查更新时联网" FontSize="11" VerticalAlignment="Center" />
             </StackPanel>
           </Border>
+          <TextBlock x:Name="ShellLabel" Text="布局" FontSize="11" VerticalAlignment="Center" />
           <Border x:Name="ShellSwitch" CornerRadius="9" Padding="3" VerticalAlignment="Center">
             <StackPanel Orientation="Horizontal" Spacing="2">
               <Button x:Name="Shell0" />
@@ -35,6 +35,7 @@
               <Button x:Name="Shell4" />
             </StackPanel>
           </Border>
+          <TextBlock x:Name="StyleLabel" Text="风格" FontSize="11" VerticalAlignment="Center" />
           <Border x:Name="StyleSwitch" CornerRadius="9" Padding="3" VerticalAlignment="Center">
             <StackPanel Orientation="Horizontal" Spacing="2">
               <Button x:Name="Style0" />

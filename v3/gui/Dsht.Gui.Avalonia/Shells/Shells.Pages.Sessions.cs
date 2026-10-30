@@ -24,7 +24,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             p.Children.Add(new Ellipse { Width = 8, Height = 8, Fill = c, VerticalAlignment = VerticalAlignment.Center });
 
-            TextBlock t = T(text, 10.5, Palette.TextFaint); t.VerticalAlignment = VerticalAlignment.Center;
+            TextBlock t = T(text, ShapeTokens.FsFoot, Palette.TextFaint); t.VerticalAlignment = VerticalAlignment.Center;
 
             p.Children.Add(t);
 
@@ -54,7 +54,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             sorts.Children.Add(LegendDot(Palette.Muted, "空/未知"));
 
-            TextBlock sl = T("排序", 11.5, Palette.TextDim);
+            TextBlock sl = T("排序", ShapeTokens.FsFoot, Palette.TextDim);
 
             sl.VerticalAlignment = VerticalAlignment.Center;
 
@@ -72,13 +72,13 @@ namespace Dsht.Gui.Avalonia.Shells
 
             StackPanel rc = new StackPanel { Orientation = Orientation.Horizontal, Spacing = ShapeTokens.S8 };
 
-            SymbolIcon ric = Ic(Symbol.ArrowClockwise, 14, Palette.TextDim);
+            SymbolIcon ric = Ic(Symbol.ArrowClockwise, ShapeTokens.FsBody, Palette.TextDim);
 
             ric.VerticalAlignment = VerticalAlignment.Center;
 
             rc.Children.Add(ric);
 
-            TextBlock rt = T("刷新", 13, Palette.Text);
+            TextBlock rt = T("刷新", ShapeTokens.FsBody, Palette.Text);
 
             rt.VerticalAlignment = VerticalAlignment.Center;
 
@@ -225,7 +225,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
                         Cursor = new global::Avalonia.Input.Cursor(global::Avalonia.Input.StandardCursorType.Hand),
 
-                        Child = T("▸ 子代理 " + vm.Row.ChildIds.Count + " 个（点这里展开）", 11.5, Palette.TextDim)
+                        Child = T("▸ 子代理 " + vm.Row.ChildIds.Count + " 个（点这里展开）", ShapeTokens.FsFoot, Palette.TextDim)
 
                     };
 
@@ -381,7 +381,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             Grid top = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto") };
 
-            TextBlock l = T(label, 10.5, Palette.TextFaint);
+            TextBlock l = T(label, ShapeTokens.FsFoot, Palette.TextFaint);
 
             Grid.SetColumn(l, 0);
 
@@ -405,7 +405,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             Grid g = new Grid { ColumnDefinitions = new ColumnDefinitions("86,*,110,110,120,120"), VerticalAlignment = VerticalAlignment.Center };
 
-            TextBlock id = Mono(vm.ShortId, 11.5, Palette.TextFaint);
+            TextBlock id = Mono(vm.ShortId, ShapeTokens.FsFoot, Palette.TextFaint);
 
             id.VerticalAlignment = VerticalAlignment.Center;
 
@@ -471,7 +471,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             Grid.SetColumn(title, 1);
 
-            TextBlock st = T(vm.StatusText, 11.5, Palette.TextDim);
+            TextBlock st = T(vm.StatusText, ShapeTokens.FsFoot, Palette.TextDim);
 
             st.VerticalAlignment = VerticalAlignment.Center;
 
@@ -503,7 +503,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             Grid g = new Grid { ColumnDefinitions = new ColumnDefinitions("92,*,76") };
 
-            TextBlock l = T(label, 11.5, Palette.TextDim);
+            TextBlock l = T(label, ShapeTokens.FsFoot, Palette.TextDim);
 
             l.VerticalAlignment = VerticalAlignment.Center;
 
@@ -513,7 +513,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             Grid.SetColumn(m, 1);
 
-            TextBlock v = T(value, 11.5, brush, FontWeight.SemiBold);
+            TextBlock v = T(value, ShapeTokens.FsFoot, brush, FontWeight.SemiBold);
 
             v.HorizontalAlignment = HorizontalAlignment.Right;
 
@@ -597,7 +597,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             host.DetailHost = s;
 
-            s.Children.Add(T("（左侧选一个会话）", 11.5, Palette.TextFaint));
+            s.Children.Add(T("（左侧选一个会话）", ShapeTokens.FsFoot, Palette.TextFaint));
 
             return Card(s, new Thickness(0), new Thickness(18, 16));
 
@@ -615,19 +615,19 @@ namespace Dsht.Gui.Avalonia.Shells
 
             {
 
-                host.Children.Add(T("（左侧选一个会话）", 11.5, Palette.TextFaint));
+                host.Children.Add(T("（左侧选一个会话）", ShapeTokens.FsFoot, Palette.TextFaint));
 
                 return;
 
             }
 
-            host.Children.Add(Mono(vm.ShortId, 20, Palette.Text));
+            host.Children.Add(Mono(vm.ShortId, ShapeTokens.FsPage, Palette.Text));
 
             StackPanel meta = new StackPanel { Orientation = Orientation.Horizontal, Spacing = ShapeTokens.S12 };
 
             meta.Children.Add(Chip(vm.StatusText, vm.StatusBrush, Palette.SoftOf(vm.StatusBrush)));
 
-            TextBlock mt = T(vm.MetaText, 11.5, Palette.TextDim);
+            TextBlock mt = T(vm.MetaText, ShapeTokens.FsFoot, Palette.TextDim);
 
             mt.VerticalAlignment = VerticalAlignment.Center;
 
@@ -645,13 +645,13 @@ namespace Dsht.Gui.Avalonia.Shells
 
             host.Children.Add(new Border { Height = 1, Background = Palette.Border, Margin = new Thickness(0, 4, 0, 4) });
 
-            host.Children.Add(T("解码速度 " + vm.DecodeText + "　首 token " + vm.TtftText, 11.5, Palette.TextDim));
+            host.Children.Add(T("解码速度 " + vm.DecodeText + "　首 token " + vm.TtftText, ShapeTokens.FsFoot, Palette.TextDim));
 
-            host.Children.Add(T("缓存读 " + vm.CacheReadText, 11.5, Palette.TextFaint));
+            host.Children.Add(T("缓存读 " + vm.CacheReadText, ShapeTokens.FsFoot, Palette.TextFaint));
 
             // 「含子代理」小字行（第三批 · 2026-10-09 ✓✓ 规格 §11.7-E-3 ✓✓ 与列表卡同一出处 ✓）
             if (vm.SubLine != null && vm.SubLine.Length > 0)
-                host.Children.Add(T(vm.SubLine, 11.5, Palette.TextFaint));
+                host.Children.Add(T(vm.SubLine, ShapeTokens.FsFoot, Palette.TextFaint));
 
         }
 
@@ -661,7 +661,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             Grid g = new Grid { ColumnDefinitions = new ColumnDefinitions("96,110,*") };
 
-            TextBlock l = T(label, 11.5, Palette.TextDim);
+            TextBlock l = T(label, ShapeTokens.FsFoot, Palette.TextDim);
 
             l.VerticalAlignment = VerticalAlignment.Center;
 
@@ -691,13 +691,13 @@ namespace Dsht.Gui.Avalonia.Shells
 
             Grid head = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*") };
 
-            SymbolIcon ic = Ic(Symbol.Info, 15, Palette.TextDim);
+            SymbolIcon ic = Ic(Symbol.Info, ShapeTokens.FsBody, Palette.TextDim);
 
             ic.VerticalAlignment = VerticalAlignment.Center;
 
             Grid.SetColumn(ic, 0);
 
-            TextBlock t = T("这些数字怎么读？", 13, Palette.Text, FontWeight.SemiBold);
+            TextBlock t = T("这些数字怎么读？", ShapeTokens.FsBody, Palette.Text, FontWeight.SemiBold);
 
             t.Margin = new Thickness(8, 0, 0, 0);
 
