@@ -2148,6 +2148,22 @@ namespace Dsht.Gui.LogicTests
                 && mwTxtW2.IndexOf("CoreMissingText", StringComparison.Ordinal) < 0
                 && mwTxtW2.IndexOf("DoWipe", StringComparison.Ordinal) < 0
                 && mwTxtW2.IndexOf("SetProfileSearch", StringComparison.Ordinal) < 0);
+            // W2-12 F-07（源码级）：构造期不许有同步 CLI 调用；偏好改由 Opened 后的后台任务应用
+            string mwCtor = "";
+            if (vtGuiDir != null)
+            {
+                int ctor0 = mwTxtW2.IndexOf("public MainWindow()", StringComparison.Ordinal);
+                int ctor1 = mwTxtW2.IndexOf("// ================================================================ 启动偏好", StringComparison.Ordinal);
+                if (ctor0 >= 0 && ctor1 > ctor0) mwCtor = mwTxtW2.Substring(ctor0, ctor1 - ctor0);
+            }
+            string mwCtorCode = CodeOnly(mwCtor);   // 扫**代码**：注释里点名"不许同步调用"是好事，不该判红
+            Check("W2-12 · F-07 首帧阻塞：MainWindow 构造期 0 处同步 CLI 调用（Run( / EnsureVersions），改由 Opened 后后台读偏好",
+                mwCtor.Length > 0
+                && mwCtorCode.IndexOf("Run(", StringComparison.Ordinal) < 0
+                && mwCtorCode.IndexOf("EnsureVersions(", StringComparison.Ordinal) < 0
+                && mwCtorCode.IndexOf("Opened += delegate { _ = ApplyStartupPreferencesAsync(); };", StringComparison.Ordinal) >= 0
+                && mwTxtW2.IndexOf("private async System.Threading.Tasks.Task ApplyStartupPreferencesAsync()", StringComparison.Ordinal) >= 0
+                && mwTxtW2.IndexOf("Dispatcher.UIThread.Post(delegate { ApplyStartupPreferences(cfgText); });", StringComparison.Ordinal) >= 0);
             Console.WriteLine("== " + _pass + "/" + (_pass + _fail) + " passed, " + _fail + " failed ==");
             return _fail == 0 ? 0 : 1;
         }

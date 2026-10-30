@@ -123,43 +123,93 @@ namespace Dsht.Gui.Avalonia
             //   屏幕纹丝不动 ✓ 看起来就是"卡死" ✓✓
             //   ✓ 现在：首屏**先**画骨架 + 加载浮层（不等数据 ✓），数据到了再画一次 ✓
             // ★★★ 启动页可自选（2026-10-02 用户要求："启动默认打开页面设置里可自选" ✓✓）
-            //   读 config 的 gui_start_page ✓（0..9 = NavItems 索引 ✓）—— 必须在**首帧之前**读好 ✗
-            //   否则第一拍建在默认页上 ✗ → 同步读一次 config-get（~90ms ✓ 只此一次 ✓）
-            //   读不到 / 越界 → 停在默认页 ✓ **绝不因偏好而拒绝启动** ✓✓
-            try
-            {
-                string cfgText = Run(CliPath(), "config-get");
-                string[] cfgLines = cfgText.Replace("\r\n", "\n").Split('\n');
-                for (int i = 0; i < cfgLines.Length; i++)
-                {
-                    string t3 = cfgLines[i].Trim();
-                    if (t3.StartsWith("CONFIG gui_start_page ", StringComparison.Ordinal))
-                    {
-                        int np;
-                        if (int.TryParse(t3.Substring("CONFIG gui_start_page ".Length).Trim(), out np) && np >= 0 && np < NavItems.Length) _mainSection = np;
-                    }
-                    // ★ 概览自动刷新（2026-10-02 ✓）：同一份 config-get 里顺手读 ✓ 不多起进程 ✓
-                    if (t3.StartsWith("CONFIG gui_shell ", StringComparison.Ordinal))
-                    {
-                        // 布局偏好（2026-10-06 U4：顶栏切换器的选择被记住 ✓ 越界保持默认 ✗ 不猜 ✗）
-                        int ns; if (int.TryParse(t3.Substring("CONFIG gui_shell ".Length).Trim(), out ns) && ns >= 0 && ns <= 4) _shell = ns;
-                    }
-                    if (t3.StartsWith("CONFIG gui_style ", StringComparison.Ordinal))
-                    {
-                        int nt; if (int.TryParse(t3.Substring("CONFIG gui_style ".Length).Trim(), out nt) && nt >= 0 && nt <= 3) Palette.Apply(nt);
-                    }
-                    if (t3.StartsWith("CONFIG gui_auto_refresh ", StringComparison.Ordinal))
-                        ApplyAutoRefresh(t3.Substring("CONFIG gui_auto_refresh ".Length).Trim());
-                    if (t3.StartsWith("CONFIG close_action ", StringComparison.Ordinal)) _closeAction = t3.Substring("CONFIG close_action ".Length).Trim();
-                }
-            }
-            catch { }
-            // ★★ 版本显示（2026-10-11）：首帧之前**同步取一次**两个版本 ✓✓
-            //   （与上面那次 config-get 同一姿势 ✓ 只此一次 ✓ 页脚从此不再为空 ✗ 也不每拍起进程 ✗）
-            EnsureVersions();
+            //   ★★ F-07 修复（2026-10-30）：**构造期不再同步跑 CLI** ✗✗
+            //   ✗ 原来在首帧之前同步读 config-get、再同步取一次版本（注释写"~90ms 只此一次"）✗
+            //     而 CLI 是 66 MB 自包含 exe：冷启动 / 杀软扫描时一次就是几十秒（Run 预算是 30 秒）✓
+            //     → 窗口最长 30 秒不出现 ✓ 用户看不到任何加载反馈 ✓
+            //   ✓ 现在：先画骨架（默认页 + 默认布局 + 默认样式）→ 窗口出现（Opened）后再**后台**读偏好，
+            //     回到 UI 线程应用并重建一次（见 ApplyStartupPreferencesAsync）✓
+            //   · 读不到 / 越界 / 异常 → 一路保持默认 ✓ **绝不因偏好拒绝启动** ✓
+            //   · 版本页脚不在这里取：RefreshAsync 本来就有**后台**版本探测（同一条异步姿势 ✓ 不重复起进程）
             _loading = true;
             BuildShell();
             Refresh();
+            Opened += delegate { _ = ApplyStartupPreferencesAsync(); };
+        }
+
+        // ================================================================ 启动偏好（F-07：窗口出现后再读）
+
+        /// <summary>F-07：窗口出现后**在后台**读一次 config-get，回到 UI 线程应用启动偏好并重建一次。
+        /// 偏好 = gui_start_page / gui_shell / gui_style / gui_auto_refresh / close_action。
+        /// 纪律：整体 try/catch ✓ 读不到 / 越界 / 解析失败一律保持构造期默认 ✓ **绝不因偏好拒绝启动** ✓。</summary>
+        private async System.Threading.Tasks.Task ApplyStartupPreferencesAsync()
+        {
+            string cfgText = null;
+            try
+            {
+                string cli = CliPath();
+                if (cli != null) cfgText = await System.Threading.Tasks.Task.Run(delegate { return Run(cli, "config-get"); });
+            }
+            catch { cfgText = null; }
+            try
+            {
+                global::Avalonia.Threading.Dispatcher.UIThread.Post(delegate { ApplyStartupPreferences(cfgText); });
+            }
+            catch { /* 投递失败 ⇒ 保持默认 ✓ 不拒绝启动 ✓ */ }
+        }
+
+        /// <summary>把启动偏好应用到当前界面（**必须在 UI 线程**）：只应用能解析且越界检查通过的键；
+        /// 页面 / 布局 / 风格真的变了才重建一次（✗ 没变不白重建 ✓）。</summary>
+        private void ApplyStartupPreferences(string cfgText)
+        {
+            try
+            {
+                int newSection = _mainSection;
+                int newShell = _shell;
+                int newStyle = Palette.StyleKind;
+                string newClose = _closeAction;
+                string autoVal = null;
+                bool autoSeen = false;
+                if (!string.IsNullOrEmpty(cfgText))
+                {
+                    string[] cfgLines = cfgText.Replace("\r\n", "\n").Split('\n');
+                    for (int i = 0; i < cfgLines.Length; i++)
+                    {
+                        string t3 = cfgLines[i].Trim();
+                        if (t3.StartsWith("CONFIG gui_start_page ", StringComparison.Ordinal))
+                        {
+                            int np;
+                            if (int.TryParse(t3.Substring("CONFIG gui_start_page ".Length).Trim(), out np) && np >= 0 && np < NavItems.Length) newSection = np;
+                        }
+                        // 布局偏好（2026-10-06 U4：顶栏切换器的选择被记住 ✓ 越界保持默认 ✗ 不猜 ✗）
+                        if (t3.StartsWith("CONFIG gui_shell ", StringComparison.Ordinal))
+                        {
+                            int ns; if (int.TryParse(t3.Substring("CONFIG gui_shell ".Length).Trim(), out ns) && ns >= 0 && ns <= 4) newShell = ns;
+                        }
+                        // 风格（明暗/密度）0..3 ✓ 越界保持默认 ✗
+                        if (t3.StartsWith("CONFIG gui_style ", StringComparison.Ordinal))
+                        {
+                            int nt; if (int.TryParse(t3.Substring("CONFIG gui_style ".Length).Trim(), out nt) && nt >= 0 && nt <= 3) newStyle = nt;
+                        }
+                        // 概览自动刷新（2026-10-02）：同一份 config-get 里顺手读 ✓ 不多起进程 ✓
+                        if (t3.StartsWith("CONFIG gui_auto_refresh ", StringComparison.Ordinal)) { autoVal = t3.Substring("CONFIG gui_auto_refresh ".Length).Trim(); autoSeen = true; }
+                        if (t3.StartsWith("CONFIG close_action ", StringComparison.Ordinal)) newClose = t3.Substring("CONFIG close_action ".Length).Trim();
+                    }
+                }
+                bool styleChanged = newStyle != Palette.StyleKind;
+                if (styleChanged) Palette.Apply(newStyle);
+                bool shellChanged = newShell != _shell;
+                if (shellChanged) _shell = newShell;
+                _closeAction = newClose;    // 空串 = 直退（默认）✓
+                if (autoSeen) ApplyAutoRefresh(autoVal);
+                if (newSection != _mainSection)
+                {
+                    SetMainSection(newSection);   // 重置子页/排序 + 重建一次 + 刷新新页数据 ✓
+                    return;
+                }
+                if (styleChanged || shellChanged) BuildShell();
+            }
+            catch { /* 应用失败 ⇒ 保持默认 ✓ 不拒绝启动 ✓ */ }
         }
 
         private readonly List<Button> _windowButtons = new List<Button>();
@@ -2105,7 +2155,8 @@ namespace Dsht.Gui.Avalonia
         private bool _bridgeProbed = false;
         private readonly List<VersionMarkers.BridgeHit> _bridgeHits = new List<VersionMarkers.BridgeHit>();
 
-        /// <summary>取一次两个版本（幂等 ✓ 已取到就什么都不做 ✓）。启动时同步取一次 → 首帧页脚就是对的 ✓；
+        /// <summary>取一次两个版本（幂等 ✓ 已取到就什么都不做 ✓）。
+        /// ★ F-07（2026-10-30）：**不再在构造期调用** —— 由 RefreshAsync 的**后台**探测补页脚版本（不占首帧 ✓）；
         /// 之后 CLI 路径若变化（DSHT_CLI / 换了同目录的 exe）→ 重新取 ✓。</summary>
         private void EnsureVersions()
         {
