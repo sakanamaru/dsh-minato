@@ -23,17 +23,17 @@ $srcDir = Join-Path $Repo 'v3\src'
 if (-not (Test-Path $srcDir)) { Write-Host "SKIP: 找不到 v3\src（-Repo 指向仓库根）"; exit 2 }
 $files = @(Get-ChildItem $srcDir -Recurse -Filter *.cs | Where-Object { $_.FullName -notmatch '\\obj\\' -and $_.FullName -notmatch '\\bin\\' })
 
-# ---- B-06（2026-10-30 审查）：抽出「命令表」与「Usage() 方法体」，供下面的覆盖率检查用 ----
-# 判据只认派发器里的 `cmd == "..."`（排除注释行 ✓）；命令名必须逐个都出现在 Usage() 里 ✓
-# 注意：只扫 Usage() 方法体 ✗ —— 扫整份 Program.cs 的话派发器自己就有这些名字 → 假绿 ✓
+# ---- W3（2026-10-30 命令处理器化）：抽出「命令注册表」与「Usage() 方法体」，供覆盖率检查用 ----
+# 判据 = CommandTable 的注册行 `Reg("name", Handler)`（每命令一行，排除注释行 ✓）——
+# 注册表是命令面的**唯一真源**（Main 只查表）；命令名必须逐个都出现在 Usage() 里 ✓
+# 注意：只扫 Usage() 方法体 ✗ —— 扫整份 Program.cs 的话注册表旁边就有这些名字 → 假绿 ✓
 $cmdInCode = New-Object System.Collections.Generic.List[string]
 foreach ($f in $files) {
-  $hits = Select-String -Path $f.FullName -Pattern 'cmd == "' -SimpleMatch -ErrorAction SilentlyContinue
+  $hits = Select-String -Path $f.FullName -Pattern 'Reg("' -SimpleMatch -ErrorAction SilentlyContinue
   foreach ($h in $hits) {
     if ($h.Line.Trim() -match '^(//|/\*|\*|///)') { continue }
-    # 用 Matches 取**该行全部**命令名 ✓ —— Match 只取第一个，同一行有两个比较时会漏 ✓
-    # （对照实验发现的：把 about 那行改成 else if 形式后，about 被误报为"表里多余" ✗）
-    foreach ($m in [regex]::Matches($h.Line, 'cmd == "([a-z0-9\-]+)"')) {
+    # 用 Matches 取**该行全部**命令名 ✓（注册表每行一个；Matches 对将来一行多个也稳 ✓）
+    foreach ($m in [regex]::Matches($h.Line, 'Reg\("([a-z0-9\-]+)"')) {
       if (-not $cmdInCode.Contains($m.Groups[1].Value)) { $cmdInCode.Add($m.Groups[1].Value) }
     }
   }
@@ -85,49 +85,52 @@ $checks = @(
   @('标记哈希辅助',              'private static void AddContentHashToMarker', 1),
   # B-04（2026-10-30）：PackageAllWorkspaces 改为返回结构化结果（打包数/失败数/失败原因）⇒ 锚点随签名同步 ✓（仍 1 处、仍防静默删掉多工作区打包）
   @('多工作区打包',              'private static WorkspacePackResult PackageAllWorkspaces', 1),
-  @('命令 backup-dir',           'cmd == "backup-dir"', 1),
-  @('命令 bridge-install',       'cmd == "bridge-install"', 1),
-  @('命令 update-center',        'cmd == "update-center"', 1),
-  @('命令 autostart',            'cmd == "autostart"', 1),
-  @('命令 balance',              'cmd == "balance"', 1),
+  @('命令 backup-dir',           'Reg("backup-dir"', 1),
+  @('命令 bridge-install',       'Reg("bridge-install"', 1),
+  @('命令 update-center',        'Reg("update-center"', 1),
+  @('命令 autostart',            'Reg("autostart"', 1),
+  @('命令 balance',              'Reg("balance"', 1),
   @('多工作区前置约束',          '_wss.Length >= 2 ? null', 1),
   @('通道说明',                  'CHANNEL_NOTE', 1),
   # ---- 命令面（32 个 ✓）：删掉任何一个 = **静默失去一个功能** ✗ ----
-  @('命令 about',                'cmd == "about"', 1),
-  @('命令 backup',               'cmd == "backup"', 1),
-  @('命令 backup-delete',        'cmd == "backup-delete"', 1),
-  @('命令 backup-export',        'cmd == "backup-export"', 1),
-  @('命令 backup-list',          'cmd == "backup-list"', 1),
-  @('命令 bootdiag',             'cmd == "bootdiag"', 1),
-  @('命令 check',                'cmd == "check"', 1),
-  @('命令 config-get',           'cmd == "config-get"', 1),
-  @('命令 config-set',           'cmd == "config-set"', 1),
-  @('命令 cost',                 'cmd == "cost"', 1),   # ★ 成本面板 v3.2（2026-10-16 ✓ 只读成本命令 ✓ 命令面 37 → 38 ✓）
-  @('命令 describe',             'cmd == "describe"', 1),
-  @('命令 doctor',               'cmd == "doctor"', 1),
-  @('命令 import',               'cmd == "import"', 1),
-  @('命令 install',              'cmd == "install"', 1),
-  @('命令 log',                  'cmd == "log"', 1),
-  @('命令 profilecheck',         'cmd == "profilecheck"', 1),
-  @('命令 profilepatch',         'cmd == "profilepatch"', 1),
-  @('命令 profiles',             'cmd == "profiles"', 1),
-  @('命令 restore',              'cmd == "restore"', 1),
-  @('命令 selftest',             'cmd == "selftest"', 1),
-  @('命令 sessions',             'cmd == "sessions"', 1),
-  @('命令 shortcut',             'cmd == "shortcut"', 1),
-  @('命令 start',                'cmd == "start"', 1),
-  @('命令 status',               'cmd == "status"', 1),
-  @('命令 stop',                 'cmd == "stop"', 1),
-  @('命令 ui',                   'cmd == "ui"', 1),
-  @('命令 uninstall',            'cmd == "uninstall"', 1),
-  @('命令 update',               'cmd == "update"', 1),
-  @('命令 update-info',          'cmd == "update-info"', 1),
-  @('命令 verify-install',       'cmd == "verify-install"', 1),
-  @('命令 version',              'cmd == "version"', 1),
-  @('命令 wipe',                 'cmd == "wipe"', 1),
-  @('命令 overview',           'cmd == "overview"', 1),
+  @('命令 about',                'Reg("about"', 1),
+  @('命令 backup',               'Reg("backup"', 1),
+  @('命令 backup-delete',        'Reg("backup-delete"', 1),
+  @('命令 backup-export',        'Reg("backup-export"', 1),
+  @('命令 backup-list',          'Reg("backup-list"', 1),
+  @('命令 bootdiag',             'Reg("bootdiag"', 1),
+  @('命令 check',                'Reg("check"', 1),
+  @('命令 config-get',           'Reg("config-get"', 1),
+  @('命令 config-set',           'Reg("config-set"', 1),
+  @('命令 cost',                 'Reg("cost"', 1),   # ★ 成本面板 v3.2（2026-10-16 ✓ 只读成本命令 ✓ 命令面 37 → 38 ✓）
+  @('命令 describe',             'Reg("describe"', 1),
+  @('命令 doctor',               'Reg("doctor"', 1),
+  @('命令 import',               'Reg("import"', 1),
+  @('命令 install',              'Reg("install"', 1),
+  @('命令 log',                  'Reg("log"', 1),
+  @('命令 profilecheck',         'Reg("profilecheck"', 1),
+  @('命令 profilepatch',         'Reg("profilepatch"', 1),
+  @('命令 profiles',             'Reg("profiles"', 1),
+  @('命令 restore',              'Reg("restore"', 1),
+  @('命令 selftest',             'Reg("selftest"', 1),
+  @('命令 sessions',             'Reg("sessions"', 1),
+  @('命令 shortcut',             'Reg("shortcut"', 1),
+  @('命令 start',                'Reg("start"', 1),
+  @('命令 status',               'Reg("status"', 1),
+  @('命令 stop',                 'Reg("stop"', 1),
+  @('命令 ui',                   'Reg("ui"', 1),
+  @('命令 uninstall',            'Reg("uninstall"', 1),
+  @('命令 update',               'Reg("update"', 1),
+  @('命令 update-info',          'Reg("update-info"', 1),
+  @('命令 verify-install',       'Reg("verify-install"', 1),
+  @('命令 version',              'Reg("version"', 1),
+  @('命令 wipe',                 'Reg("wipe"', 1),
+  @('命令 overview',           'Reg("overview"', 1),
+  # ---- W3（2026-10-30）：命令注册表是命令面的唯一真源（39 行 Reg("name", Handler)，含空串=菜单）----
+  # 行数下限 = 39：删掉任何一条注册（= 静默失去一个命令）都会红 ✓
+  @('命令注册表（唯一真源）',   'Reg("', 39),
   # ---- B-06（2026-10-30 审查）：命令表里的**每一条**命令都必须在 Usage() 速查里出现 ✓ ----
-  # 抽的是 Usage() 方法体本身（不是整份源码）✓ 判据见上面的 $usageText / $cmdInCode ✓
+  # 抽的是 Usage() 方法体本身（不是整份源码）✓ 判据见上面的 $usageText / $cmdInCode（W3 起 = 注册表）✓
   # 缺一条 = 用户按“全部命令”看不到它 ✓（bridge-install / autostart / backup-dir 就漏过 ✓）
   @('Usage 覆盖命令表',         '@@USAGE_COVERAGE@@', 1),
   # ---- 更早轮次的关键闸门（V3 自身 ✓）----
@@ -194,7 +197,8 @@ if ($onlyCode.Count -eq 0 -and $onlyTable.Count -eq 0) { Write-Host "  [OK]   �
 # 审计发现（门槛完整性审计 §5.3）：原来是 67，而表里有 **71** 项 → **最多 4 项可被静默删掉** ✗
 # → 现在**必须正好等于表长** ✓（任何一项被删都会红 ✓）
 # B-06（2026-10-30）：新增「Usage 覆盖命令表」1 项 → 74 + 1 = 75 ✓（删掉任何一条仍会红 ✓）
-$EXPECTED_MIN_CHECKS = 75   # ★ 成本面板 v3.2 新增 1 条（cost）· B-06 新增 1 条（Usage 覆盖）→ 75 ✓
+# W3（2026-10-30）：新增「命令注册表（唯一真源）」1 项 → 75 + 1 = 76 ✓（注册表缩水会红 ✓）
+$EXPECTED_MIN_CHECKS = 76   # ★ cost 1 · B-06 1 · W3 注册表 1 → 76 ✓
 if ($checks.Count -lt $EXPECTED_MIN_CHECKS) {
     $miss += ("检查表项数不足：" + $checks.Count + " < " + $EXPECTED_MIN_CHECKS)
     Write-Host ("  [MISS] 检查表项数不足：只有 " + $checks.Count + " 项（需 >= " + $EXPECTED_MIN_CHECKS + "）")
