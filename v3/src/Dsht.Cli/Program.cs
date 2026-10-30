@@ -241,16 +241,15 @@ namespace Dsht.Cli
             Console.WriteLine("  sessions [--days 7|14|30] [--level global] | log [--lines <n>] [--level info|warn|error] [--grep <text>] [--export <file> [--yes]]");
             Console.WriteLine(T("  cost [--days 7|14|30 | --from <yyyy-MM-dd> --to <yyyy-MM-dd>] [--level global|parents|parents_sub]（只读：窗口与今日的 token 与**估算**金额；未填单价则不显示金额）",
                                 "  cost [--days 7|14|30 | --from <yyyy-MM-dd> --to <yyyy-MM-dd>] [--level global|parents|parents_sub] (read-only: window and today tokens with an estimated amount; no amount until prices are set)"));
-            Console.WriteLine("  update-info | update-center | update [--yes]");
+            Console.WriteLine("  update | update-info（只读：当前/最新/来源/状态/回滚候选） | update-center");
             Console.WriteLine("  balance（DeepSeek 余额检测；只读；需先在设置里填 balance_key）");
-Console.WriteLine("  config-get | config-set <key> <value>");
+            Console.WriteLine("  config-get | config-set <key> <value>");
             Console.WriteLine("  install [--install-node] [--version <v>] [--list] [--yes] | update [--version <v>] [--list] [--yes] | uninstall [--yes]");
-            Console.WriteLine("  update-info（只读：当前/最新/来源/状态/回滚候选）");
             Console.WriteLine("  start [--port <n>] [--profile <name>] [--yes] | stop [--port <n>] [--target web|desktop] [--force] [--yes]");
-            Console.WriteLine("  backup | backup-list [--detail] [--verify] | backup-export --path <备份> --to <目标> [--yes] | backup-delete --path <备份> [--yes] [--yes]");
+            Console.WriteLine("  backup | backup-list [--detail] [--verify] | backup-dir [--set <绝对路径>] [--reset] | backup-export --path <备份> --to <目标> [--yes] | backup-delete --path <备份> [--yes]");
             Console.WriteLine("  restore --path <备份> [--dry-run] [--apply] [--yes]");
             Console.WriteLine("  import --path <外部备份包> [--yes] | wipe [--yes] | verify-install [--manifest <f>] [--file <f>] [--url <u>]");
-            Console.WriteLine("  shortcut [--yes] | ui | 无参数 = 数字菜单");
+            Console.WriteLine("  bridge-install [--profile <name>] [--yes] | autostart [--enable|--disable] | shortcut [--yes] | ui | 无参数 = 数字菜单");
             Console.WriteLine(T("写操作一律先打印计划，加 --yes 才执行；涉及数据根的真实恢复还要求先设置 DSH_HOME。",
                                 "Every write prints its plan first; add --yes to execute. A real restore writes into the effective data root, which is DSH_HOME when set and the default data root when not; only the --apply path is refused when that root is a default location."));
         }
