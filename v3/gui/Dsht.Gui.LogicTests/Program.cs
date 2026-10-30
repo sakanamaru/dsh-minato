@@ -2164,6 +2164,24 @@ namespace Dsht.Gui.LogicTests
                 && mwCtorCode.IndexOf("Opened += delegate { _ = ApplyStartupPreferencesAsync(); };", StringComparison.Ordinal) >= 0
                 && mwTxtW2.IndexOf("private async System.Threading.Tasks.Task ApplyStartupPreferencesAsync()", StringComparison.Ordinal) >= 0
                 && mwTxtW2.IndexOf("Dispatcher.UIThread.Post(delegate { ApplyStartupPreferences(cfgText); });", StringComparison.Ordinal) >= 0);
+            // W2-13 F-14（源码级）：4 个 async-void 方法全部改成 Task；ConfirmExitAsync 有 try/catch；入口显式 _ =
+            string mwConfirmBody = "";
+            if (vtGuiDir != null)
+            {
+                int cf0 = mwTxtW2.IndexOf("private async System.Threading.Tasks.Task ConfirmExitAsync()", StringComparison.Ordinal);
+                int cf1 = mwTxtW2.IndexOf("/// <summary>tray 模式", StringComparison.Ordinal);
+                if (cf0 >= 0 && cf1 > cf0) mwConfirmBody = mwTxtW2.Substring(cf0, cf1 - cf0);
+            }
+            Check("W2-13 · F-14：MainWindow 里 async void = 0；4 个方法都返回 Task（入口显式 _ =）；ConfirmExitAsync 整体 try/catch 进 toast（不再掀进程）",
+                vtGuiDir != null
+                && mwTxtW2.IndexOf("async void", StringComparison.Ordinal) < 0
+                && mwTxtW2.IndexOf("public async System.Threading.Tasks.Task CreateBackup()", StringComparison.Ordinal) >= 0
+                && mwTxtW2.IndexOf("public async System.Threading.Tasks.Task ChangeBackupDir()", StringComparison.Ordinal) >= 0
+                && mwTxtW2.IndexOf("public async System.Threading.Tasks.Task DeleteBackup(string name)", StringComparison.Ordinal) >= 0
+                && mwTxtW2.IndexOf("private async System.Threading.Tasks.Task ConfirmExitAsync()", StringComparison.Ordinal) >= 0
+                && mwTxtW2.IndexOf("_ = ConfirmExitAsync();", StringComparison.Ordinal) >= 0
+                && mwConfirmBody.IndexOf("catch (Exception ex)", StringComparison.Ordinal) >= 0
+                && mwConfirmBody.IndexOf("ShowToast", StringComparison.Ordinal) >= 0);
             Console.WriteLine("== " + _pass + "/" + (_pass + _fail) + " passed, " + _fail + " failed ==");
             return _fail == 0 ? 0 : 1;
         }

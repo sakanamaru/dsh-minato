@@ -111,7 +111,7 @@ namespace Dsht.Gui.Avalonia
                 // close_action：tray=最小化到托盘（可取消）/ ask=弹确认（可取消）/ 空|exit=直接退出 ✓
                 string act = (_closeAction ?? "").Trim();
                 if (act == "tray" && !_realExit) { ce.Cancel = true; HideToTray(); return; }
-                if (act == "ask" && !_realExit) { ce.Cancel = true; ConfirmExitAsync(); return; }
+                if (act == "ask" && !_realExit) { ce.Cancel = true; _ = ConfirmExitAsync(); return; }
                 // ★ 悬边状态灯（提案 §11 ✓）：主窗口**真的退出**时把它一起关掉 ✗
                 //   （否则 Avalonia 的 OnLastWindowClose 会因为它还在而让进程活着 ✓ 用户以为没退 ✓）
                 try { StopOverlayTimer(); if (_overlay != null) { _overlay.Close(); _overlay = null; } } catch { }
@@ -124,7 +124,7 @@ namespace Dsht.Gui.Avalonia
             //   ✓ 现在：首屏**先**画骨架 + 加载浮层（不等数据 ✓），数据到了再画一次 ✓
             // ★★★ 启动页可自选（2026-10-02 用户要求："启动默认打开页面设置里可自选" ✓✓）
             //   ★★ F-07 修复（2026-10-30）：**构造期不再同步跑 CLI** ✗✗
-            //   ✗ 原来在首帧之前同步读 config-get、再同步取一次版本（注释写"~90ms 只此一次"）✗
+            //   ✗ 原来在首帧之前同步读 config-get、再同步 EnsureVersions()（注释写"~90ms 只此一次"）✗
             //     而 CLI 是 66 MB 自包含 exe：冷启动 / 杀软扫描时一次就是几十秒（Run 预算是 30 秒）✓
             //     → 窗口最长 30 秒不出现 ✓ 用户看不到任何加载反馈 ✓
             //   ✓ 现在：先画骨架（默认页 + 默认布局 + 默认样式）→ 窗口出现（Opened）后再**后台**读偏好，
@@ -297,9 +297,9 @@ namespace Dsht.Gui.Avalonia
         ///     · 成功 → 完事 ✓（已有备份时 CLI 会**沿用**上次的目录 ✓ 不追问 ✓）
         ///     · 返回「第一次备份必须指定目录」→ **弹文件夹选择器** ✓ → 再跑 `backup --to <选中的目录>` ✓✓
         ///   为什么这样：**判据放在 CLI 里** ✓ 界面不用自己猜"是不是第一次" ✓✓（单一事实来源 ✓）</summary>
-        public async void CreateBackup()
+        public async System.Threading.Tasks.Task CreateBackup()
         {
-            // ★ 写动作也过闸门（2026-10-04 ✓）：这里原来是**独立的 async void** ✗ 绕开了 RunCliAction 的闸门 ✗
+            // ★ 写动作也过闸门（2026-10-04 ✓）：这里原来是**独立的即发即忘方法**（不返回 Task）✗ 绕开了 RunCliAction 的闸门 ✗
             //   → 连点三次 = **三个 `backup` 同时跑** ✗（三份包 + 各自触发保留份数清理 ✓ 同名文件互相踩 ✓）
             if (_actionBusy)
             {
@@ -416,7 +416,7 @@ namespace Dsht.Gui.Avalonia
 
         /// <summary>改备份位置 ✓✓（用户要求：「备份路径在备份页面里设置并且显示吧」✓）。
         /// 弹系统文件夹选择器 ✓ → `backup-dir --set <目录>` ✓ → CLI 会校验并持久化 ✓✓。</summary>
-        public async void ChangeBackupDir()
+        public async System.Threading.Tasks.Task ChangeBackupDir()
         {
             string dir = await PickFolder("选择备份位置（建议放在安装目录之外，例如 D:\\dsh-backups）");
             if (string.IsNullOrEmpty(dir)) { _actionLog = "已取消更改备份位置"; BuildShell(); ShowToast(_actionLog); return; }
@@ -426,7 +426,7 @@ namespace Dsht.Gui.Avalonia
         /// <summary>恢复默认备份位置 ✓✓（删掉持久化文件 ✓ 回到 `StateDir/backup` ✓）。</summary>
         public void ResetBackupDir() { RunCliAction("backup-dir --reset", "恢复默认备份位置"); }
 
-        public async void DeleteBackup(string name)
+        public async System.Threading.Tasks.Task DeleteBackup(string name)
         {
             string now = System.DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
             string typed = await PromptDialog.Ask(this, "删除备份",
@@ -2216,10 +2216,19 @@ namespace Dsht.Gui.Avalonia
         }
 
         // —— close_action 接线（2026-10-06 用户要求"无效选项接上"）：ask=确认 / tray=系统托盘 / exit=直退 ——
-        private async void ConfirmExitAsync()
+        private async System.Threading.Tasks.Task ConfirmExitAsync()
         {
-            bool yes = await ConfirmDialog.Ask(this, "退出 dsh-minato", "确定要退出吗？");
-            if (yes) { _realExit = true; Close(); }
+            try
+            {
+                bool yes = await ConfirmDialog.Ask(this, "退出 dsh-minato", "确定要退出吗？");
+                if (yes) { _realExit = true; Close(); }
+            }
+            catch (Exception ex)
+            {
+                // ★ F-14（2026-10-30）：确认框自己抛异常时**不许掀掉进程** ✓ 进 toast / 动作日志 ✓
+                //   （旧实现不返回 Task：这些异常走未处理异常路径，进程可能直接消失 ✓）
+                try { _actionLog = "退出确认失败：" + ex.Message; ShowToast(_actionLog); BuildShell(); } catch { }
+            }
         }
 
         /// <summary>tray 模式：隐藏主窗口 + 建系统托盘图标（一次性）。托盘不可用（个别 Linux）→ 退化为直退 ✓ 不猜 ✗。</summary>
