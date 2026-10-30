@@ -810,7 +810,7 @@ namespace Dsht.Gui.Avalonia.Shells
             {
                 // 说明页 = 关于信息（logo 已从标题栏移到这里 ✓）+ CLI 原始输出
                 global::Avalonia.Controls.StackPanel wrap = new global::Avalonia.Controls.StackPanel();
-                wrap.Spacing = 4;
+                wrap.Spacing = ShapeTokens.S12;
                 wrap.Children.Add(AboutCard());
                 wrap.Children.Add(new Border { Margin = PageMargin, Child = RawCard(host, "原始输出", "CLI 标记行原文") });
                 return wrap;
@@ -836,7 +836,7 @@ namespace Dsht.Gui.Avalonia.Shells
                 {
                     global::Avalonia.Controls.Image img = new global::Avalonia.Controls.Image();
                     img.Source = new global::Avalonia.Media.Imaging.Bitmap(s);
-                    img.Width = 200; img.Height = 200;
+                    img.Width = 120; img.Height = 120;
                     img.Stretch = global::Avalonia.Media.Stretch.Uniform;
                     img.HorizontalAlignment = global::Avalonia.Layout.HorizontalAlignment.Center;
                     sp.Children.Add(img);
@@ -852,18 +852,18 @@ namespace Dsht.Gui.Avalonia.Shells
             global::Avalonia.Controls.TextBlock tag = new global::Avalonia.Controls.TextBlock();
             tag.Text = "社区版 DeepSeek Harness (dsh) 本机部署运维套件：安装 / 启动 / 监控 / 备份恢复 / 插件诊断与隔离";
             tag.TextWrapping = global::Avalonia.Media.TextWrapping.Wrap;
-            tag.Opacity = 0.85;
+            tag.Foreground = Palette.TextDim;
             sp.Children.Add(tag);
             global::Avalonia.Controls.TextBlock un = new global::Avalonia.Controls.TextBlock();
             un.Text = "非官方工具，与 DeepSeek 官方无关。图标为社区自制（AI 生成），不适用本项目的 MIT 许可。";
             un.TextWrapping = global::Avalonia.Media.TextWrapping.Wrap;
-            un.Opacity = 0.7;
+            un.Foreground = Palette.TextFaint;
             sp.Children.Add(un);
             // ★ 文案精简（2026-10-11）：页脚原来那句架构注记搬到这里 —— 页脚只留版本号与事实。
             global::Avalonia.Controls.TextBlock arch = new global::Avalonia.Controls.TextBlock();
             arch.Text = "本程序只负责显示：它不引用工具箱的核心程序集，而是运行 CLI 并解析它打出的标记行。";
             arch.TextWrapping = global::Avalonia.Media.TextWrapping.Wrap;
-            arch.Opacity = 0.7;
+            arch.Foreground = Palette.TextFaint;
             sp.Children.Add(arch);
             // ★★★ 2026-10-11（插件卡可读性）：**插件更新的基准与判定**——整段机制说明从更新页的插件卡
             //   搬到这里 ✓（维护者：卡片里那条 NOTE 是一整段机制说明 ✗ 读起来费劲 ✗；长路径也抢注意力 ✗）。
@@ -875,8 +875,11 @@ namespace Dsht.Gui.Avalonia.Shells
             AddAboutExplain(sp, UpdateBaselineExplain.Title(), UpdateBaselineExplain.Text());
             AddAboutExplain(sp, UpdateBaselineExplain.PathsTitle(), UpdateBaselineExplain.PathsText());
             global::Avalonia.Controls.Border card = new global::Avalonia.Controls.Border();
-            card.Padding = new global::Avalonia.Thickness(16);
-            card.CornerRadius = new global::Avalonia.CornerRadius(ShapeTokens.RCard);   // 样式重构：10 → RCard 统一卡片档
+            card.Padding = new global::Avalonia.Thickness(20, 16);
+            card.CornerRadius = new global::Avalonia.CornerRadius(ShapeTokens.RCard);
+            card.Background = Palette.CardBg;
+            card.BorderBrush = Palette.Border;
+            card.BorderThickness = new global::Avalonia.Thickness(ShapeTokens.Stroke);
             card.Margin = PageMargin;
             card.Child = sp;
             return card;
@@ -888,14 +891,14 @@ namespace Dsht.Gui.Avalonia.Shells
         {
             global::Avalonia.Controls.TextBlock h = new global::Avalonia.Controls.TextBlock();
             h.Text = title;
-            h.FontWeight = global::Avalonia.Media.FontWeight.SemiBold;
-            h.Margin = new global::Avalonia.Thickness(0, 10, 0, 0);
+            h.FontSize = ShapeTokens.FsBody; h.FontWeight = global::Avalonia.Media.FontWeight.SemiBold; h.Foreground = Palette.Text;
+            h.Margin = new global::Avalonia.Thickness(0, 12, 0, 0);
             h.TextWrapping = global::Avalonia.Media.TextWrapping.Wrap;
             sp.Children.Add(h);
             global::Avalonia.Controls.TextBlock t = new global::Avalonia.Controls.TextBlock();
             t.Text = body;
             t.TextWrapping = global::Avalonia.Media.TextWrapping.Wrap;
-            t.Opacity = 0.8;
+            t.FontSize = ShapeTokens.FsFoot; t.Foreground = Palette.TextDim;
             sp.Children.Add(t);
         }
 
@@ -915,7 +918,7 @@ namespace Dsht.Gui.Avalonia.Shells
             {
                 // 说明页 = 关于信息（logo 已从标题栏移到这里 ✓）+ CLI 原始输出
                 global::Avalonia.Controls.StackPanel wrap = new global::Avalonia.Controls.StackPanel();
-                wrap.Spacing = 4;
+                wrap.Spacing = ShapeTokens.S12;
                 wrap.Children.Add(AboutCard());
                 wrap.Children.Add(new Border { Margin = PageMargin, Child = RawCard(host, "原始输出", "CLI 标记行原文") });
                 return wrap;
@@ -1025,7 +1028,7 @@ namespace Dsht.Gui.Avalonia.Shells
             }
             StackPanel sum = new StackPanel { Spacing = 8 };
             sum.Children.Add(T("累计输入 token", ShapeTokens.FsFoot, Palette.TextDim));
-            sum.Children.Add(T(SessionRow.Human(d.TotalIn), 34, Palette.Text, FontWeight.Bold));
+            sum.Children.Add(T(SessionRow.Human(d.TotalIn), ShapeTokens.FsPage, Palette.Text, FontWeight.Bold));
             sum.Children.Add(T("新输入 " + SessionRow.Human(d.TotalIn - d.TotalCacheRead < 0 ? 0 : d.TotalIn - d.TotalCacheRead) + " · 输出 " + SessionRow.Human(d.TotalOut) + " · 缓存命中 " + SessionRow.Human(d.TotalCacheRead) + " · 会话 " + d.Count + " 个（非空 " + d.NonBlank + "）", ShapeTokens.FsFoot, Palette.TextFaint));
             sum.Children.Add(Meter(d.TotalHitPercent < 0 ? 0 : d.TotalHitPercent, Palette.HitBrush(d.TotalHitPercent >= 90 ? 3 : (d.TotalHitPercent >= 70 ? 2 : 1)), 8));
             sum.Children.Add(T("缓存命中率 " + PctText(d.TotalHitPercent) + "　解码速度 " + TpsText(d.TotalDecodeTps) + " tok/s", ShapeTokens.FsBody, Palette.TextDim));

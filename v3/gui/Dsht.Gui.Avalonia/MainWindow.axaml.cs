@@ -745,7 +745,7 @@ namespace Dsht.Gui.Avalonia
             {
                 Button b = this.FindControl<Button>("Shell" + i);
                 if (b == null) continue;
-                b.Content = new SymbolIcon { Symbol = shellIcons[i], IconVariant = IconVariant.Regular, FontSize = 15 };
+                b.Content = new SymbolIcon { Symbol = shellIcons[i], IconVariant = IconVariant.Regular, FontSize = ShapeTokens.IcNav };
                 ToolTip.SetTip(b, "布局：" + Shells.Shells.Name(i));
             }
             for (int i = 0; i < 4; i++)
@@ -1284,7 +1284,7 @@ namespace Dsht.Gui.Avalonia
                 // ★ 2026-10-11（维护者要求"页脚做换行"✓）：**按语义断成两行** ✗ 不靠被动折行 ✓
                 //   第一行 = 数据来源 + 投影目录（路径可能很长 → 仍由 TextWrapping.Wrap 兜底 ✓）
                 //   第二行 = 两个版本 ✓ 换行点稳定 ✗ 不再随窗口宽度乱折 ✓
-                string line1 = "数据来源：" + _data.SourceText + "　投影目录：" + _data.Root;
+                string line1 = _data.SourceText + "　投影目录：" + _data.Root;
                 string line2 = "工具箱 " + CliVersionText;
                 return line1 + "\n" + line2;
             }

@@ -294,9 +294,11 @@ namespace Dsht.Gui.Avalonia.Shells
 
             TextBlock v = host.LiveText(value(), value);
 
-            v.FontSize = ShapeTokens.FsStat;   // 美学B4：与 StatCard 统一为 22 ✓ v.FontWeight = FontWeight.SemiBold; v.Foreground = valueBrush; v.Margin = new Thickness(0, 5, 0, 0);   // ★ 体验修复：8→5（一屏 ✓）
+            v.FontSize = ShapeTokens.FsStat; v.FontWeight = FontWeight.SemiBold; v.Foreground = valueBrush; v.Margin = new Thickness(0, 8, 0, 0);
 
             s.Children.Add(v);
+
+            host.Live(delegate { if (value() == "未知") v.Foreground = Palette.Idle; else if (!ReferenceEquals(v.Foreground, valueBrush)) v.Foreground = valueBrush; });
 
             TextBlock sb = host.LiveText(sub(), sub);
 
@@ -1908,7 +1910,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             TextBlock v = host.LiveText(value(), value);
 
-            v.FontSize = ShapeTokens.FsStat; v.FontWeight = FontWeight.SemiBold; v.Foreground = valueBrush;
+            v.FontSize = ShapeTokens.FsStat; v.FontWeight = FontWeight.SemiBold; v.Foreground = valueBrush; v.Margin = new Thickness(0, 8, 0, 0);
 
             v.Margin = new Thickness(0, 8, 0, 0); v.TextTrimming = TextTrimming.CharacterEllipsis;
 
