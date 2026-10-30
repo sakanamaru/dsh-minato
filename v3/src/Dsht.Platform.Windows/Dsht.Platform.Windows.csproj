@@ -7,7 +7,7 @@
   </PropertyGroup>
   <ItemGroup>
     <ProjectReference Include="..\Dsht.Domain\Dsht.Domain.csproj" />
-    <!-- S2: link the shared source file so both platforms compile the same copy -->
-    <Compile Include="..\Dsht.Platform.Shared\BackupSourceCommon.cs" Link="BackupSourceCommon.cs" />
+    <!-- S2 + B-05: 共享源目录整体链接 —— 两个平台项目编译同一份（源文件放在 ..\Dsht.Platform.Shared\） -->
+    <Compile Include="..\Dsht.Platform.Shared\*.cs" Link="Shared\%(Filename)%(Extension)" />
   </ItemGroup>
 </Project>
