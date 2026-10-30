@@ -25,6 +25,8 @@ namespace Dsht.Gui.Avalonia.ViewModels
 
         // —— 表面层级（低 → 高）——
         public static IBrush PageBg = Brushes.Transparent;      // 页面底
+        public static IBrush WindowBgTop = Brushes.Transparent;    // 窗口渐变：上端
+        public static IBrush WindowBgBottom = Brushes.Transparent; // 窗口渐变：下端
         public static IBrush SidebarBg = Brushes.Transparent;   // 侧栏/顶栏（略低于卡片）
         public static IBrush CardBg = Brushes.Transparent;      // 卡片
         public static IBrush CardHover = Brushes.Transparent;   // 卡片/列表项悬停
@@ -71,6 +73,8 @@ namespace Dsht.Gui.Avalonia.ViewModels
             AccentSoft = B(s.AccentSoft);
             OnAccent = B(s.OnAccent);
             PageBg = B(s.PageBg);
+            WindowBgTop = B(s.WindowBgTop);
+            WindowBgBottom = B(s.WindowBgBottom);
             SidebarBg = B(s.SidebarBg);
             CardBg = B(s.CardBg);
             CardHover = B(s.CardHover);
