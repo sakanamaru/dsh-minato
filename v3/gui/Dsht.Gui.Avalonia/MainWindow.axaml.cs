@@ -213,7 +213,7 @@ namespace Dsht.Gui.Avalonia
                 Width = 34,
                 Height = 26,
                 Padding = new Thickness(0),
-                FontSize = 12,
+                FontSize = ShapeTokens.FsBody,
                 Background = Brushes.Transparent,
                 BorderThickness = new Thickness(0),
                 HorizontalContentAlignment = HorizontalAlignment.Center,
@@ -752,7 +752,7 @@ namespace Dsht.Gui.Avalonia
             {
                 Button b = this.FindControl<Button>("Style" + i);
                 if (b == null) continue;
-                b.Content = new TextBlock { Text = ((char)('A' + i)).ToString(), FontSize = 12, FontWeight = FontWeight.SemiBold };
+                b.Content = new TextBlock { Text = ((char)('A' + i)).ToString(), FontSize = ShapeTokens.FsBody, FontWeight = FontWeight.SemiBold };
                 ToolTip.SetTip(b, "风格：" + Palette.StyleName(i));
             }
         }
@@ -784,7 +784,8 @@ namespace Dsht.Gui.Avalonia
 
             Border pill = this.FindControl<Border>("DisclaimerPill");
             if (pill != null) pill.Background = Palette.WarnSoft;
-            SetFg("DisclaimerIcon", Palette.Warn);
+            SetFg("ShellLabel", Palette.TextFaint);
+            SetFg("StyleLabel", Palette.TextFaint);
             SetFg("DisclaimerText", Palette.TextDim);
 
             RecolorWindowButtons();
@@ -837,7 +838,7 @@ namespace Dsht.Gui.Avalonia
             b.Content = new SymbolIcon
             {
                 Symbol = Symbol.NotePin,
-                FontSize = 14,
+                FontSize = ShapeTokens.IcMd,
                 Foreground = _alwaysOnTop ? Palette.Accent : Palette.TextDim,
                 VerticalAlignment = VerticalAlignment.Center
             };
@@ -919,7 +920,7 @@ namespace Dsht.Gui.Avalonia
             b.CornerRadius = new CornerRadius(ShapeTokens.RCtrl);
             b.BorderThickness = new Thickness(0);
             b.Background = active ? (IBrush)Palette.CardBg : Brushes.Transparent;
-            IBrush fg = active ? Palette.Accent : Palette.TextDim;
+            IBrush fg = active ? Palette.Accent : Palette.TextFaint;
             SymbolIcon si = b.Content as SymbolIcon;
             if (si != null) si.Foreground = fg;
             TextBlock tb = b.Content as TextBlock;
@@ -1278,13 +1279,13 @@ namespace Dsht.Gui.Avalonia
                 // ★ 2026-10-11：**只追加**两个版本 ✓ 原有文案一字不动 ✓✓
                 // ★ 2026-10-11 文案精简：原来还带一句架构注记（GUI 不引用核心程序集…）——
                 //   已**从页脚移除**并搬进「说明」页（AboutCard），页脚只留事实与版本号 ✓
-                string tail = "　工具箱 " + CliVersionText + "　桥接插件 " + BridgeVersionText;
-                if (_data == null) return "数据来源：—" + tail;
+                string tail = "　工具箱 " + CliVersionText;
+                if (_data == null) return "数据来源：等待 CLI" + tail;
                 // ★ 2026-10-11（维护者要求"页脚做换行"✓）：**按语义断成两行** ✗ 不靠被动折行 ✓
                 //   第一行 = 数据来源 + 投影目录（路径可能很长 → 仍由 TextWrapping.Wrap 兜底 ✓）
                 //   第二行 = 两个版本 ✓ 换行点稳定 ✗ 不再随窗口宽度乱折 ✓
-                string line1 = _data.SourceText + "　投影目录：" + _data.Root;
-                string line2 = "工具箱 " + CliVersionText + "　桥接插件 " + BridgeVersionText;
+                string line1 = "数据来源：" + _data.SourceText + "　投影目录：" + _data.Root;
+                string line2 = "工具箱 " + CliVersionText;
                 return line1 + "\n" + line2;
             }
         }
@@ -1447,10 +1448,10 @@ namespace Dsht.Gui.Avalonia
         /// <summary>浮层容器：一个**右下角对齐**的 Border ✓ 初始隐藏 ✓ 不挡操作 ✓（只有它自己那块可点 ✓）。</summary>
         private Control ToastLayer()
         {
-            _toastText = new TextBlock { Text = "", FontSize = 12, TextWrapping = TextWrapping.Wrap, Foreground = Palette.Text };
+            _toastText = new TextBlock { Text = "", FontSize = ShapeTokens.FsBody, TextWrapping = TextWrapping.Wrap, Foreground = Palette.Text };
             StackPanel sp = new StackPanel { Spacing = ShapeTokens.S8 };
             sp.Children.Add(_toastText);
-            sp.Children.Add(new TextBlock { Text = "点一下关闭", FontSize = 10.5, Foreground = Palette.TextFaint });
+            sp.Children.Add(new TextBlock { Text = "点一下关闭", FontSize = ShapeTokens.FsFoot, Foreground = Palette.TextFaint });
             _toast = new Border
             {
                 Child = sp,
@@ -1476,6 +1477,7 @@ namespace Dsht.Gui.Avalonia
         /// <summary>弹一条 ✓（8 秒自动消失 ✓ 可点掉 ✓）。**边框按级别着色**（U9：成功不再顶橙边 ✓）。</summary>
         public void ShowToast(string text, string level)
         {
+            text = global::Dsht.Gui.Avalonia.Shells.Shells.StripMd(text);
             if (_toast == null || _toastText == null || string.IsNullOrEmpty(text)) return;
             _toastText.Text = text;
             _toast.BorderBrush = level == "error" ? Palette.Bad : (level == "warn" ? Palette.Warn : Palette.Border);
@@ -1721,7 +1723,7 @@ namespace Dsht.Gui.Avalonia
             {
                 StackPanel sp = new StackPanel { Orientation = Orientation.Horizontal, Spacing = ShapeTokens.S8 };
                 sp.Children.Add(Spinner(13, 2));
-                sp.Children.Add(new TextBlock { Text = "正在刷新…", FontSize = 11, Foreground = Palette.TextDim, VerticalAlignment = VerticalAlignment.Center });
+                sp.Children.Add(new TextBlock { Text = "正在刷新…", FontSize = ShapeTokens.FsFoot, Foreground = Palette.TextDim, VerticalAlignment = VerticalAlignment.Center });
                 return new Border
                 {
                     Child = sp,
@@ -1742,8 +1744,8 @@ namespace Dsht.Gui.Avalonia
             Control ringBig = Spinner(28, 3);
             ringBig.HorizontalAlignment = HorizontalAlignment.Center;
             card.Children.Add(ringBig);
-            card.Children.Add(new TextBlock { Text = "首次进入本页，正在读取", FontSize = 13, FontWeight = FontWeight.SemiBold, Foreground = Palette.Text, HorizontalAlignment = HorizontalAlignment.Center });
-            card.Children.Add(new TextBlock { Text = LoadingHint, FontSize = 11.5, Foreground = Palette.TextDim, TextWrapping = TextWrapping.Wrap, HorizontalAlignment = HorizontalAlignment.Center });
+            card.Children.Add(new TextBlock { Text = "首次进入本页，正在读取", FontSize = ShapeTokens.FsBody, FontWeight = FontWeight.SemiBold, Foreground = Palette.Text, HorizontalAlignment = HorizontalAlignment.Center });
+            card.Children.Add(new TextBlock { Text = LoadingHint, FontSize = ShapeTokens.FsFoot, Foreground = Palette.TextDim, TextWrapping = TextWrapping.Wrap, HorizontalAlignment = HorizontalAlignment.Center });
             return new Border
             {
                 Child = card,

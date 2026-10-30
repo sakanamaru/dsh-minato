@@ -358,6 +358,19 @@ namespace Dsht.Gui.Avalonia.Shells
             };
         }
 
+        /// <summary>二级页签条（2026-10-30）：只有 >=2 个可切换项时才画 ——
+        /// 单选项页签点不动任何内容，是纯视觉噪音（体检/设置/说明等页原来都挂着一条）。</summary>
+        private static Control SubTabsBar(MainWindow host, Thickness padding)
+        {
+            if (host.SubTabs.Length <= 1) return null;
+            return new Border
+            {
+                BorderBrush = Palette.Border,
+                BorderThickness = new Thickness(0, 0, 0, 1),
+                Padding = padding,
+                Child = Segmented(host.SubTabs, host.SubTab, delegate(int i) { host.SetSubTab(i); }, host, delegate { return host.SubTab; })
+            };
+        }
         // ---------------- ① 侧栏式 ----------------
 
         private static Control BuildSidebar(MainWindow host)
@@ -372,23 +385,17 @@ namespace Dsht.Gui.Avalonia.Shells
             };
             Grid.SetColumn(side, 0);
 
-            // ✓ 用户反馈：① 原来**只有主菜单没有子菜单** ✗ → 补上子菜单 ✓✓
+            // 视觉层级（2026-10-30）：页题在前、页签在后；只有 >=2 个可切换项时才画页签条。
             Grid body = new Grid { RowDefinitions = new RowDefinitions("Auto,Auto,*,Auto") };
-            Border subs = new Border
-            {
-                BorderBrush = Palette.Border,
-                BorderThickness = new Thickness(0, 0, 0, 1),
-                Padding = new Thickness(24, 8, 24, 8),   // ★ 体验修复：纵向各收 2px（指标页一屏 ✓ 横向不变 ✓）
-                Child = Segmented(host.SubTabs, host.SubTab, delegate(int i) { host.SetSubTab(i); }, host, delegate { return host.SubTab; })
-            };
-            Grid.SetRow(subs, 0);
             Control title = PageHeader(host);
-            Grid.SetRow(title, 1);
+            Grid.SetRow(title, 0);
+            Control subs = SubTabsBar(host, new Thickness(24, 0, 24, 12));
+            if (subs != null) { Grid.SetRow(subs, 1); body.Children.Add(subs); }
             Control content = SectionBody(host);
             Grid.SetRow(content, 2);
             Control foot = Footer(host);
             Grid.SetRow(foot, 3);
-            body.Children.Add(subs); body.Children.Add(title); body.Children.Add(content); body.Children.Add(foot);
+            body.Children.Add(title); body.Children.Add(content); body.Children.Add(foot);
             Grid.SetColumn(body, 1);
             g.Children.Add(side); g.Children.Add(body);
             return g;
@@ -398,17 +405,17 @@ namespace Dsht.Gui.Avalonia.Shells
 
         private static Control BuildTopTabs(MainWindow host)
         {
-            // ✓ 用户反馈：② 原来**只有子菜单没有主菜单** ✗ → 补上横向主菜单 ✓✓
+            // 视觉层级（2026-10-30）：页题在前、页签在后。
             Grid g = new Grid { RowDefinitions = new RowDefinitions("Auto,Auto,Auto,*") };
             Control nav = MainNavStrip(host);
             Grid.SetRow(nav, 0);
-            Border tabs = new Border { Margin = new Thickness(24, 14, 24, 0), Child = Segmented(host.SubTabs, host.SubTab, delegate(int i) { host.SetSubTab(i); }, host, delegate { return host.SubTab; }) };
-            Grid.SetRow(tabs, 1);
             Control title = PageHeader(host);
-            Grid.SetRow(title, 2);
+            Grid.SetRow(title, 1);
+            Control tabs = SubTabsBar(host, new Thickness(24, 0, 24, 0));
+            if (tabs != null) { Grid.SetRow(tabs, 2); g.Children.Add(tabs); }
             Control content = SectionBody(host);
             Grid.SetRow(content, 3);
-            g.Children.Add(nav); g.Children.Add(tabs); g.Children.Add(title); g.Children.Add(content);
+            g.Children.Add(nav); g.Children.Add(title); g.Children.Add(content);
             return g;
         }
 
@@ -416,15 +423,15 @@ namespace Dsht.Gui.Avalonia.Shells
 
         private static Control BuildCardGrid(MainWindow host)
         {
-            // ✓ 用户反馈：③ 原来**只有子菜单没有主菜单** ✗ → 补上横向主菜单 ✓✓
-            Grid g = new Grid { RowDefinitions = new RowDefinitions("Auto,Auto,*") };
+            // 视觉层级（2026-10-30）：页题在前、页签在后（都收进滚动内容里）。
+            Grid g = new Grid { RowDefinitions = new RowDefinitions("Auto,*") };
             Control nav = MainNavStrip(host);
             Grid.SetRow(nav, 0);
-            Border tabs = new Border { Margin = new Thickness(24, 14, 24, 0), Child = Segmented(host.SubTabs, host.SubTab, delegate(int i) { host.SetSubTab(i); }, host, delegate { return host.SubTab; }) };
-            Grid.SetRow(tabs, 1);
 
             StackPanel body = new StackPanel { Margin = PageMargin, Spacing = ShapeTokens.S16 };
             body.Children.Add(PageHeader(host, false));
+            Control tabs = SubTabsBar(host, new Thickness(0, 0, 0, 8));
+            if (tabs != null) body.Children.Add(tabs);
             if (host.IsSessionsSection)
             {
                 body.Children.Add(KpiStrip(host));
@@ -455,7 +462,7 @@ namespace Dsht.Gui.Avalonia.Shells
             // ✓ 用户反馈：④ **会话页时左栏变成会话列表 → 主菜单消失** ✗✗
             //   → 现在：**主菜单永远在最上面** ✓ 会话列表放在它下面 ✓✓（不再互相顶掉 ✓）
             for (int i = 0; i < MainWindow.NavItems.Length; i++) left.Children.Add(NavItem(host, i));
-            left.Children.Add(T(host.IsSessionsSection ? "会话列表" : "页面", 13, Palette.Text, FontWeight.SemiBold));
+            left.Children.Add(T(host.IsSessionsSection ? "会话列表" : "页面", ShapeTokens.FsBody, Palette.Text, FontWeight.SemiBold));
             if (host.IsSessionsSection)
             {
                 left.Children.Add(Segmented(new string[] { "全部", "非空", "dsh 内" }, host.Filter, delegate(int i) { host.SetFilter(i); }));
@@ -533,11 +540,11 @@ namespace Dsht.Gui.Avalonia.Shells
                 VerticalAlignment = VerticalAlignment.Center
             };
             Grid.SetColumn(bar, 0);
-            SymbolIcon ic = Ic(MainWindow.NavIcons[idx], 15, active ? Palette.Accent : Palette.TextDim);
+            SymbolIcon ic = Ic(MainWindow.NavIcons[idx], ShapeTokens.FsBody, active ? Palette.Accent : Palette.TextDim);
             ic.Margin = new Thickness(9, 0, 0, 0);
             ic.VerticalAlignment = VerticalAlignment.Center;
             Grid.SetColumn(ic, 1);
-            TextBlock tb = T(MainWindow.NavItems[idx], 13, active ? Palette.Accent : Palette.Text);
+            TextBlock tb = T(MainWindow.NavItems[idx], ShapeTokens.FsBody, active ? Palette.Accent : Palette.Text);
             tb.FontWeight = active ? FontWeight.SemiBold : FontWeight.Normal;
             tb.Margin = new Thickness(10, 0, 0, 0);
             tb.VerticalAlignment = VerticalAlignment.Center;
@@ -588,7 +595,7 @@ namespace Dsht.Gui.Avalonia.Shells
                 bool on = cur == i;
                 Button b = new Button
                 {
-                    Content = T(names[i] == "webui" ? "web" : names[i], 11.5, on ? Palette.OnAccent : Palette.TextDim),
+                    Content = T(names[i] == "webui" ? "web" : names[i], ShapeTokens.FsFoot, on ? Palette.OnAccent : Palette.TextDim),
                     Background = on ? Palette.Accent : Palette.CardHover,
                     BorderThickness = new Thickness(0),
                     CornerRadius = new CornerRadius(ShapeTokens.RCtrl),
@@ -638,7 +645,7 @@ namespace Dsht.Gui.Avalonia.Shells
             if (deskOn && webOn)
             {
                 StackPanel both = new StackPanel { Orientation = Orientation.Horizontal, Spacing = ShapeTokens.S8, Margin = new Thickness(12, 0, 12, 6) };
-                both.Children.Add(T("两个都在跑 →", 10.5, Palette.Warn));
+                both.Children.Add(T("两个都在跑 →", ShapeTokens.FsFoot, Palette.Warn));
                 Button sw = ActionGhost(host, "停 web", delegate { host.StopWebOnly(); });
         // F9 FIX (GUI audit MAJOR): ModeBtnW was declared and never used, so these buttons sized
         // themselves to their labels and the row had visibly unequal widths - the defect the user
@@ -679,11 +686,11 @@ namespace Dsht.Gui.Avalonia.Shells
             //   ✓ 现在：**先算一个 webUp 布尔** ✓ 再也不用 `st` 空着 ✓✓
             bool webUp = st != null && st.State == 0;
             string stText = webUp && deskUp ? "web 与桌面端都在运行" : (deskUp ? "桌面端运行中" : (up ? "停止 dsh" : "一键启动 dsh"));
-            TextBlock label = T(stText, 13, up ? Palette.Accent : Palette.OnAccent, FontWeight.SemiBold);
+            TextBlock label = T(stText, ShapeTokens.FsBody, up ? Palette.Accent : Palette.OnAccent, FontWeight.SemiBold);
             label.Margin = new Thickness(10, 0, 0, 0);
             label.VerticalAlignment = VerticalAlignment.Center;
             Grid.SetColumn(label, 1);
-            TextBlock state = T(webUp && deskUp ? "web+桌面端" : (up ? "运行中" : "未运行"), 10.5, up ? Palette.Good : Palette.OnAccent);
+            TextBlock state = T(webUp && deskUp ? "web+桌面端" : (up ? "运行中" : "未运行"), ShapeTokens.FsFoot, up ? Palette.Good : Palette.OnAccent);
             state.VerticalAlignment = VerticalAlignment.Center;
             Grid.SetColumn(state, 2);
             row.Children.Add(dot); row.Children.Add(label); row.Children.Add(state);
@@ -762,14 +769,14 @@ namespace Dsht.Gui.Avalonia.Shells
         {
             StackPanel s = new StackPanel { Spacing = ShapeTokens.S12 };
             Grid head = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto") };
-            SymbolIcon ic = Ic(Symbol.Code, 15, Palette.TextDim);
+            SymbolIcon ic = Ic(Symbol.Code, ShapeTokens.FsBody, Palette.TextDim);
             ic.VerticalAlignment = VerticalAlignment.Center;
             Grid.SetColumn(ic, 0);
-            TextBlock t = T(title, 13, Palette.Text, FontWeight.SemiBold);
+            TextBlock t = T(title, ShapeTokens.FsBody, Palette.Text, FontWeight.SemiBold);
             t.Margin = new Thickness(8, 0, 0, 0);
             t.VerticalAlignment = VerticalAlignment.Center;
             Grid.SetColumn(t, 1);
-            TextBlock cap = T(caption, 11.5, Palette.TextFaint);
+            TextBlock cap = T(caption, ShapeTokens.FsFoot, Palette.TextFaint);
             cap.VerticalAlignment = VerticalAlignment.Center;
             Grid.SetColumn(cap, 2);
             head.Children.Add(ic); head.Children.Add(t); head.Children.Add(cap);
@@ -927,10 +934,10 @@ namespace Dsht.Gui.Avalonia.Shells
                     : (string.IsNullOrEmpty(host.Data.FailReason) ? "没有可显示的会话。" : host.Data.FailReason);
                 StackPanel err = new StackPanel { Spacing = 8 };
                 Grid eh = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*") };
-                SymbolIcon wic = Ic(Symbol.Warning, 15, Palette.Warn);
+                SymbolIcon wic = Ic(Symbol.Warning, ShapeTokens.FsBody, Palette.Warn);
                 wic.VerticalAlignment = VerticalAlignment.Center;
                 Grid.SetColumn(wic, 0);
-                TextBlock et = T("会话数据不可用", 13, Palette.Text, FontWeight.SemiBold);
+                TextBlock et = T("会话数据不可用", ShapeTokens.FsBody, Palette.Text, FontWeight.SemiBold);
                 et.Margin = new Thickness(8, 0, 0, 0);
                 et.VerticalAlignment = VerticalAlignment.Center;
                 Grid.SetColumn(et, 1);
@@ -1013,25 +1020,25 @@ namespace Dsht.Gui.Avalonia.Shells
             StackPanel s = new StackPanel { Spacing = 12 };
             if (d == null || !d.Ok)
             {
-                s.Children.Add(Card(T("没有可统计的会话数据。", 11.5, Palette.TextDim), new Thickness(0), new Thickness(16, 14)));
+                s.Children.Add(Card(T("没有可统计的会话数据。", ShapeTokens.FsFoot, Palette.TextDim), new Thickness(0), new Thickness(16, 14)));
                 return s;
             }
             StackPanel sum = new StackPanel { Spacing = 8 };
-            sum.Children.Add(T("累计输入 token", 11.5, Palette.TextDim));
+            sum.Children.Add(T("累计输入 token", ShapeTokens.FsFoot, Palette.TextDim));
             sum.Children.Add(T(SessionRow.Human(d.TotalIn), 34, Palette.Text, FontWeight.Bold));
-            sum.Children.Add(T("新输入 " + SessionRow.Human(d.TotalIn - d.TotalCacheRead < 0 ? 0 : d.TotalIn - d.TotalCacheRead) + " · 输出 " + SessionRow.Human(d.TotalOut) + " · 缓存命中 " + SessionRow.Human(d.TotalCacheRead) + " · 会话 " + d.Count + " 个（非空 " + d.NonBlank + "）", 11.5, Palette.TextFaint));
+            sum.Children.Add(T("新输入 " + SessionRow.Human(d.TotalIn - d.TotalCacheRead < 0 ? 0 : d.TotalIn - d.TotalCacheRead) + " · 输出 " + SessionRow.Human(d.TotalOut) + " · 缓存命中 " + SessionRow.Human(d.TotalCacheRead) + " · 会话 " + d.Count + " 个（非空 " + d.NonBlank + "）", ShapeTokens.FsFoot, Palette.TextFaint));
             sum.Children.Add(Meter(d.TotalHitPercent < 0 ? 0 : d.TotalHitPercent, Palette.HitBrush(d.TotalHitPercent >= 90 ? 3 : (d.TotalHitPercent >= 70 ? 2 : 1)), 8));
-            sum.Children.Add(T("缓存命中率 " + PctText(d.TotalHitPercent) + "　解码速度 " + TpsText(d.TotalDecodeTps) + " tok/s", 13, Palette.TextDim));
+            sum.Children.Add(T("缓存命中率 " + PctText(d.TotalHitPercent) + "　解码速度 " + TpsText(d.TotalDecodeTps) + " tok/s", ShapeTokens.FsBody, Palette.TextDim));
             s.Children.Add(Card(sum, new Thickness(0), new Thickness(18, 16)));
 
             List<SessionRow> top = SessionsView.Sort(SessionsView.Filter(d.Rows, SessionsView.FilterAll), 1);
             StackPanel list = new StackPanel { Spacing = ShapeTokens.S8 };
-            list.Children.Add(T("输入 token 最多的会话", 13, Palette.Text, FontWeight.Bold));
+            list.Children.Add(T("输入 token 最多的会话", ShapeTokens.FsBody, Palette.Text, FontWeight.Bold));
             for (int i = 0; i < top.Count && i < 10; i++)
             {
                 SessionRow r = top[i];
                 string name = string.IsNullOrEmpty(r.Title) ? r.ShortId : r.Title;
-                list.Children.Add(T((i + 1) + ".　" + name + "　　" + r.InText + "　命中 " + r.HitText + "　" + r.DecodeText, 11.5, Palette.TextDim));
+                list.Children.Add(T((i + 1) + ".　" + name + "　　" + r.InText + "　命中 " + r.HitText + "　" + r.DecodeText, ShapeTokens.FsFoot, Palette.TextDim));
             }
             s.Children.Add(Card(list, new Thickness(0), new Thickness(16, 14)));
             return s;
@@ -1051,11 +1058,11 @@ namespace Dsht.Gui.Avalonia.Shells
         {
             if (host.ActionBusy)
             {
-                Button b = GhostButton(T("进行中：" + host.ActionBusyLabel + " …", 11.5, Palette.TextFaint), delegate { }, true);
+                Button b = GhostButton(T("进行中：" + host.ActionBusyLabel + " …", ShapeTokens.FsFoot, Palette.TextFaint), delegate { }, true);
                 b.IsEnabled = false;
                 return b;
             }
-            return GhostButton(T(label, 11.5, Palette.Text), act, true);
+            return GhostButton(T(label, ShapeTokens.FsFoot, Palette.Text), act, true);
         }
 
         /// <summary>动作按钮（主按钮款）✓ 同上。</summary>
