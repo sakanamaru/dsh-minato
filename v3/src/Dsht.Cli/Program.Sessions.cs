@@ -30,10 +30,6 @@ namespace Dsht.Cli
             }
             catch { return 0; }
         }
-        private static int Sessions(ServiceRegistry reg)
-        {
-            return Sessions(reg, new string[0]);
-        }
         /// <summary>sessions [--days 7|14|30 | --from YYYY-MM-DD --to YYYY-MM-DD] [--level global|parents|parents_sub]
         /// （看板第一批 2026-10-08 ✓✓ → 第三批血缘桥 2026-10-09 ✓✓ 规格 §11.7 ✓ 决策 D2a/D4 ✓）。
         /// ★ --days 省略 = 总计（SESSWIN_META days=unknown、from/to=「-」✓）；值只认 7/14/30 ✗ 其它一律 SESSIONS_FAIL + stderr（rc 仍 0 ✓ 与既有 FAIL 路径一致 ✓）
@@ -44,16 +40,19 @@ namespace Dsht.Cli
         ///   非 global 且 lineage=none ⇒ SESSIONS_FAIL + stderr 明说（降级文案 ✓ 规格 §11.7-D ✓）✗ 不拿不全的投影血缘冒充 ✓
         /// ★ 窗口口径（规格 §4.2 / C.4）：按会话**最后活动时间**筛选 ✓；用量为**整会话累计** ✗ 不是窗口内增量 ✓（GUI 随 truth=0 常显 C.4 脚注 ✓）
         /// ★ 时区纪律：本地日 00:00 边界的换算**在这里**做（TimeZoneInfo 逐日取偏移 = 夏令时正确 ✓）——Domain 只做毫秒区间比较 ✓（领域层不碰时钟/时区 ✓✓）</summary>
-        private static int Sessions(ServiceRegistry reg, string[] args)
+        private static int Sessions(CommandContext ctx)
         {
-            return EmitSessions(ScanSessions(reg, args));
+            ServiceRegistry reg = ctx.Reg;
+            string[] args = ctx.Args;
+            ToolkitConfig cfg = ctx.Cfg;
+            return EmitSessions(ScanSessions(reg, args, cfg), cfg);
         }
         /// <summary>会话扫描的**唯一入口**（成本面板 v3.2 · 2026-10-16 ✓✓）：参数解析 → 加载（快照+磁盘+总表）→ 血缘图 → 窗口/层级判定。
         /// ★ 动机（规格 §4 性能铁律 ✓）：`sessions` 与 `cost` **必须共用同一次扫描** ✗ —— 否则 overview 一拍要读两遍盘
         ///   （实测全量 1.9 s / `--days 7` 2.7 s ⇒ 翻倍 ✗）。本方法**不打印任何标记行**：打印留给
         ///   <see cref="EmitSessions"/> 与 <see cref="EmitCost"/>（各自的标记行族 ✓ 失败面也各说各的 ✓）。
         /// ★ 纪律：**逻辑一行没改**（纯机械外提 ✓）—— 输出逐字不变由 verify_command_matrix 的精确整行断言把守 ✓。</summary>
-        private static SessionScan ScanSessions(ServiceRegistry reg, string[] args)
+        private static SessionScan ScanSessions(ServiceRegistry reg, string[] args, ToolkitConfig cfg)
         {
             SessionScan sc = new SessionScan();
             // —— 参数（先于任何 IO ✓；无效参数 = FAIL 标记 + stderr，rc=0 ✓ 规格 §11.1 ✓）——
@@ -122,7 +121,7 @@ namespace Dsht.Cli
                 windowed = true;
             }
             string level = FlagOf(args, "--level");
-            if (level.Length == 0) level = (_cfg != null && _cfg.SessionsDefaultLevel != null) ? _cfg.SessionsDefaultLevel : "global";
+            if (level.Length == 0) level = (cfg != null && cfg.SessionsDefaultLevel != null) ? cfg.SessionsDefaultLevel : "global";
             level = level.Trim().ToLowerInvariant();
             if (level != "global" && level != "parents" && level != "parents_sub")
             {
@@ -302,7 +301,7 @@ namespace Dsht.Cli
         /// <summary>sessions 的**发射端**（成本面板 v3.2 外提 ✓）：标记行一个字节都没改 ✓ —— 只把"从哪拿数据"从局部变量改成
         /// 从 <see cref="SessionScan"/> 取 ✓。纪律（规格 §3.1-① ✓）：**绝不动 sessions 输出** ✗
         /// → 逐字不变由 verify_command_matrix 的精确整行断言 + 真机输出前后比对把守 ✓。</summary>
-        private static int EmitSessions(SessionScan sc)
+        private static int EmitSessions(SessionScan sc, ToolkitConfig cfg)
         {
             // —— 失败面（与重构前逐字一致 ✓）——
             if (!sc.Ok)
@@ -336,7 +335,7 @@ namespace Dsht.Cli
             // 快照里**没有**这个信息 ✗ → 所以必须扫盘 ✓；用**流式字符串扫描**（不解析 JSON ✓ 快 ✓）
             try
             {
-                if (_cfg == null || !_cfg.ScanChildren) throw new InvalidOperationException("scan_children=off");   // 排障开关真的接线 ✓
+                if (cfg == null || !cfg.ScanChildren) throw new InvalidOperationException("scan_children=off");   // 排障开关真的接线 ✓
                 string[] cfiles = src.ListSessionFiles();
                 for (int ci = 0; ci < cfiles.Length; ci++)
                 {

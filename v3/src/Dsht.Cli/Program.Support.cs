@@ -60,8 +60,11 @@ namespace Dsht.Cli
             }
             return "dsh";
         }
-        private static int Menu(ServiceRegistry reg)
+        private static int Menu(CommandContext ctx)
         {
+            ServiceRegistry reg = ctx.Reg;
+            string[] args = ctx.Args;
+            ToolkitConfig cfg = ctx.Cfg;
             while (true)
             {
                 Console.WriteLine();
@@ -87,16 +90,17 @@ namespace Dsht.Cli
                 if (line == null) return 0;
                 line = line.Trim().ToLowerInvariant();
                 if (line == "" || line == "q" || line == "quit" || line == "0") return 0;
-                if (line == "1") { if (Confirm("install/update dsh")) { InstallLike(new string[] { "--yes" }, reg, false); InstallLike(new string[] { "--yes" }, reg, true); } continue; }
-                if (line == "2") { if (Confirm("start dsh")) StartCmd(new string[] { "--yes" }, reg); continue; }
-                if (line == "3") { if (Confirm("stop dsh")) StopCmd(new string[] { "--yes" }, reg); continue; }
-                if (line == "4") { Status(reg, true); Describe(reg); continue; }
-                if (line == "5") { Sessions(reg); continue; }
-                if (line == "6") { Profiles(reg); continue; }
-                if (line == "7") { if (Confirm("backup")) Backup(new string[0], reg); continue; }
-                if (line == "8") { BackupList(new string[] { "--detail" }, reg); continue; }
-                if (line == "9") { Restore(new string[] { "--dry-run" }, reg); continue; }
-                if (line == "10") { Doctor(new string[0], reg); continue; }
+                // W3：菜单与命令行共用同一批 handler；只换 args（reg/cfg 仍来自同一个 ctx ✓）
+                if (line == "1") { if (Confirm("install/update dsh")) { InstallLike(ctx.WithArgs(new string[] { "--yes" }), false); InstallLike(ctx.WithArgs(new string[] { "--yes" }), true); } continue; }
+                if (line == "2") { if (Confirm("start dsh")) StartCmd(ctx.WithArgs(new string[] { "--yes" })); continue; }
+                if (line == "3") { if (Confirm("stop dsh")) StopCmd(ctx.WithArgs(new string[] { "--yes" })); continue; }
+                if (line == "4") { StatusImpl(ctx, true); Describe(ctx); continue; }
+                if (line == "5") { Sessions(ctx.WithArgs(new string[0])); continue; }
+                if (line == "6") { Profiles(ctx); continue; }
+                if (line == "7") { if (Confirm("backup")) Backup(ctx.WithArgs(new string[0])); continue; }
+                if (line == "8") { BackupList(ctx.WithArgs(new string[] { "--detail" })); continue; }
+                if (line == "9") { Restore(ctx.WithArgs(new string[] { "--dry-run" })); continue; }
+                if (line == "10") { Doctor(ctx.WithArgs(new string[0])); continue; }
                 if (line == "11") { Console.WriteLine(T("备份目录：", "backup folder: ") + reg.Get<IBackupSource>().BackupsRoot); continue; }
                 if (line == "12") { Usage(); continue; }
                 Console.WriteLine(T("没有这个选项。", "no such option."));
@@ -212,7 +216,7 @@ namespace Dsht.Cli
         /// <summary>最小本地化：dryrun/restore 的失败与说明文案在 v2.x 里走 T()，必须同语言才能比对。</summary>
         private static string T(string zh, string en) { return IsEn() ? en : zh; }
         /// <summary>当前是否英文（与 v2.x 的 T() 同一判据）。</summary>
-        private static bool IsEn() { return _cfg != null && _cfg.Lang == "en"; }
+        private static bool IsEn() { return _isEn; }   // W3：由 CommandContext 的配置派生（Main/ConfigSet 更新），不再是 static ToolkitConfig
         /// <summary>高风险操作闸门（对齐 v2.x 的 IntegrityGate）：自身与随包 hashes.txt 不匹配即拒绝；旁无 manifest 时放行。</summary>
         private static bool IntegrityGate(ServiceRegistry reg)
         {

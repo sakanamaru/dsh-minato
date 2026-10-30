@@ -11,8 +11,11 @@ namespace Dsht.Cli
     /// 边界用括号配平找，逆序删除避免行号漂移 ✓</summary>
     public static partial class Program
     {
-        private static int ProfileCheck(string[] args, ServiceRegistry reg)
+        private static int ProfileCheck(CommandContext ctx)
         {
+            ServiceRegistry reg = ctx.Reg;
+            string[] args = ctx.Args;
+            ToolkitConfig cfg = ctx.Cfg;
             string dir = Flag(args, "--dir");
             string one = Flag(args, "--file");
             bool vendor = Has(args, "--vendor");
@@ -59,8 +62,11 @@ namespace Dsht.Cli
         ///   / `BUNDLE <profile> <bundle-id> <official|thirdparty>` / `PROFILES_FAIL <原因>`
         /// **诚实边界**：这是**配置形态**（manifest 里启用了哪个 app bundle），**不是运行形态**——
         /// "dsh 在跑"仍必须由端口/进程等运行时事实判断（见 describe/status）。</summary>
-        private static int Profiles(ServiceRegistry reg)
+        private static int Profiles(CommandContext ctx)
         {
+            ServiceRegistry reg = ctx.Reg;
+            string[] args = ctx.Args;
+            ToolkitConfig cfg = ctx.Cfg;
             IProfileManifestSource src = reg.Get<IProfileManifestSource>();
             if (!reg.Get<IFileSystemQuery>().DirectoryExists(src.ProfilesRoot))
             {
@@ -114,8 +120,11 @@ namespace Dsht.Cli
             }
         }
 
-        private static int Doctor(string[] args, ServiceRegistry reg)
+        private static int Doctor(CommandContext ctx)
         {
+            ServiceRegistry reg = ctx.Reg;
+            string[] args = ctx.Args;
+            ToolkitConfig cfg = ctx.Cfg;
             // ★★ --stream（2026-10-02，GUI 专用 ✓）：**边算边打印**条目行，汇总行挪到**最后** ✓✓
             //   —— 杀软式"列表先出来、逐行出结果"（用户建议 ✓）。慢项本来就在队尾：
             //     System/Harness/Service/Workspace/Backup 先出（亚秒级 ✓），npm registry 探测（最长 4s）倒数第二 ✓
@@ -264,8 +273,11 @@ namespace Dsht.Cli
         /// 纪律与 v2.x 一致：**备份 → 写盘 → 复检 → 失败回滚**；不带 --yes 只打印计划（DRYRUN）。
         /// 用法：`profilepatch --profile <name> --id <entry> [--enable] [--yes]`
         /// 标记行：`PROFILEPATCH_PLAN` / `_DRYRUN` / `_BACKUP` / `_OK` / `_NOOP` / `_ROLLBACK` / `_FAIL <原因>`。</summary>
-        private static int ProfilePatch(string[] args, ServiceRegistry reg)
+        private static int ProfilePatch(CommandContext ctx)
         {
+            ServiceRegistry reg = ctx.Reg;
+            string[] args = ctx.Args;
+            ToolkitConfig cfg = ctx.Cfg;
             IProfileManifestSource src = reg.Get<IProfileManifestSource>();
             string profile = FlagOf(args, "--profile");
             string id = FlagOf(args, "--id");
@@ -313,8 +325,11 @@ namespace Dsht.Cli
             return 0;
         }
         /// <summary>bootdiag：解析启动失败输出。标记逐条对齐 v2.x 的 BootDiagCli。</summary>
-        private static int BootDiag(string[] args, ServiceRegistry reg)
+        private static int BootDiag(CommandContext ctx)
         {
+            ServiceRegistry reg = ctx.Reg;
+            string[] args = ctx.Args;
+            ToolkitConfig cfg = ctx.Cfg;
             string from = Flag(args, "--from");
             if (string.IsNullOrEmpty(from)) { Console.WriteLine("BOOTDIAG_FAIL no-input"); return 2; }
             string text = null;
