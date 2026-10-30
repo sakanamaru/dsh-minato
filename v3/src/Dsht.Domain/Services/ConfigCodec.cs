@@ -1,4 +1,5 @@
 using System;
+using System.Collections.Generic;
 using System.Text;
 using Dsht.Domain.Model;
 
@@ -33,6 +34,15 @@ namespace Dsht.Domain.Services
 
         public static ToolkitConfig Parse(string text, Func<string, string> canonicalizePath)
         {
+            return Parse(text, canonicalizePath, null);
+        }
+
+        /// <summary>B-10：同 Parse(text, canonicalizePath)，但把**认不出的键/行**登记到 unknownEntries
+        /// （CLI 的 config-get 据此打 CONFIGWARN，不再完全静默）。
+        /// ★ 收集**不改变任何既有键的解析结果**：这些行在旧实现里本来就落不到任何分支（= 被忽略），
+        ///   这里只是把它们记下来后 continue，等价于原来的「忽略」。</summary>
+        public static ToolkitConfig Parse(string text, Func<string, string> canonicalizePath, System.Collections.Generic.IList<string> unknownEntries)
+        {
             ToolkitConfig c = new ToolkitConfig();
             if (string.IsNullOrEmpty(text)) return c;
             string[] lines = text.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n');
@@ -40,6 +50,12 @@ namespace Dsht.Domain.Services
             {
                 string t = (lines[i] ?? "").Trim();
                 if (t.Length == 0) continue;
+                if (!IsKnownConfigLine(t))
+                {
+                    // 认不出的键/行：旧实现静默忽略（解析结果不变），现在同时登记，供调用方提示 ✓
+                    if (unknownEntries != null && !unknownEntries.Contains(t)) unknownEntries.Add(t);
+                    continue;
+                }
                 if (t.StartsWith("lang=", StringComparison.Ordinal))
                 {
                     string v = t.Substring(5).Trim().ToLowerInvariant();
@@ -219,6 +235,29 @@ namespace Dsht.Domain.Services
             sb.Append("overlay_screen=").Append(c.OverlayScreen == null ? "" : c.OverlayScreen).Append("\r\n");
             sb.Append("overlay_show_title=").Append(c.OverlayShowTitle ? "on" : "off").Append("\r\n");
             return sb.ToString();
+        }
+
+        /// <summary>B-10：已知配置键的行前缀（**必须与上面 Parse 里的分支一一对应**）。
+        /// 契约测试有一条「Serialize 输出 → Parse 零告警」钉住这份清单，漏加新键会让它红 ✓。</summary>
+        private static readonly string[] KnownConfigPrefixes = new string[]
+        {
+            "lang=", "host=", "ws=", "keep_backups=", "check_update=", "check_dsh_update=",
+            "dsh_versions=", "update_channel=", "close_action=", "auto_start=", "auto_start_target=",
+            "browser_mode=", "ui_parallel=", "scan_children=", "gui_start_page=", "gui_auto_refresh=",
+            "gui_shell=", "gui_style=", "balance_key=", "sessions_default_level=",
+            "sessions_price_in_per_mtok=", "sessions_price_cache_read_per_mtok=",
+            "sessions_price_cache_write_per_mtok=", "sessions_price_out_per_mtok=",
+            "sessions_budget_usd_per_day=", "overlay_enabled=", "overlay_light_style=",
+            "overlay_edge=", "overlay_offset=", "overlay_scale=", "overlay_screen=", "overlay_show_title="
+        };
+
+        private static bool IsKnownConfigLine(string t)
+        {
+            for (int i = 0; i < KnownConfigPrefixes.Length; i++)
+            {
+                if (t.StartsWith(KnownConfigPrefixes[i], StringComparison.Ordinal)) return true;
+            }
+            return false;
         }
 
         private static string Canon(Func<string, string> f, string v)

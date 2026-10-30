@@ -33,6 +33,16 @@ sealed class FakeProc : IProcessQuery
     public string CommandLine(int pid) { return ""; }
 }
 
+// B-10：配置源测试替身（状态目录/数据根指到临时目录；WorkspaceRoot 测试里用不到）
+sealed class FakePaths : IPaths
+{
+    public string StateDirValue;
+    public string DataRootValue;
+    public string StateDir { get { return StateDirValue; } }
+    public string DataRoot { get { return DataRootValue; } }
+    public string WorkspaceRoot { get { return null; } }
+}
+
 static class ContractTests
 {
     static int _pass, _fail;
@@ -1533,6 +1543,82 @@ static class ContractTests
             Check("资格·package.json 顶层键扫描：嵌套同名键不串（dependencies 只在顶层算 ✓）",
                 PackageJsonFields.ObjectHasKey("{\"dependencies\":{\"x\":\"1\"}}", "dependencies")
                 && !PackageJsonFields.ObjectHasKey("{\"dsh\":{\"dependencies\":{\"x\":\"1\"}}}", "dependencies"));
+        }
+        // ================================================================ [41] B-10 配置写盘加固（2026-10-30）
+        // 审查 B-10：写盘是 File.WriteAllText + catch { }（非原子 / 静默吞）；Linux 未设权限；认不出的键静默回落。
+        // 这一节钉住四件事：① 认不出的键/行被收集但**不改已有键解析** ② 原子写（覆盖写走 File.Replace）
+        //   ③ 写/读失败**可观察**（异常不抛、原因落 launcher.log） ④ Linux 首次写先建状态目录（T2/D14 不回退）。
+        Console.WriteLine("[41] B-10 配置写盘加固（原子写 / 失败可观察 / 认不出的键不再静默 / 0600 编译分支）");
+        {
+            System.Collections.Generic.List<string> unk = new System.Collections.Generic.List<string>();
+            ToolkitConfig ucfg = ConfigCodec.Parse("lang=en\nbogus_key=1\nno_equals_line\noverlay_light_style=line\n", canon, unk);
+            Check("B-10·认不出的键/行被收集（不再完全静默：2 条）", unk.Count == 2 && unk[0] == "bogus_key=1" && unk[1] == "no_equals_line");
+            Check("B-10·收集告警不改变已有键的解析结果（lang/灯样式照旧）", ucfg.Lang == "en" && ucfg.OverlayLightStyle == "line");
+            System.Collections.Generic.List<string> unkSer = new System.Collections.Generic.List<string>();
+            ConfigCodec.Parse(ConfigCodec.Serialize(new ToolkitConfig()), canon, unkSer);
+            Check("B-10·Serialize 的 32 个键全部被认得（解析零告警 ⇒ 键表与解析分支同步）", unkSer.Count == 0);
+            Check("B-10·空配置零告警且默认值不变", ConfigCodec.Parse(null, canon, new System.Collections.Generic.List<string>()).Lang == "auto" && ConfigCodec.Parse("", canon, new System.Collections.Generic.List<string>()).KeepBackups == 10);
+
+            string cfgDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "dsht-cfg-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            string badDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "dsht-cfgfail-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            string lockDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "dsht-cfgread-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            string linDir = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "dsht-cfglin-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            try
+            {
+                System.IO.Directory.CreateDirectory(cfgDir);
+                FakePaths fp = new FakePaths();
+                fp.StateDirValue = cfgDir; fp.DataRootValue = cfgDir;
+                Dsht.Platform.Windows.WindowsConfigSource wcs = new Dsht.Platform.Windows.WindowsConfigSource(fp);
+                wcs.WriteConfig("lang=en\r\nhost=localhost\r\n");
+                Check("B-10·原子写·首次写（临时文件 + File.Move）：回读一致", wcs.ReadConfig() == "lang=en\r\nhost=localhost\r\n");
+                wcs.WriteConfig("lang=zh\r\nhost=127.0.0.1\r\n");
+                Check("B-10·原子写·覆盖写（走 File.Replace 分支）：回读一致", wcs.ReadConfig() == "lang=zh\r\nhost=127.0.0.1\r\n");
+                Check("B-10·原子写：成功后不残留临时文件", System.IO.Directory.GetFiles(cfgDir, "launcher.config.tmp-*").Length == 0);
+
+                System.IO.Directory.CreateDirectory(badDir);
+                System.IO.Directory.CreateDirectory(System.IO.Path.Combine(badDir, "launcher.config"));   // 目标位置是目录 ⇒ File.Move 必失败
+                FakePaths fpBad = new FakePaths();
+                fpBad.StateDirValue = badDir; fpBad.DataRootValue = badDir;
+                Dsht.Platform.Windows.WindowsConfigSource wcsBad = new Dsht.Platform.Windows.WindowsConfigSource(fpBad);
+                bool threw = false;
+                try { wcsBad.WriteConfig("lang=en\r\n"); } catch { threw = true; }
+                Check("B-10·写失败不抛异常（IConfigSource 的 void 签名保持，调用方不崩）", !threw);
+                Check("B-10·写失败清理临时文件", System.IO.Directory.GetFiles(badDir, "launcher.config.tmp-*").Length == 0);
+                string wlogPath = System.IO.Path.Combine(System.IO.Path.Combine(badDir, "logs"), "launcher.log");
+                string wlog = System.IO.File.Exists(wlogPath) ? System.IO.File.ReadAllText(wlogPath) : "";
+                Check("B-10·写失败原因可观察（launcher.log 含 config-write-failed + 异常类型）", wlog.IndexOf("config-write-failed") >= 0 && wlog.IndexOf("Exception") >= 0);
+
+                System.IO.Directory.CreateDirectory(lockDir);
+                FakePaths fpLock = new FakePaths();
+                fpLock.StateDirValue = lockDir; fpLock.DataRootValue = lockDir;
+                Dsht.Platform.Windows.WindowsConfigSource wcsLock = new Dsht.Platform.Windows.WindowsConfigSource(fpLock);
+                wcsLock.WriteConfig("lang=en\r\n");
+                string lockedPath = System.IO.Path.Combine(lockDir, "launcher.config");
+                string readBack = null;
+                using (new System.IO.FileStream(lockedPath, System.IO.FileMode.Open, System.IO.FileAccess.ReadWrite, System.IO.FileShare.None))
+                {
+                    readBack = wcsLock.ReadConfig();
+                }
+                Check("B-10·读失败：ReadConfig 仍返回 null（签名不变）", readBack == null);
+                string rlogPath = System.IO.Path.Combine(System.IO.Path.Combine(lockDir, "logs"), "launcher.log");
+                string rlog = System.IO.File.Exists(rlogPath) ? System.IO.File.ReadAllText(rlogPath) : "";
+                Check("B-10·读失败原因可观察（launcher.log 含 config-read-failed）", rlog.IndexOf("config-read-failed") >= 0);
+
+                // Linux 配置源：T2/D14 的「写之前先建状态目录」不能回退；权限分支在 Windows 上按分隔符跳过（不抛异常）。
+                string linState = System.IO.Path.Combine(linDir, "nested", "DeepSeekHarnessLauncher");
+                FakePaths fpLin = new FakePaths();
+                fpLin.StateDirValue = linState; fpLin.DataRootValue = linDir;
+                Dsht.Platform.Linux.LinuxConfigSource lcs = new Dsht.Platform.Linux.LinuxConfigSource(fpLin);
+                lcs.WriteConfig("lang=en\r\n");
+                Check("B-10·Linux 首次写先建状态目录（T2/D14 契约不回退）且写入成功", System.IO.Directory.Exists(linState) && lcs.ReadConfig() == "lang=en\r\n");
+            }
+            finally
+            {
+                try { System.IO.Directory.Delete(cfgDir, true); } catch { }
+                try { System.IO.Directory.Delete(badDir, true); } catch { }
+                try { System.IO.Directory.Delete(lockDir, true); } catch { }
+                try { System.IO.Directory.Delete(linDir, true); } catch { }
+            }
         }
         Console.WriteLine("== " + _pass + "/" + (_pass + _fail) + " passed, " + _fail + " failed ==");
         return _fail == 0 ? 0 : 1;

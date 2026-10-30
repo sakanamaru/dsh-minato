@@ -2,10 +2,13 @@ using System;
 using System.IO;
 using System.Text;
 using Dsht.Domain.Abstractions;
+using Dsht.Platform.Shared;
 
 namespace Dsht.Platform.Linux
 {
-    /// <summary>配置读写（Linux）：状态目录/launcher.config，UTF-8 无 BOM。</summary>
+    /// <summary>配置读写（Linux）：状态目录/launcher.config，UTF-8 无 BOM。
+    /// B-10：写盘改**原子写**（同目录临时文件 + File.Replace/Move），失败原因落 launcher.log；
+    /// 写成功后把权限收到 0600（launcher.config 里有 balance_key 明文）。</summary>
     public sealed class LinuxConfigSource : IConfigSource
     {
         private readonly string _stateDir;
@@ -15,33 +18,35 @@ namespace Dsht.Platform.Linux
         public string ReadConfig()
         {
             try { return File.Exists(ConfigPath) ? File.ReadAllText(ConfigPath, new UTF8Encoding(false)) : null; }
-            catch { return null; }
+            catch (Exception ex) { AtomicConfigFile.LogReadFailure(_stateDir, ConfigPath, ex); return null; }
         }
 
         public void WriteConfig(string text)
         {
-            // ★★★ T2/D14 修复（2026-10-07 真机复现）：**状态目录不存在时，写盘静默失败** ✗✗
-            //   · Linux 的 StateDir = `$XDG_DATA_HOME/DeepSeekHarnessLauncher`（默认 `~/.local/share/...`）
-            //     —— `ResolveStateDir()` 只**算出路径**，**从不创建它** ✗
-            //     （Windows 侧不同：`ResolveStateDir()` 会先做一次 `File.Create` 写探针 ✓ 顺带把目录建出来 ✓
-            //      所以 Windows 上从来没有这个缺陷 ✓ 这也是它在 Windows 上测不出来的原因 ✓）
-            //   · 于是全新机器/全新 HOME 上**第一次** `config-set` 时：
-            //       `File.WriteAllText` 抛 `DirectoryNotFoundException` → 被下面的 catch **吞掉** ✗
-            //       → 回读拿到 null → 解析成默认配置 → 与请求值不等 → 打印
-            //         `CONFIGSET_FAIL 写入未生效（配置文件可能只读或被占用）` ✗（**归因是错的** ✓ 真因是目录不存在）
-            //     真机实测（Ubuntu 26.04 · 全新 HOME + 全新 XDG_DATA_HOME · 目录完全可写）：
-            //       `config-set ws /tmp/.../ws` → `CONFIGSET_FAIL 写入未生效`；手工 `mkdir -p` 同一个目录后再跑 → `CONFIGSET_OK ws` ✓
-            //   ✓ 现在：写之前**先把状态目录建出来** ✓✓
-            //     · 与同平台的 `LinuxLogSource.WriteLog` 同一手法（它一直 `Directory.CreateDirectory(dir)` ✓）
-            //     · `CreateDirectory` 对已存在的目录是**幂等**的 ✓（不改变既有行为 ✓）
-            //     · 仍然只在**真的写配置**时创建 ✓（只读命令不产生副作用 ✓）
+            // ★★★ T2/D14 修复（2026-10-07 真机复现）：状态目录不会被算出来时自动存在 ⇒ 写之前先建出来
+            //   （CreateDirectory 幂等；只在真的写配置时执行 ⇒ 只读命令不产生副作用）。
             try
             {
                 string dir = Path.GetDirectoryName(ConfigPath);
                 if (!string.IsNullOrEmpty(dir)) Directory.CreateDirectory(dir);
-                File.WriteAllText(ConfigPath, text, new UTF8Encoding(false));
             }
-            catch { }
+            catch { }   // 建目录失败不在这里吞掉原因：下面的原子写会失败并把原因记进 launcher.log ✓
+            if (AtomicConfigFile.WriteAllText(ConfigPath, text, new UTF8Encoding(false), _stateDir)) RestrictPermissions(ConfigPath);
+        }
+
+        /// <summary>B-10：launcher.config 含 balance_key 明文 ⇒ 至少 0600（仅属主可读写）。
+        /// ⚠ 本源码还要被 csc(.NET Framework 4.x / C#5) 编译（B-17）⇒ File.SetUnixFileMode 是 .NET 6+ API，
+        ///   用编译期条件只编进 net8 构建；.NET Framework 构建里是空实现（那套 exe 只在 Windows 门槛里跑）。</summary>
+        private void RestrictPermissions(string path)
+        {
+#if NET8_0_OR_GREATER
+            if (Path.DirectorySeparatorChar == '\\') return;   // 防御：Linux 实现在 Windows 测试里被直接实例化时不要调用（会抛 PlatformNotSupportedException）
+            try { File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite); }
+            catch (Exception ex) { AtomicConfigFile.TryLog(_stateDir, "WARN", "config-chmod-0600-failed path=" + path + " => " + ex.GetType().Name + ": " + ex.Message); }
+#else
+            // csc 构建（.NET Framework 4.x / C#5）没有 File.SetUnixFileMode；该构建不跑 Linux 真机，权限设置不适用。
+            if (path == null) return;
+#endif
         }
     }
 }
