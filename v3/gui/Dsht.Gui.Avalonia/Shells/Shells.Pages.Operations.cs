@@ -132,11 +132,8 @@ namespace Dsht.Gui.Avalonia.Shells
 
 
             if ((d == null || !d.Ok) && host.DoctorLive.Count == 0 && !host.IsLoading)
-
             {
-
-                s.Children.Add(Card(T("还没有体检结果。点上面的「运行体检」跑一次（会检查网络，最长约 6.5 秒）。", ShapeTokens.FsFoot, Palette.TextDim), new Thickness(0), new Thickness(16, 14)));
-
+                s.Children.Add(EmptyState("还没有体检结果", "点「运行体检」跑一次（最长约 6.5 秒）。"));
             }
 
             // 操作日志改为**右下角 toast** ✓✓（不再在页面流里占一张卡片 ✓）
@@ -463,19 +460,9 @@ namespace Dsht.Gui.Avalonia.Shells
             string raw = host.RawOutput;
 
             if (string.IsNullOrEmpty(raw) || raw.IndexOf("LOG_EMPTY", StringComparison.Ordinal) >= 0)
-
             {
-
-                StackPanel empty = new StackPanel { Spacing = ShapeTokens.S8 };
-
-                empty.Children.Add(T("还没有日志", ShapeTokens.FsBody, Palette.TextDim, FontWeight.SemiBold));
-
-                empty.Children.Add(T("工具箱的操作日志会写在状态目录的 logs/launcher.log 里。装过一次、启动过一次之后就会有了。", ShapeTokens.FsFoot, Palette.TextFaint));
-
-                s.Children.Add(Card(empty, new Thickness(0), new Thickness(16, 20)));
-
+                s.Children.Add(EmptyState("还没有日志", "启动过一次后，这里会显示操作记录。"));
                 return s;
-
             }
 
 
@@ -536,7 +523,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             {
 
-                s.Children.Add(Card(T("筛选后没有匹配的日志行（换个级别或关键词试试）。", ShapeTokens.FsFoot, Palette.TextDim), new Thickness(0), new Thickness(16, 16)));
+                s.Children.Add(EmptyState("没有匹配的日志", "换个级别或关键词再试。"));
 
                 return s;
 
@@ -1210,7 +1197,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             upd.Children.Add(T("更新", ShapeTokens.FsBody, Palette.Text, FontWeight.SemiBold));
 
-            upd.Children.Add(T("检查更新是只读的（只查已装版本、更新通道、最新版本，不动任何东西）；更新会先备份再更新，并保留回滚点", ShapeTokens.FsFoot, Palette.TextDim));
+            upd.Children.Add(T("检查更新只读；执行更新会先备份并保留回滚点。", ShapeTokens.FsFoot, Palette.TextDim));
 
             StackPanel updRow = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
 
@@ -1248,7 +1235,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             s.Children.Add(Card(sum, new Thickness(0), new Thickness(14, 10)));
 
-            s.Children.Add(Card(T("配置写入会立即生效并落盘（CLI 的 config-set）；键名与 v2.x 完全一致，可用文本编辑器对照。", ShapeTokens.FsFoot, Palette.TextFaint), new Thickness(0), new Thickness(16, 12)));
+            s.Children.Add(Card(T("配置改动即时生效并写入本机配置文件（键名与 v2.x 一致）。", ShapeTokens.FsFoot, Palette.TextFaint), new Thickness(0), new Thickness(16, 12)));
 
             // ★★ 设置分类渲染（2026-10-02 用户要求："把设置界面分类，然后做到更简单一点（选择框）" ✓✓）
 
@@ -1281,7 +1268,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             RenderSettingsGroup(s, host, PickItems(items, guiKeys, placed), "界面与启动（含排障开关）", null);
 
-            string overlayNote = "悬边灯只读本地状态：不抢焦点，灯以外的区域点击会落到下面的窗口。样式三选一只换灯的形态，颜色含义、优先级与点击穿透都不变，选完立刻生效。";
+            string overlayNote = "悬边灯只读本地状态，不抢焦点；样式三选一只换灯形态，选完立刻生效。";
             RenderSettingsGroup(s, host, PickItems(items, overlayKeys, placed), "置顶进度窗（屏幕边缘状态灯）", overlayNote);
 
             RenderSettingsGroup(s, host, PickItems(items, dshKeys, placed), "dsh · 更新 · 数据", null);
@@ -1303,52 +1290,144 @@ namespace Dsht.Gui.Avalonia.Shells
         }
 
         private static void RenderSettingsGroup(StackPanel s, MainWindow host, List<ConfigItem> group, string title, string note)
-
         {
-
             if (group == null || group.Count == 0) return;
-
-            StackPanel head = new StackPanel { Spacing = 6 };
-
+            // 分组卡：组头 + 行（行间 1px 分隔线，控件右对齐）—— 2026-10-30 去同构卡片墙
+            StackPanel box = new StackPanel();
+            StackPanel head = new StackPanel { Spacing = 4 };
             head.Children.Add(T(title, ShapeTokens.FsBody, Palette.Text, FontWeight.SemiBold));
-
             if (!string.IsNullOrEmpty(note))
-
             {
-
                 TextBlock nt = T(note, ShapeTokens.FsFoot, Palette.TextDim);
-
                 nt.TextWrapping = TextWrapping.Wrap;
-
                 head.Children.Add(nt);
-
             }
-
-            s.Children.Add(Card(head, new Thickness(0), new Thickness(16, 12)));
-
-            // ★ 悬边灯样式的编辑入口是**三选一卡片**（2026-10-28 ✓）：
-            //   所以这个键**不出**通用设置卡（✗ 不再给它一个输入框/下拉 ✗），
-            //   而是在「置顶进度窗」开关那张卡后面紧跟三选一 ✓（顺序：开关 → 样式 → 位置/尺寸/标题 ✓）
-            bool styleCardAdded = false;
+            box.Children.Add(new Border { Padding = new Thickness(16, 14, 16, 6), Child = head });
+            bool anyRow = false;
             for (int i = 0; i < group.Count; i++)
             {
                 ConfigItem it = group[i];
                 if (it == null) continue;
-                if (it.Key == OverlayStyleCatalog.Key)
+                if (it.Key == OverlayStyleCatalog.Key) continue;
+                if (anyRow) box.Children.Add(SettingsDivider());
+                box.Children.Add(SettingsItemRow(host, it));
+                anyRow = true;
+            }
+            s.Children.Add(Card(box, new Thickness(0), new Thickness(0)));
+            // 悬边灯三选一有预览，仍作独立卡片跟在组后（不塞进普通行）
+            if (FindItem(group, OverlayStyleCatalog.Key) != null) s.Children.Add(OverlayLightStyleChooser(host, group));
+        }
+
+        /// <summary>分组卡内的行分隔线（1px，左右留 16）。</summary>
+        private static Control SettingsDivider()
+        {
+            return new Border { Height = 1, Background = Palette.Border, Margin = new Thickness(16, 0, 16, 0) };
+        }
+
+        /// <summary>设置项一行：左侧 key/说明，右侧控件（行间靠分隔线，不再一张卡片一个框）。</summary>
+        private static Control SettingsItemRow(MainWindow host, ConfigItem c)
+        {
+            Grid row = new Grid { ColumnDefinitions = new ColumnDefinitions("*,Auto"), Margin = new Thickness(16, 10, 16, 10) };
+            StackPanel left = new StackPanel { Spacing = 2, VerticalAlignment = VerticalAlignment.Center };
+            StackPanel head = new StackPanel { Orientation = Orientation.Horizontal, Spacing = ShapeTokens.S8 };
+            head.Children.Add(T(c.Key, ShapeTokens.FsBody, Palette.Text, FontWeight.SemiBold));
+            string note = NoteFor(host.RawOutput, c.Key);
+            if (!string.IsNullOrEmpty(note))
+            {
+                SymbolIcon info = Ic(Symbol.Info, ShapeTokens.IcSm, Palette.TextFaint);
+                info.VerticalAlignment = VerticalAlignment.Center;
+                ToolTip.SetTip(info, StripMd(note));
+                head.Children.Add(info);
+            }
+            left.Children.Add(head);
+            if (!string.IsNullOrEmpty(c.Desc))
+            {
+                TextBlock d = T(c.Desc, ShapeTokens.FsFoot, Palette.TextDim);
+                d.TextWrapping = TextWrapping.Wrap;
+                left.Children.Add(d);
+            }
+            StackPanel right = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8, VerticalAlignment = VerticalAlignment.Center, HorizontalAlignment = HorizontalAlignment.Right };
+            if (c.ReadOnly)
+            {
+                right.Children.Add(T(c.Value, ShapeTokens.FsFoot, Palette.TextFaint));
+            }
+            else if (OptionsFor(c.Key) != null)
+            {
+                string[] opts = OptionsFor(c.Key);
+                int idx;
+                if (c.Key == "gui_start_page" || c.Key == "gui_shell" || c.Key == "gui_style" || c.Key == "overlay_scale")
                 {
-                    if (!styleCardAdded) { s.Children.Add(OverlayLightStyleChooser(host, group)); styleCardAdded = true; }
-                    continue;
+                    int dflt = (c.Key == "gui_shell" ? 4 : (c.Key == "overlay_scale" ? 1 : (c.Key == "gui_style" ? 0 : 1)));
+                    int sp; if (!int.TryParse(c.Value, out sp) || sp < 0 || sp >= opts.Length) sp = dflt; idx = sp;
                 }
-                s.Children.Add(SettingsItemCard(host, it));
-                if (!styleCardAdded && it.Key == "overlay_enabled")
+                else idx = Array.IndexOf(opts, c.Value);
+                ComboBox cb = SlimCombo(opts, idx, 180);
+                cb.SelectionChanged += delegate
                 {
-                    s.Children.Add(OverlayLightStyleChooser(host, group));
-                    styleCardAdded = true;
+                    if (cb.SelectedIndex >= 0 && cb.SelectedIndex < opts.Length)
+                    {
+                        bool byIndex = (c.Key == "gui_start_page" || c.Key == "gui_shell" || c.Key == "gui_style" || c.Key == "overlay_scale");
+                        host.SetConfig(c.Key, byIndex ? cb.SelectedIndex.ToString() : opts[cb.SelectedIndex]);
+                    }
+                };
+                right.Children.Add(cb);
+            }
+            else if (c.IsSwitch)
+            {
+                string[] opts2 = new string[] { "on", "off" };
+                for (int k = 0; k < opts2.Length; k++)
+                {
+                    string val = opts2[k];
+                    bool active = c.Value == val;
+                    // 选中态用 accent 柔底 + accent 文字（不再整屏实心主按钮：同屏实心 accent ≤1）
+                    Button ob = active
+                        ? new Button
+                        {
+                            Content = T(val, ShapeTokens.FsFoot, Palette.Accent, FontWeight.SemiBold),
+                            Background = Palette.AccentSoft,
+                            BorderBrush = Palette.Accent,
+                            BorderThickness = new Thickness(1),
+                            CornerRadius = new CornerRadius(ShapeTokens.RCtrl),
+                            Padding = new Thickness(12, 6)
+                        }
+                        : GhostButton(T(val, ShapeTokens.FsFoot, Palette.TextDim), delegate { host.SetConfig(c.Key, val); }, true);
+                    if (active) ob.Click += delegate { host.SetConfig(c.Key, val); };
+                    right.Children.Add(ob);
                 }
             }
-            // 旧 CLI 没有 overlay_enabled 这一项时也要能看到三选一（能显示"升级后可选" ✓ 不装作能选 ✗）
-            if (!styleCardAdded && FindItem(group, OverlayStyleCatalog.Key) != null) s.Children.Add(OverlayLightStyleChooser(host, group));
-
+            else if (c.Key == "balance_key")
+            {
+                bool hasKey = c.Value != null && c.Value.Trim() == "set";
+                TextBox kb = new TextBox { Text = "", Width = 260, FontSize = ShapeTokens.FsBody, Watermark = hasKey ? "已设置：输入新值替换；留空保持不变" : "未绑定：粘贴你的 DeepSeek API key" };
+                right.Children.Add(kb);
+                right.Children.Add(ActionPrimary(host, "保存", delegate
+                {
+                    string nv = kb.Text == null ? "" : kb.Text.Trim();
+                    if (nv.Length > 0) host.SetConfig(c.Key, nv);
+                    else host.ShowToast("留空 = 保持当前 key 不变；要解除绑定请点「清除」");
+                }));
+                if (hasKey) right.Children.Add(ActionGhost(host, "清除", delegate { host.SetConfig(c.Key, ""); }));
+            }
+            else
+            {
+                TextBox box = new TextBox { Text = c.Value, Width = 260, FontSize = ShapeTokens.FsBody };
+                if (ConfigItem.IsCostKey(c.Key))
+                    box.Watermark = c.Key == "sessions_budget_usd_per_day" ? "例如 5；0 或留空 = 不设上限" : "例如 0.14；0 或留空 = 未填";
+                right.Children.Add(box);
+                right.Children.Add(ActionGhost(host, "保存", delegate { host.SetConfig(c.Key, box.Text == null ? "" : box.Text.Trim()); }));
+            }
+            string deadNote = DeadNoteFor(c.Key);
+            if (deadNote != null)
+            {
+                right.IsEnabled = false;
+                right.Opacity = 0.6;
+                TextBlock dn = T(deadNote, ShapeTokens.FsFoot, Palette.Warn);
+                dn.TextWrapping = TextWrapping.Wrap;
+                left.Children.Add(dn);
+            }
+            Grid.SetColumn(right, 1);
+            row.Children.Add(left); row.Children.Add(right);
+            return row;
         }
 
         /// <summary>★ 悬边灯样式「三选一」卡片（2026-10-28）：**三个选项都可见**（✗ 不做下拉藏起来 ✗），
@@ -1604,203 +1683,7 @@ namespace Dsht.Gui.Avalonia.Shells
             }
         }
 
-        private static Control SettingsItemCard(MainWindow host, ConfigItem c)
-
-        {
-
-            StackPanel row = new StackPanel { Spacing = 8 };
-
-            StackPanel head = new StackPanel { Orientation = Orientation.Horizontal, Spacing = ShapeTokens.S12 };
-
-            head.Children.Add(T(c.Key, ShapeTokens.FsBody, Palette.Text, FontWeight.SemiBold));
-
-            head.Children.Add(T(c.Desc, ShapeTokens.FsFoot, Palette.TextDim));
-
-            row.Children.Add(head);
-
-            // 备注 ✓✓（用户要求："备注一下发生什么问题可以尝试启用和禁用" ✓）—— CONFIGNOTE 原样显示 ✓
-
-            string note = NoteFor(host.RawOutput, c.Key);
-
-            if (!string.IsNullOrEmpty(note))
-
-            {
-
-                // 美学A5：CONFIGNOTE 从"每卡一条橙色长文"改为 ⓘ 悬停显示 ✓ 19 张卡不再满眼警示色 ✓
-
-                TextBlock info = T("ⓘ", ShapeTokens.FsFoot, Palette.Warn);
-
-                info.VerticalAlignment = VerticalAlignment.Center;
-
-                ToolTip.SetTip(info, StripMd(note));
-
-                head.Children.Add(info);
-
-            }
-
-
-
-            StackPanel edit = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
-
-            if (c.ReadOnly)
-
-            {
-
-                edit.Children.Add(T(c.Value, ShapeTokens.FsFoot, Palette.TextFaint));
-
-            }
-
-            else if (OptionsFor(c.Key) != null)
-
-            {
-
-                // ★ 选择框（用户要求 ✓✓）：枚举型配置一律下拉选 ✓
-
-                string[] opts = OptionsFor(c.Key);
-
-                int idx;
-
-                if (c.Key == "gui_start_page" || c.Key == "gui_shell" || c.Key == "gui_style" || c.Key == "overlay_scale")   // 索引即值的键（2026-10-06 U4；2026-10-26 加 overlay_scale）
-
-                {
-
-                    int dflt = (c.Key == "gui_shell" ? 4 : (c.Key == "overlay_scale" ? 1 : (c.Key == "gui_style" ? 0 : 1)));   // 各自默认 ✓
-
-                    int sp; if (!int.TryParse(c.Value, out sp) || sp < 0 || sp >= opts.Length) sp = dflt; idx = sp;
-
-                }
-
-                else idx = Array.IndexOf(opts, c.Value);
-
-                ComboBox cb = SlimCombo(opts, idx, 180);
-
-                // ★ 先设 SelectedIndex、后挂事件 ✓ —— 初始化那一拍不写盘 ✓
-
-                cb.SelectionChanged += delegate
-
-                {
-
-                    if (cb.SelectedIndex >= 0 && cb.SelectedIndex < opts.Length)
-
-                    {
-
-                        bool byIndex = (c.Key == "gui_start_page" || c.Key == "gui_shell" || c.Key == "gui_style" || c.Key == "overlay_scale");
-
-                        host.SetConfig(c.Key, byIndex ? cb.SelectedIndex.ToString() : opts[cb.SelectedIndex]);
-
-                    }
-
-                };
-
-                edit.Children.Add(cb);
-
-            }
-
-            else if (c.IsSwitch)
-
-            {
-
-                string[] opts2 = new string[] { "on", "off" };
-
-                for (int k = 0; k < opts2.Length; k++)
-
-                {
-
-                    string val = opts2[k];
-
-                    bool active = c.Value == val;
-
-                    Button ob = active
-
-                        ? PrimaryButton(val, delegate { host.SetConfig(c.Key, val); })
-
-                        : GhostButton(T(val, ShapeTokens.FsFoot, Palette.TextDim), delegate { host.SetConfig(c.Key, val); }, true);
-
-                    edit.Children.Add(ob);
-
-                }
-
-            }
-
-            else if (c.Key == "balance_key")
-
-            {
-
-                // ★★ 审查 M1 修复：key 不回显明文 ✗（config-get 只报 set/unset ✓）
-
-                //   输入新值→保存替换；留空→保持不变；「清除」→解除绑定 ✓（绝不把掩码写回配置 ✗✗）
-
-                bool hasKey = c.Value != null && c.Value.Trim() == "set";
-
-                TextBox kb = new TextBox { Text = "", Width = 300, FontSize = ShapeTokens.FsBody, Watermark = hasKey ? "已设置——输入新值替换；留空=保持不变" : "未绑定——粘贴你的 DeepSeek API key" };
-
-                edit.Children.Add(kb);
-
-                edit.Children.Add(ActionPrimary(host, "保存", delegate
-
-                {
-
-                    string nv = kb.Text == null ? "" : kb.Text.Trim();
-
-                    if (nv.Length > 0) host.SetConfig(c.Key, nv);
-
-                    else host.ShowToast("留空 = 保持当前 key 不变；要解除绑定请点「清除」");
-
-                }));
-
-                if (hasKey) edit.Children.Add(ActionGhost(host, "清除（解除绑定）", delegate { host.SetConfig(c.Key, ""); }));
-
-                edit.Children.Add(T("⚠ key 以明文存在本机配置文件里，只在你自己的机器上，不上传；未绑定则概览页不显示余额卡", ShapeTokens.FsFoot, Palette.Warn));
-
-            }
-
-            else
-
-            {
-
-                TextBox box = new TextBox { Text = c.Value, Width = 300, FontSize = ShapeTokens.FsBody };
-
-                // ★ 成本估算键（2026-10-16 v3.2）**只做引导**：水印 + 单位说明 ✗ 不在 GUI 重复实现校验规则 ✓（后端 ConfigValidator 说了算 ✓）
-                if (ConfigItem.IsCostKey(c.Key))
-                    box.Watermark = c.Key == "sessions_budget_usd_per_day" ? "例如 5；0 或留空 = 不设上限" : "例如 0.14；0 或留空 = 未填";
-
-                edit.Children.Add(box);
-
-                Button save = PrimaryButton("保存", delegate { host.SetConfig(c.Key, box.Text == null ? "" : box.Text.Trim()); });
-
-                edit.Children.Add(save);
-
-                if (c.Key == "ws") edit.Children.Add(T("留空=自动探测；填了必须存在", ShapeTokens.FsFoot, Palette.TextFaint));
-
-                string chint = CostKeyHint(c.Key);
-
-                if (chint != null) edit.Children.Add(T(chint, ShapeTokens.FsFoot, Palette.TextFaint));
-
-
-
-            }
-
-            row.Children.Add(edit);
-
-            // ★ 2026-10-06 审查 U1：V3 无消费方的键 → 整行标灰 + 如实注明 ✓（控件保留、值仍显示 ✓）
-
-            string deadNote = DeadNoteFor(c.Key);
-
-            if (deadNote != null)
-
-            {
-
-                edit.IsEnabled = false;
-
-                edit.Opacity = 0.6;
-
-                row.Children.Add(T(deadNote, ShapeTokens.FsFoot, Palette.Warn));
-
-            }
-
-            return Card(row, new Thickness(0), new Thickness(16, 12));
-
-        }
+        // REMOVED_OLD_SETTINGS_ITEM_CARD
 
         private static Control ProfilesContent(MainWindow host)
 

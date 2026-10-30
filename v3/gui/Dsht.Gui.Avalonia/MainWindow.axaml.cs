@@ -1253,17 +1253,17 @@ namespace Dsht.Gui.Avalonia
         {
             get
             {
-                // ★ 2026-10-11：**只追加**两个版本 ✓ 原有文案一字不动 ✓✓
-                // ★ 2026-10-11 文案精简：原来还带一句架构注记（GUI 不引用核心程序集…）——
-                //   已**从页脚移除**并搬进「说明」页（AboutCard），页脚只留事实与版本号 ✓
-                string tail = "　工具箱 " + CliVersionText;
-                if (_data == null) return "数据来源：等待 CLI" + tail;
-                // ★ 2026-10-11（维护者要求"页脚做换行"✓）：**按语义断成两行** ✗ 不靠被动折行 ✓
-                //   第一行 = 数据来源 + 投影目录（路径可能很长 → 仍由 TextWrapping.Wrap 兜底 ✓）
-                //   第二行 = 两个版本 ✓ 换行点稳定 ✗ 不再随窗口宽度乱折 ✓
-                string line1 = _data.SourceText + "　投影目录：" + _data.Root;
+                // 页脚只显示已知事实（2026-10-30）：未知字段省略，不再拼接 CLI 自报的未知占位句。
                 string line2 = "工具箱 " + CliVersionText;
-                return line1 + "\n" + line2;
+                if (_data == null) return line2;
+                string src = (_data.SourceText ?? "").Trim();
+                if (src.StartsWith("数据来源：", StringComparison.Ordinal)) src = src.Substring("数据来源：".Length).Trim();
+                if (src.StartsWith("未知", StringComparison.Ordinal)) src = "";
+                string root = (_data.Root ?? "").Trim();
+                string line1 = "";
+                if (src.Length > 0) line1 += "数据来源：" + src;
+                if (root.Length > 0) line1 += (line1.Length > 0 ? "　" : "") + "投影目录：" + root;
+                return line1.Length > 0 ? line1 + "\n" + line2 : line2;
             }
         }
 
@@ -1829,7 +1829,7 @@ namespace Dsht.Gui.Avalonia
                 bool desktopUp = st != null && st.IndexOf("STATUS_DESKTOP", StringComparison.Ordinal) >= 0;
                 if (desktopUp)
                 {
-                    _actionLog = "检测到官方桌面端正在运行 → **不启动 webui**（避免两个同时跑；要用 web 请先在侧栏点「停止」或关掉桌面端）";
+                    _actionLog = "桌面端在运行，未启动 web；要开 web 请先停桌面端。";
                     BuildShell();
                     return;
                 }
