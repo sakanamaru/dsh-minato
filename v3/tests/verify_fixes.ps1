@@ -83,7 +83,8 @@ $checks = @(
 #   → 已删除该检查 ✓✓（wipe 现在只打印 WIPE_PLAN / WIPE_PLAN_NOTE / WIPE_MANUAL ✓）
   @('stop 守卫条件',             'IsDshCommandLine(r.Pid) && !Has(args, "--force")', 1),
   @('标记哈希辅助',              'private static void AddContentHashToMarker', 1),
-  @('多工作区打包',              'private static int PackageAllWorkspaces', 1),
+  # B-04（2026-10-30）：PackageAllWorkspaces 改为返回结构化结果（打包数/失败数/失败原因）⇒ 锚点随签名同步 ✓（仍 1 处、仍防静默删掉多工作区打包）
+  @('多工作区打包',              'private static WorkspacePackResult PackageAllWorkspaces', 1),
   @('命令 backup-dir',           'cmd == "backup-dir"', 1),
   @('命令 bridge-install',       'cmd == "bridge-install"', 1),
   @('命令 update-center',        'cmd == "update-center"', 1),
