@@ -795,23 +795,38 @@ namespace Dsht.Cli
             if (r.SkippedNested > 0)
                 Console.WriteLine(T("已跳过 " + r.SkippedNested + " 个嵌套备份目录（dsh-data-*），不复制进本次备份。",
                                     "Skipped " + r.SkippedNested + " nested backup folder(s) (dsh-data-*), not copied into this backup."));
-            // ★★ 第 3 轮审查抓到：**先打印 BACKUP_OK、之后才看 FailedCopies** ✗✗
-            //   → 一个部分失败的备份同时打印"成功"和"不完整" ✓ 而 GUI 只看 BACKUP_OK ✓ → 报成成功 ✗
-            // ✓ 现在：**不完整就不报 OK** ✓✓（GUI 因此如实显示未完成 ✓）
-            if (r.FailedCopies > 0)
-                Console.WriteLine("BACKUP_INCOMPLETE " + r.Path + " " + T("有 " + r.FailedCopies + " 项没能备份，这个包不完整（restore 会要求 --force）", "the package is incomplete: " + r.FailedCopies + " items could not be backed up"));
+            // ★★★ B-04（2026-10-30）：**先打包全部工作区，再决定报 OK 还是 INCOMPLETE** ✓✓
+            //   ✗ 原来顺序：按平台 r.FailedCopies 先打印 BACKUP_OK → 再 PackageAllWorkspaces（失败被逐目录
+            //     catch/continue 吞掉）→ 最后 AddContentHashToMarker 按**现状**重算 files=/sha256=
+            //     → 半截 `_workspace/<名字>`（没有 .dshws）仍被判"完整" ✗✗（审查 B-04）
+            //   ✓ 现在：工作区打包结果结构化返回（打包数/失败数/原因）→ 失败计入不完整并 rc=1 ✓
+            //     → 标记行沿用 BACKUP_INCOMPLETE（不新增标记族）✓ → AddContentHashToMarker 放在全部打包**之后** ✓✓
+            WorkspacePackResult wsr = PackageAllWorkspaces(r.Path, reg);
+            int totalFailed = r.FailedCopies + wsr.Failed;
+            if (totalFailed > 0)
+            {
+                string wsSuffix = wsr.Failed > 0
+                    ? T("；其中工作区打包失败 " + wsr.Failed + " 个：" + string.Join("；", wsr.Failures.ToArray()), "; " + wsr.Failed + " workspace(s) could not be packaged: " + string.Join("; ", wsr.Failures.ToArray()))
+                    : "";
+                Console.WriteLine("BACKUP_INCOMPLETE " + r.Path + " " + T("有 " + totalFailed + " 项没能备份，这个包不完整（restore 会要求 --force）", "the package is incomplete: " + totalFailed + " items could not be backed up") + wsSuffix);
+                // ★ B-04：工作区失败时再往 **stderr** 补一句人话原因（标记行文本不动；诊断与 INTEGRITY_SKIPPED 同口径 ✓）
+                for (int wi = 0; wi < wsr.Failures.Count; wi++)
+                    Console.Error.WriteLine(T("工作区没能备份：", "workspace could not be backed up: ") + wsr.Failures[wi]);
+                // ★ B-04：失败数并进完成标记 failed= ⇒ 恢复侧**现有**的 failed>0/--force 闸门也会拦这个包 ✓
+                MarkManifestFailed(r.Path, wsr.Failed);
+            }
             else
                 Console.WriteLine("BACKUP_OK " + r.Path);
-            int _wsDone = PackageAllWorkspaces(r.Path, reg);
-            if (_wsDone > 0) Console.WriteLine("BACKUP_WORKSPACES " + _wsDone + T(" 个工作区已打包（新格式 _workspace/<名称>/.dshws）", " workspaces packaged (new layout _workspace/<name>/.dshws)"));
-            AddContentHashToMarker(r.Path);   // 标记补内容哈希 ✓（能发现"计数对但内容残" ✗✓）
+            if (wsr.Packaged > 0) Console.WriteLine("BACKUP_WORKSPACES " + wsr.Packaged + T(" 个工作区已打包（新格式 _workspace/<名称>/.dshws）", " workspaces packaged (new layout _workspace/<name>/.dshws)"));
+            AddContentHashToMarker(r.Path);   // 标记补内容哈希 ✓（B-04：必须在**全部打包结束之后** ✓）
             // ★★ 审查修复（2026-10-06，C1）：S9 修复把 if 的方法体连同花括号一起删了 ✗
             //   → 裸 `if (r.FailedCopies > 0)` 吞掉了 OpLog ✗✗ 完整备份**不写日志**、不完整反而写 "backup OK"（与事实相反）
             // ✓ 现在：**无条件写** ✓ 不完整用 WARN + INCOMPLETE 文案（与上面控制台的 BACKUP_INCOMPLETE 行一致 ✓）
-            OpLog(reg, r.FailedCopies > 0 ? "WARN" : "INFO",
-                  (r.FailedCopies > 0 ? "backup INCOMPLETE " : "backup OK ") + r.Path);
+            OpLog(reg, totalFailed > 0 ? "WARN" : "INFO",
+                  (totalFailed > 0 ? "backup INCOMPLETE " : "backup OK ") + r.Path);
             // ★ A2（2026-10-07 备份链审查）：BACKUP_INCOMPLETE 也是失败语义 → 退出码 1 ✓（BACKUP_OK 仍 0 ✓）
-            return r.FailedCopies > 0 ? 1 : 0;
+            // ★ B-04（2026-10-30）：工作区打包失败也算不完整 ⇒ 同样 rc=1 ✓
+            return totalFailed > 0 ? 1 : 0;
         }
 
         private const string GithubHandle = "github.com/sakanamaru";

@@ -68,6 +68,16 @@ static class ContractTests
 
     static bool NoFile(string p) { return false; }
     static bool ExistsTrue(string p) { return true; }
+
+    // B-04：按 CLI 的同一口径枚举 `_workspace`（临时目录）并调用领域判定。
+    static string JudgeWorkspaceDir(string wsDir)
+    {
+        string[] subs = System.IO.Directory.GetDirectories(wsDir);
+        int marked = 0;
+        for (int i = 0; i < subs.Length; i++) if (System.IO.File.Exists(System.IO.Path.Combine(subs[i], ".dshws"))) marked++;
+        bool topFiles = System.IO.Directory.GetFiles(wsDir).Length > 0;
+        return Dsht.Domain.Services.WorkspaceLayoutJudge.Judge(topFiles, subs.Length, marked);
+    }
     static EntryLocation Loc7(string path, string entry) { return new EntryLocation("C:\\x\\y.yml", 7); }
     static bool AnyFile(string p) { return true; }
 
@@ -1619,6 +1629,63 @@ static class ContractTests
                 try { System.IO.Directory.Delete(lockDir, true); } catch { }
                 try { System.IO.Directory.Delete(linDir, true); } catch { }
             }
+        }
+        // ================================================================ [42] B-04 多工作区包完整性（2026-10-30）
+        // 审查 B-04：≥2 工作区时 PackageAllWorkspaces 逐目录 catch/continue → 半截 _workspace/<名字>
+        //   （没有 .dshws）仍被判"完整"；恢复侧见"没有任何 .dshws"会当旧式单工作区**静默并进工作区根**。
+        // 这一节钉住判定规则本身（WorkspaceLayoutJudge —— CLI 的 BackupTruncatedReason 直接调它）：
+        //   ① 缺标记的半截子目录 ⇒ 判不完整（RESTORE_FAIL / DRYRUN_FAIL，--force 才继续）
+        //   ② 完整新格式（每个子目录都有 .dshws）⇒ 放行 ③ 混合 ⇒ 判不完整 ④ 旧式布局 ⇒ 放行（不误伤老包）
+        // 每个断言都直接钉 Judge 的一行规则：改坏任一条都有对应断言变红。
+        Console.WriteLine("[42] B-04 多工作区包完整性（_workspace 子目录缺 .dshws ⇒ 判不完整）");
+        {
+            // 规则边界（纯函数，直接钉代码行）
+            Check("B-04·空 _workspace（0 子目录）→ 放行", Dsht.Domain.Services.WorkspaceLayoutJudge.Judge(false, 0, 0) == null);
+            Check("B-04·旧式布局（顶层有文件、子目录无标记）→ 放行（兼容 v2.x 老包）",
+                Dsht.Domain.Services.WorkspaceLayoutJudge.Judge(true, 2, 0) == null);
+            Check("B-04·新格式完整（子目录全部带 .dshws）→ 放行",
+                Dsht.Domain.Services.WorkspaceLayoutJudge.Judge(false, 3, 3) == null);
+            Check("B-04·混合格式（3 个子目录只有 2 个带 .dshws）→ 判不完整（改坏 Judge 的 marked>=subdirs 判断会红）",
+                Dsht.Domain.Services.WorkspaceLayoutJudge.Judge(false, 3, 2) == Dsht.Domain.Services.WorkspaceLayoutJudge.CodeMarkerMissing);
+            Check("B-04·只有子目录、一个 .dshws 都没有 → 判不完整（fail-closed：改坏 CodeNoMarkers 分支会红）",
+                Dsht.Domain.Services.WorkspaceLayoutJudge.Judge(false, 2, 0) == Dsht.Domain.Services.WorkspaceLayoutJudge.CodeNoMarkers);
+
+            // 真实临时目录（与 CLI 同一口径枚举）
+            string b04Root = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "dsht-b04-" + Guid.NewGuid().ToString("N").Substring(0, 8));
+            try
+            {
+                // ① 半截包：_workspace/x（缺 .dshws）⇒ 必须判不完整
+                string b04Partial = System.IO.Path.Combine(b04Root, "partial", "_workspace");
+                System.IO.Directory.CreateDirectory(System.IO.Path.Combine(b04Partial, "x"));
+                System.IO.File.WriteAllText(System.IO.Path.Combine(System.IO.Path.Combine(b04Partial, "x"), "a.txt"), "A");
+                Check("B-04·临时目录 _workspace/x 缺 .dshws → 判不完整（恢复被拒，--force 才继续）",
+                    JudgeWorkspaceDir(b04Partial) == Dsht.Domain.Services.WorkspaceLayoutJudge.CodeNoMarkers);
+
+                // ② 完整包：_workspace/x/.dshws + y/.dshws ⇒ 放行
+                string b04Complete = System.IO.Path.Combine(b04Root, "complete", "_workspace");
+                string b04Cx = System.IO.Path.Combine(b04Complete, "x");
+                string b04Cy = System.IO.Path.Combine(b04Complete, "y");
+                System.IO.Directory.CreateDirectory(b04Cx); System.IO.Directory.CreateDirectory(b04Cy);
+                System.IO.File.WriteAllText(System.IO.Path.Combine(b04Cx, ".dshws"), "dsh-minato workspace marker");
+                System.IO.File.WriteAllText(System.IO.Path.Combine(b04Cy, ".dshws"), "dsh-minato workspace marker");
+                Check("B-04·临时目录完整包（每个工作区都有 .dshws）→ 放行（恢复不被拦）", JudgeWorkspaceDir(b04Complete) == null);
+
+                // ③ 混合：x 有标记、y 没有 ⇒ 判不完整
+                string b04Mixed = System.IO.Path.Combine(b04Root, "mixed", "_workspace");
+                string b04Mx = System.IO.Path.Combine(b04Mixed, "x");
+                string b04My = System.IO.Path.Combine(b04Mixed, "y");
+                System.IO.Directory.CreateDirectory(b04Mx); System.IO.Directory.CreateDirectory(b04My);
+                System.IO.File.WriteAllText(System.IO.Path.Combine(b04Mx, ".dshws"), "dsh-minato workspace marker");
+                Check("B-04·临时目录混合（x 有 .dshws / y 没有）→ 判不完整（--force 才继续）",
+                    JudgeWorkspaceDir(b04Mixed) == Dsht.Domain.Services.WorkspaceLayoutJudge.CodeMarkerMissing);
+
+                // ④ 旧式：_workspace 顶层直接放文件（v2.x 布局）⇒ 放行
+                string b04Legacy = System.IO.Path.Combine(b04Root, "legacy", "_workspace");
+                System.IO.Directory.CreateDirectory(b04Legacy);
+                System.IO.File.WriteAllText(System.IO.Path.Combine(b04Legacy, "settings.yaml"), "x");
+                Check("B-04·旧式布局（_workspace 顶层直接放文件）→ 放行（老包兼容）", JudgeWorkspaceDir(b04Legacy) == null);
+            }
+            finally { try { System.IO.Directory.Delete(b04Root, true); } catch { } }
         }
         Console.WriteLine("== " + _pass + "/" + (_pass + _fail) + " passed, " + _fail + " failed ==");
         return _fail == 0 ? 0 : 1;

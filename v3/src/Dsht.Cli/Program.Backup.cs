@@ -104,6 +104,11 @@ namespace Dsht.Cli
                     }
                 }
                 catch { }
+                // ★★★ B-04（2026-10-30）：`_workspace` **布局**完整性 —— 半截工作区包必须判不完整 ✓✓
+                //   （这类包的 manifest 里 failed= 仍是 0 ⇒ 上面的 failed 检查看不见它 ✗）
+                //   缺 .dshws 的子目录 = 打包中断/失败的半截工作区 ⇒ 走**现有** truncated/--force 机制 ✓
+                string wsProblem = WorkspaceIncompleteReason(pkgDir);
+                if (!string.IsNullOrEmpty(wsProblem)) return wsProblem;
                 // ★★★ A3（2026-10-07 备份链审查 D3）：以下三处原来全部"catch/取不到 → 返回 null" ✗✗
                 //   → null 被调用方当成"没被截断" ✓ → 标记坏了 / 数不了文件 / 任何异常 → 闸门 fail-open → 恢复放行 ✗
                 //   → 而 `backup-list --verify` 对同等情况判 **mismatch / unreadable** ✓（同一个包两套结论 ✗）
@@ -331,40 +336,156 @@ namespace Dsht.Cli
             }
             return 0;
         }
+        /// <summary>多工作区打包的**结构化结果**（B-04：不再用 int 吞掉失败 ✓）。
+        /// Packaged = 成功打包数；Failures = 失败原因列表（每条含"工作区名/路径 : 原因"，供 stderr 与报告用）。</summary>
+        private sealed class WorkspacePackResult
+        {
+            public int Packaged;
+            public readonly List<string> Failures = new List<string>();
+            public int Failed { get { return Failures.Count; } }
+        }
+
         /// <summary>把**全部**工作区打包成新格式 `_workspace/&lt;名称&gt;/.dshws` ✓✓（仅当 ≥2 个 ✓）。
         /// **前置约束** ✗✓：≥2 个时平台侧一个都不打包 ✓（`WorkspaceRoot` 返回 null ✓）→
         /// 包里**只有一种格式** ✓ —— 上一版就是因为两种格式混在一个包里 ✗ 才回滚的 ✓。
-        /// 返回实际打包数 ✓（0 = 没做 ✓）。</summary>
-        private static int PackageAllWorkspaces(string pkgDir, ServiceRegistry reg)
+        /// <para>★★★ B-04（2026-10-30）：返回**结构化结果**（打包数 / 失败数 / 失败原因），不再逐目录静默 continue ✗：
+        ///   · 复制/写标记失败 ⇒ 记原因 + **删掉半截目标目录**（不留"没有 .dshws 的半截工作区"给恢复侧误并 ✗）
+        ///   · 配置的工作区目录不存在 / 与数据根互相包含 / 目标重名 ⇒ 也逐条说明（不再无声跳过）</para></summary>
+        private static WorkspacePackResult PackageAllWorkspaces(string pkgDir, ServiceRegistry reg)
         {
+            WorkspacePackResult res = new WorkspacePackResult();
             try
             {
                 string[] all = ConfiguredWorkspaces();
-                if (all.Length < 2) return 0;                       // 单个 → 平台侧按旧式扁平打包 ✓
+                if (all.Length < 2) return res;                     // 单个 → 平台侧按旧式扁平打包 ✓
                 string wsRoot = System.IO.Path.Combine(pkgDir, "_workspace");
-                try { System.IO.Directory.CreateDirectory(wsRoot); } catch { return 0; }
+                try { System.IO.Directory.CreateDirectory(wsRoot); }
+                catch (Exception wex)
+                {
+                    res.Failures.Add(T("_workspace 目录建不出来", "cannot create the _workspace directory") + " : " + wex.Message);
+                    return res;
+                }
                 string dataFull = Dsht.Domain.Services.PathUtil.TrimTrailingSep(reg.Get<IPaths>().DataRoot);
-                int done = 0;
                 for (int i = 0; i < all.Length; i++)
                 {
+                    string configured = all[i];
                     string full;
-                    try { full = System.IO.Path.GetFullPath(all[i]); } catch { continue; }
-                    if (!System.IO.Directory.Exists(full)) continue;
+                    try { full = System.IO.Path.GetFullPath(configured); }
+                    catch (Exception pex) { res.Failures.Add(configured + " : " + pex.Message); continue; }
+                    if (!System.IO.Directory.Exists(full))
+                    {
+                        res.Failures.Add(full + " : " + T("工作区目录不存在", "workspace directory does not exist"));
+                        continue;
+                    }
                     string f = Dsht.Domain.Services.PathUtil.TrimTrailingSep(full);
-                    if (Dsht.Domain.Services.PathUtil.IsSubPath(dataFull, f)) continue;   // 与平台侧同一套护栏 ✓
-                    if (Dsht.Domain.Services.PathUtil.IsSubPath(f, dataFull)) continue;
+                    // 与平台侧同一套护栏 ✓（互相包含时不打包，但**要说出来** ✓）
+                    if (Dsht.Domain.Services.PathUtil.IsSubPath(dataFull, f))
+                    {
+                        res.Failures.Add(f + " : " + T("位于数据根之内，已跳过（防递归）", "inside the data root, skipped (anti-recursion)"));
+                        continue;
+                    }
+                    if (Dsht.Domain.Services.PathUtil.IsSubPath(f, dataFull))
+                    {
+                        res.Failures.Add(f + " : " + T("包含数据根，已跳过（防递归）", "contains the data root, skipped (anti-recursion)"));
+                        continue;
+                    }
                     string name = System.IO.Path.GetFileName(f);
-                    if (string.IsNullOrEmpty(name)) continue;
+                    if (string.IsNullOrEmpty(name))
+                    {
+                        res.Failures.Add(f + " : " + T("无法取得工作区名称", "cannot determine the workspace name"));
+                        continue;
+                    }
                     string target = System.IO.Path.Combine(wsRoot, name);
-                    if (System.IO.Directory.Exists(target)) continue;                     // 不覆盖 ✓
-                    CopyDirDeep(f, target, 0);
-                    System.IO.File.WriteAllText(System.IO.Path.Combine(target, ".dshws"),
-                        "dsh-minato workspace marker\nsource=" + f + "\n");
-                    done++;
+                    if (System.IO.Directory.Exists(target))
+                    {
+                        res.Failures.Add(name + " : " + T("打包目标已在包里存在（不覆盖）", "the package already has an entry with this name (not overwritten)"));
+                        continue;
+                    }
+                    try
+                    {
+                        CopyDirDeep(f, target, 0);
+                        System.IO.File.WriteAllText(System.IO.Path.Combine(target, ".dshws"),
+                            "dsh-minato workspace marker\nsource=" + f + "\n");
+                        res.Packaged++;
+                    }
+                    catch (Exception cex)
+                    {
+                        // ★ B-04：半截目录**清掉** —— 恢复侧见到"子目录没有 .dshws"会按不完整拦（见 WorkspaceIncompleteReason），
+                        //   但更稳的是根本不留：包内只保留**完整**的工作区条目 ✓
+                        try { if (System.IO.Directory.Exists(target)) System.IO.Directory.Delete(target, true); } catch { }
+                        res.Failures.Add(name + " : " + cex.GetType().Name + ": " + cex.Message);
+                    }
                 }
-                return done;
             }
-            catch { return 0; }
+            catch (Exception ex)
+            {
+                res.Failures.Add(T("打包工作区时出错", "packaging workspaces failed") + " : " + ex.GetType().Name + ": " + ex.Message);
+            }
+            return res;
+        }
+
+        /// <summary>B-04：把工作区打包失败数**并进完成标记的 failed=** ✓（沿用现有字段/机制，不新增标记族）。
+        /// 恢复侧的 `BackupTruncatedReason` 已有"failed&gt;0 即不完整 ⇒ 需 --force"的闸门 ✓ → 这里只补数。
+        /// 失败不抛（尽力而为 ✓）：即便标记改不动，备份侧仍会打印 BACKUP_INCOMPLETE + rc=1 ✓。</summary>
+        private static void MarkManifestFailed(string pkgPath, int extraFailures)
+        {
+            try
+            {
+                if (string.IsNullOrEmpty(pkgPath) || extraFailures <= 0) return;
+                string mf = pkgPath + ".manifest";
+                if (!System.IO.File.Exists(mf)) return;
+                string cur = System.IO.File.ReadAllText(mf);
+                System.Text.RegularExpressions.Match m = System.Text.RegularExpressions.Regex.Match(cur, "(?m)^failed=(\\d+)");
+                int now = extraFailures;
+                if (m.Success)
+                {
+                    int was;
+                    if (int.TryParse(m.Groups[1].Value, out was)) now = was + extraFailures;
+                    cur = System.Text.RegularExpressions.Regex.Replace(cur, "(?m)^failed=\\d+", "failed=" + now);
+                }
+                else
+                {
+                    cur = cur.TrimEnd('\n', '\r') + "\n" + "failed=" + now + "\n";
+                }
+                System.IO.File.WriteAllText(mf, cur);
+            }
+            catch { }
+        }
+
+        /// <summary>B-04：`_workspace` 布局完整性（缺 .dshws 的半截包 ⇒ 判不完整）✓。
+        /// 判定规则在领域层 <see cref="Dsht.Domain.Services.WorkspaceLayoutJudge"/>（纯函数，契约测试直接钉它 ✓）；
+        /// 本方法只做 IO 枚举 + 本地化文案。返回 null = 放行；否则返回 RESTORE_FAIL/DRYRUN_FAIL 的原因句。</summary>
+        private static string WorkspaceIncompleteReason(string pkgDir)
+        {
+            try
+            {
+                string ws = System.IO.Path.Combine(pkgDir, "_workspace");
+                if (!System.IO.Directory.Exists(ws)) return null;
+                string[] subs;
+                try { subs = System.IO.Directory.GetDirectories(ws); }
+                catch (Exception eex)
+                {
+                    return T("备份里的 _workspace 无法枚举（", "cannot enumerate _workspace in the backup (") + eex.GetType().Name + T("）—— 无法核对工作区完整性，按不完整处理：", ") - cannot verify workspace completeness, treated as incomplete: ") + System.IO.Path.GetFileName(pkgDir);
+                }
+                if (subs.Length == 0) return null;   // 空 / 旧式（只有文件）⇒ 交给旧语义（Judge 同样放行）
+                int marked = 0;
+                for (int i = 0; i < subs.Length; i++)
+                {
+                    if (System.IO.File.Exists(System.IO.Path.Combine(subs[i], ".dshws"))) marked++;
+                }
+                bool topFiles = false;
+                try { topFiles = System.IO.Directory.GetFiles(ws).Length > 0; } catch { }
+                string code = Dsht.Domain.Services.WorkspaceLayoutJudge.Judge(topFiles, subs.Length, marked);
+                if (string.IsNullOrEmpty(code)) return null;
+                int missing = subs.Length - marked;
+                if (code == Dsht.Domain.Services.WorkspaceLayoutJudge.CodeMarkerMissing)
+                    return T("备份不完整（_workspace 下有 " + missing + " 个工作区缺少 .dshws 标记，可能是多工作区打包中断或失败）：", "backup is incomplete (_workspace has " + missing + " workspace(s) without a .dshws marker - the multi-workspace packaging was probably interrupted or failed): ") + System.IO.Path.GetFileName(pkgDir);
+                return T("备份不完整（_workspace 下只有目录、没有任何 .dshws 标记，无法确认是完整的旧式单工作区包）：", "backup is incomplete (_workspace contains only directories and no .dshws marker; cannot confirm it is a complete legacy single-workspace package): ") + System.IO.Path.GetFileName(pkgDir);
+            }
+            catch (Exception ex)
+            {
+                return T("工作区完整性检查出错（", "workspace completeness check failed (") + ex.GetType().Name + T("）—— 按不完整处理：", ") - treated as incomplete: ") + System.IO.Path.GetFileName(pkgDir);
+            }
         }
         private static string WorkspaceRoot(ServiceRegistry reg)
         {
