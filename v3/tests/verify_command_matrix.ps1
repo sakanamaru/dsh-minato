@@ -193,7 +193,7 @@ try {
         @("version", @("version"), '^DSHT_VERSION [0-9]', '', 0),
         @("about", @("about"), '非官方|not affiliated|unofficial', '', 0),
         @("status", @("status"), '^STATUS_[A-Z]+', '', 0),
-        @("sessions", @("sessions"), '^SESSIONS_(OK|FAIL)', '', 0),
+        @("sessions", @("sessions"), '^SESSIONS_(OK|FAIL)', '', $null),   # EXIT-02：无投影时 SESSIONS_FAIL=1（终态在下面单独断言）
         @("doctor", @("doctor"), '^DOCTOR_[A-Z]+', '', 0),
         @("config-get", @("config-get"), '^CONFIGGET_OK', '', 0),
         @("backup-list（空根）", @("backup-list"), '^BACKUP_LIST_OK [0-9]+', '', 0)
@@ -206,6 +206,11 @@ try {
         if ($c[3] -ne '') { Check ($c[0] + " 不该出现 /" + $c[3] + "/") (-not (HasMarker $r.out $c[3])) }
         if ($null -ne $c[4]) { Check ($c[0] + " 退出码 = " + $c[4]) ($r.rc -eq $c[4]) }
     }
+
+    # EXIT-02 政策 A：sessions 的 rc 必须与终态一致（SESSIONS_OK→0 / SESSIONS_FAIL→1；不再是"一律 0"）
+    $sRo = Run-Cli $Cli @("sessions")
+    Check "1 sessions 终态与 rc 一致（OK→0 / FAIL→1）" `
+        (((HasMarker $sRo.out '^SESSIONS_OK ') -and ($sRo.rc -eq 0)) -or ((HasMarker $sRo.out '^SESSIONS_FAIL ') -and ($sRo.rc -eq 1)))
 
     # ------------------------------------------------------------------
     # 1b) 看板第一批（2026-10-08 ✓✓ 规格 §11.1/§11.5 验收⑤ ✓✓）
@@ -308,20 +313,20 @@ try {
     $sBad = Run-Cli $Cli @("sessions", "--days", "99")
     $badMeta = @(MarkLines $sBad.out '^SESSWIN_META ')
     $badFail = @(MarkLines $sBad.out '^SESSIONS_FAIL ')
-    Check "1b --days 99 → rc=0 + SESSIONS_FAIL" ($sBad.rc -eq 0 -and $badFail.Count -eq 1)
+    Check "1b --days 99 → rc=2（用法错误）+ SESSIONS_FAIL" ($sBad.rc -eq 2 -and $badFail.Count -eq 1)
     Check "1b --days 99 SESSWIN_META(level=unknown · source=unknown · 计数全 0) 在 SESSIONS_FAIL **之前**（顺序敏感 ✓ 规格 §11.1/§11.7 ✓）" `
         ($badMeta.Count -eq 1 -and $badMeta[0] -match '^SESSWIN_META days=unknown from=- to=- tz=.+ truth=0 level=unknown source=unknown scanned=0 eligible=0 unknown_last=0 lineage=none fork_sessions=unknown$' -and $sBad.out.IndexOf($badMeta[0]) -lt $sBad.out.IndexOf($badFail[0]))
     $sLv = Run-Cli $Cli @("sessions", "--level", "parents")
     $lvMeta = @(MarkLines $sLv.out '^SESSWIN_META ')
     $lvFail = @(MarkLines $sLv.out '^SESSIONS_FAIL ')
-    Check "1b --level parents（无血缘）→ rc=0 + SESSIONS_FAIL（第三批降级口径：lineage=none ⇒ 非 global 档如实拒 ✓ 规格 §11.7-D ✓）" ($sLv.rc -eq 0 -and $lvFail.Count -eq 1)
+    Check "1b --level parents（无血缘）→ rc=1（执行失败：缺桥插件前置）+ SESSIONS_FAIL（第三批降级口径：lineage=none ⇒ 非 global 档如实拒 ✓ 规格 §11.7-D ✓）" ($sLv.rc -eq 1 -and $lvFail.Count -eq 1)
     Check "1b --level parents SESSWIN_META 打**请求档+实扫数**且先于 FAIL（血缘缺失 → 明说 ✗ 不编数字 ✓✓ 规格 §11.7-D ✓）" `
         ($lvMeta.Count -eq 1 -and $lvMeta[0] -match '^SESSWIN_META days=unknown from=- to=- tz=.+ truth=0 level=parents source=disk scanned=4 eligible=0 unknown_last=0 lineage=none fork_sessions=unknown$' -and $sLv.out.IndexOf($lvMeta[0]) -lt $sLv.out.IndexOf($lvFail[0]))
 
     # -- 默认口径配置键接线（sessions_default_level ✓ 第一批只认 global → 配成 parents 如实 FAIL ✓）--
     $cfg1 = Run-Cli $Cli @("config-set", "sessions_default_level", "parents")
     $sCfg = Run-Cli $Cli @("sessions")
-    Check "1b sessions_default_level=parents 生效 → 默认档如实 FAIL（配置键真的接线 ✓）" ((HasMarker $cfg1.out '^CONFIGSET_OK') -and (HasMarker $sCfg.out '^SESSIONS_FAIL '))
+    Check "1b sessions_default_level=parents 生效 → 默认档如实 FAIL + rc=1（配置键真的接线 ✓）" ((HasMarker $cfg1.out '^CONFIGSET_OK') -and (HasMarker $sCfg.out '^SESSIONS_FAIL ') -and ($sCfg.rc -eq 1))
     $cfg2 = Run-Cli $Cli @("config-set", "sessions_default_level", "global")
     $sCfg2 = Run-Cli $Cli @("sessions")
     Check "1b 恢复 global 后默认档恢复 OK（不留脏配置 ✓）" ((HasMarker $cfg2.out '^CONFIGSET_OK') -and (HasMarker $sCfg2.out '^SESSIONS_OK 4$'))
@@ -375,7 +380,7 @@ try {
     Write-BoardProj $f4.home "aaaa0010" $msNear $metaNear 100 50 10 20 3 6
     $sDeg = Run-CliMerged $Cli @("sessions", "--days", "7", "--level", "parents_sub")
     Check "1c 降级：无血缘 + parents_sub ⇒ FAIL + SESSAGG_LINEAGE stderr（✗ 不拿投影冒充 ✓✓）" `
-        ($sDeg.rc -eq 0 -and (HasMarker $sDeg.out '^SESSIONS_FAIL ') -and (HasMarker $sDeg.out 'SESSAGG_LINEAGE'))
+        ($sDeg.rc -eq 1 -and (HasMarker $sDeg.out '^SESSIONS_FAIL ') -and (HasMarker $sDeg.out 'SESSAGG_LINEAGE'))
     $env:DSH_HOME = $f3.home
 
     # D4 自定义区间：正例 + 三负例（互斥/单端/坏格式 ✓ ✗ 不猜 ✗ 不补端点 ✓）
@@ -384,11 +389,11 @@ try {
         ((HasMarker $sCu.out '^SESSIONS_OK ') `
         -and (HasMarker $sCu.out ('^SESSWIN_META days=unknown from=' + $from7 + ' to=' + $toDay + ' .+ scanned=3 eligible=3 unknown_last=0 lineage=ok fork_sessions=1$')))
     $sMx = Run-Cli $Cli @("sessions", "--days", "7", "--from", $from7, "--to", $toDay)
-    Check "1c --from/--to 与 --days 互斥 ⇒ FAIL" ($sMx.rc -eq 0 -and (HasMarker $sMx.out '^SESSIONS_FAIL '))
+    Check "1c --from/--to 与 --days 互斥 ⇒ FAIL + rc=2（用法错误）" ($sMx.rc -eq 2 -and (HasMarker $sMx.out '^SESSIONS_FAIL '))
     $sOne = Run-Cli $Cli @("sessions", "--from", $from7)
-    Check "1c --from 单端（缺 --to）⇒ FAIL（✗ 不默认补端点 ✓）" ($sOne.rc -eq 0 -and (HasMarker $sOne.out '^SESSIONS_FAIL '))
+    Check "1c --from 单端（缺 --to）⇒ FAIL + rc=2（✗ 不默认补端点 ✓）" ($sOne.rc -eq 2 -and (HasMarker $sOne.out '^SESSIONS_FAIL '))
     $sBad2 = Run-Cli $Cli @("sessions", "--from", "2026/10/01", "--to", $toDay)
-    Check "1c --from 坏格式 ⇒ FAIL（只认 yyyy-MM-dd ✓）" ($sBad2.rc -eq 0 -and (HasMarker $sBad2.out '^SESSIONS_FAIL '))
+    Check "1c --from 坏格式 ⇒ FAIL + rc=2（只认 yyyy-MM-dd ✓）" ($sBad2.rc -eq 2 -and (HasMarker $sBad2.out '^SESSIONS_FAIL '))
 
     # ------------------------------------------------------------------
     # 1d) 成本面板 v3.2（2026-10-16 ✓✓ 规格 §3 + §3.1 ✓ 契约：scope=today|window 两块）
@@ -500,9 +505,9 @@ try {
     $cBad = Run-Cli $Cli @("cost", "--days", "99")
     $cMx = Run-Cli $Cli @("cost", "--days", "7", "--from", $from7, "--to", $toDay)
     $cOne = Run-Cli $Cli @("cost", "--from", $from7)
-    Check "1d 参数：坏 --days / 互斥 / 单端 ⇒ COST_FAIL（✗ 不打半截 COST_TOTAL ✓）" `
-        ($cBad.rc -eq 0 -and (HasMarker $cBad.out '^COST_FAIL ') -and (-not (HasMarker $cBad.out '^COST_TOTAL ')) `
-        -and (HasMarker $cMx.out '^COST_FAIL ') -and (HasMarker $cOne.out '^COST_FAIL '))
+    Check "1d 参数：坏 --days / 互斥 / 单端 ⇒ COST_FAIL + rc=2（用法错误；✗ 不打半截 COST_TOTAL ✓）" `
+        ($cBad.rc -eq 2 -and (HasMarker $cBad.out '^COST_FAIL ') -and (-not (HasMarker $cBad.out '^COST_TOTAL ')) `
+        -and ($cMx.rc -eq 2) -and ($cOne.rc -eq 2) -and (HasMarker $cMx.out '^COST_FAIL ') -and (HasMarker $cOne.out '^COST_FAIL '))
     # -- 复位 5 个键（✗ 别把测试价留在**共享的** exe 同级配置里 ✗）--
     foreach ($k in $costKeys) { Run-Cli $Cli @("config-set", $k, "0") | Out-Null }
     $cReset = Run-Cli $Cli @("config-get")
@@ -707,7 +712,9 @@ try {
     foreach ($l in (MarkLines $d.out 'DRYRUN_|RESTORE_' | Select-Object -First 4)) { Write-Host ("       " + $l) }
     Check "restore --dry-run 给出明确结论（DRYRUN_OK / DRYRUN_FAIL / 明确拒绝）" ((HasMarker $d.out '^DRYRUN_(OK|FAIL)') -or (HasMarker $d.out '^RESTORE_FAIL '))
     Check "restore --dry-run 未报告真实写盘（无 RESTORE_OK / APPLY_ROOT / APPLY_ACK）" (-not (HasMarker $d.out '^RESTORE_(OK|APPLY_ROOT|APPLY_ACK)'))
-    Check "restore --dry-run 退出码 = 0（只读命令）" ($d.rc -eq 0)
+    # EXIT-02 政策 A：只读预览成功 = 0；预览拒绝/失败 = 1（旧断言一律 0 已按新契约收窄）`
+    Check "restore --dry-run 退出码符合终态（DRYRUN_OK→0 / DRYRUN_FAIL→1）" `
+        (((HasMarker $d.out '^DRYRUN_OK') -and ($d.rc -eq 0)) -or ((HasMarker $d.out '^DRYRUN_FAIL ') -and ($d.rc -eq 1)))
     Check "restore --dry-run 带出来源包路径（DRYRUN_SRC）" (HasMarker $d.out '^DRYRUN_SRC ')
 
     # ------------------------------------------------------------------
@@ -785,7 +792,7 @@ if ($script:xfail.Count -gt 0) {
 $total = $script:pass + $script:fail
 Write-Host ("== 矩阵：" + $script:pass + "/" + $total + " passed, " + $script:fail + " failed（XFAIL " + $script:xfail.Count + "）==")
 # 项数下限：删掉用例（或整段被截断）时 PASS 变少而 FAIL 仍为 0 ✗ → 这里必须红 ✓
-$EXPECTED_MIN = 16
+$EXPECTED_MIN = 119   # ★ EXIT-02（2026-10-30）：rc 断言同步新契约后实跑 119 项；删掉任何一条都会红
 if ($script:pass -lt $EXPECTED_MIN) {
     Write-Host ("  [FAIL] 项数不足：实跑 " + $script:pass + " < 声明 " + $EXPECTED_MIN)
     $script:fail++

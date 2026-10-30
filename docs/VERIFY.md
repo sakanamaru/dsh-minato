@@ -317,22 +317,42 @@ True
 
 ## 9. 退出码契约（自动化能不能用 `&&` 判断）
 
-**通过**：**拒绝/失败**路径退出码非 0 ✓；**成功**与**只读预览**路径为 0 ✓。
+**通过**：**拒绝/失败**路径退出码非 0 ✓；**成功**与**只读预览/计划**路径为 0 ✓；**明确降级/跳过保持 0** ✓。
 
-| 命令 | 期望退出码 | 实测 |
+> 2026-10-30 已按**政策 A（全量裁决并补齐）**收口：`*_FAIL` / `*_REFUSED` 全族逐条裁定，
+> 逐族理由、反例、覆盖用例与 not-covered 清单见 `docs/退出码裁决-2026-10-30.md`。
+> 四档含义：成功/计划=**0** · 执行失败或拒绝=**1** · 用法错误=**2** · 启动自完整性拒绝=**3**。
+
+| 命令（族） | 期望退出码 | 说明 |
 |---|---|---|
-| `version` / `about` / `status` / `sessions` / `doctor` / `config-get` / `backup-list` | 0 | 0 ✓ |
-| `backup --to <隔离目录>` | 0 | 0 ✓ |
-| `backup-export … --yes`（成功） | 0 | 0 ✓ |
-| `restore --dry-run` | 0 | 0 ✓ |
-| `restore --path <缺标记/截断/篡改的包> --apply --yes` | **非 0** | 1 ✓ |
-| `restore --path <备份根外>` | **非 0** | 1 ✓ |
-| `backup-export --path <备份根外> --yes` | **非 0** | 1 ✓ |
-| `backup`（全新安装、没给 `--to`） | **非 0** | 1（`BACKUP_NEEDS_DIR`）✓ |
-| `wipe` / `uninstall`（未确认） | 0（不改机器） | 0 ✓ |
+| `version` / `about` / `status` / `config-get` / `backup-list` / `check` / `describe` | 0 | 只读成功 |
+| `doctor` / `profiles` / `sessions` / `cost` | 0 成功 · 1 失败 | doctor 是诊断报告（发现问题不改 rc）；`profiles` 找不到 profiles/ = 1；`sessions`/`cost` 无投影或血缘不可用 = 1 |
+| `sessions` / `cost` 参数面 | 2 | 坏 `--days`/`--from`/`--to`/`--level`、区间互斥/单端 = 用例错误 |
+| `backup --to <隔离目录>` | 0 | 计划/成功 |
+| `backup`（没给 `--to` 且未配置） | 1 | `BACKUP_NEEDS_DIR` / `BACKUP_FAIL` |
+| `restore` | 0 / 1 / 2 | 成功=0；无备份/根外/包无效/回滚失败=1；缺 `--path`=2 |
+| `restore --dry-run` | 0 成功 · 1 失败 | `DRYRUN_OK`=0；`DRYRUN_FAIL`=1（只读预览失败也是失败，不是成功） |
+| `backup-delete` | 0 / 1 / 2 | 计划/成功=0；根外/不是备份/时间过期/删除失败=1；缺 `--path`、`--confirm-time` 格式不对=2 |
+| `backup-export` | 0 / 1 / 2 | 计划/成功=0；根外/无效包/导出失败=1；缺 `--path`/`--to`=2 |
+| `import` | 0 / 1 / 2 | 计划/成功=0；源不存在/空目录/复制失败=1；缺 `--path`/路径无法解析=2 |
+| `verify-install` | 0 一致 · 1 无法核对/不一致 | 文件不存在、清单缺失/不可解析、不在清单、哈希不一致 = 1；绝不把"无法核对"报成 0 |
+| `start` | 0 / 1 / 2 | 计划/已在运行/成功=0；端口被非 dsh 占/启动发不出/30 秒未就绪=1；`--profile` 非法=2 |
+| `stop` | 0 / 1 | 计划/成功=0；没有在跑的 dsh/非 dsh 监听/安全拒绝/12 秒未停=1 |
+| `bridge-install` | 0 / 1 / 2 | 计划/成功=0；缺插件/dsh/pnpm、安装或补 patch 失败、desktop profile 独占=1；`--profile` 非法=2 |
+| `ui` | 0 / 1 | 已启动=0；找不到 GUI / `DSHT_GUI` 不存在或不可执行 / 启动异常=1 |
+| `profilepatch` | 0 / 1 / 2 | 计划/DRYRUN/成功/NOOP=0；patch 文件不存在/方案无效/应用失败=1；缺 `--profile`/profile 名非法=2 |
+| `bootdiag` | 0 / 1 / 2 | 识别成功=0；文件读不到/内容认不出=1；缺 `--from`=2 |
+| `doctor --report` / `log --export` | 0 / 1 | 写入成功=0；`DOCTOR_WRITE_FAIL` / `LOG_FAIL`=1 |
+| `install` / `update` | 0 / 1 / 2 | 计划/成功/SKIP=0；Node 引导失败/版本拿不到/npm 失败/只回滚成功=1；`--version` 未过白名单=2 |
+| `uninstall` | 0 / 1 | 计划/SKIP/成功=0；npm 失败且仍观测到 dsh=1 |
+| `wipe` | 0 / 1 | 带 `--yes`=0（只打印路径，不删）；未确认/算不出路径=1 |
+
+**自动断言**：`v3/tests/verify_exit_codes.ps1` 对上面每个族**真跑失败场景**并同时断言
+标记行 + rc（+ 拒绝类"目标未被改动"三件套）；构造不出本地场景的族在脚本 §12 与裁决表里
+**显式登记 not-covered + 原因**（不许静默跳过）。`verify_command_matrix.ps1` 的 rc 断言已同步新契约。
 
 **失败**：拒绝路径返回 0 ✗✗（那样 `dsh-minato restore … || echo 失败` 会误判成功 ——
-这正是本轮 A2 修的缺陷 ✓）。
+这正是 A2/EXIT-02 修的缺陷 ✓）。
 
 ---
 
@@ -349,12 +369,12 @@ pwsh -NoProfile -File v3/tests/verify_restore_apply.ps1 -Repo .
 dotnet run --project v3/tests/Dsht.Contracts.Tests/Dsht.Contracts.Tests.csproj -c Release
 ```
 
-实测（2026-10-07，`3.0.7-dev`）：
+实测（2026-10-30，EXIT-02 收口后）：
 
 ```
-== 矩阵：44/44 passed, 0 failed（XFAIL 0）==
-== 26/26 passed, 0 failed ==            ← verify_restore_apply.ps1
-== 355/355 passed, 0 failed ==          ← 契约测试
+== 矩阵：119/119 passed, 0 failed（XFAIL 0）==
+== 退出码契约：118/118 passed, 0 failed（SKIP 17）==   ← verify_exit_codes.ps1（not-covered 见脚本 §12）
+== 525/525 passed, 0 failed ==          ← 契约测试
 ```
 
 矩阵自己也会**证明没越界**：它比对真实数据根（`%USERPROFILE%\.dsh` 等）跑前跑后的快照，
@@ -362,7 +382,8 @@ dotnet run --project v3/tests/Dsht.Contracts.Tests/Dsht.Contracts.Tests.csproj -
 
 该矩阵**能因缺陷变红**（本批次实测过）：把 version 断言临时改成
 `^DSHT_VERSION_XX [0-9]` → 输出 `[FAIL] version 打印标记行` +
-`== 矩阵：43/44 passed, 1 failed ==`，退出码 **1** ✓；改回去 → 恢复 `44/44`、退出码 0 ✓。
+`== 矩阵：118/119 passed, 1 failed ==`，退出码 **1** ✓；改回去 → 恢复 `119/119`、退出码 0 ✓。
+（计数只作演示：断言数随批次增长，以实际输出为准；矩阵自身还有 `EXPECTED_MIN` 下限防止用例被静默删掉。）
 
 ---
 

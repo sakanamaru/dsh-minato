@@ -311,7 +311,8 @@ namespace Dsht.Cli
                 else PrintWinMeta(sc.Days, sc.FromText, sc.ToText, "unknown", 0, 0, 0, sc.Level, false, -1);
                 Console.Error.WriteLine(sc.ArgTag + " " + sc.FailZh);
                 Console.WriteLine("SESSIONS_FAIL " + T(sc.FailZh, sc.FailEn));
-                return 0;
+                // EXIT-02 政策 A：参数非法（FailKind=arg）= 用法错误 2；其余（投影读不到等）= 执行失败 1
+                return sc.FailKind == "arg" ? 2 : 1;
             }
             List<SessionStat> list = sc.List;
             ISessionStatsSource src = sc.Src;
@@ -366,7 +367,7 @@ namespace Dsht.Cli
                 EmitLineageDegrade("SESSAGG_LINEAGE", level);
                 Console.WriteLine("SESSIONS_FAIL " + T("血缘不可用：口径 " + level + " 需要桥插件血缘段（第三批 · dsh-minato-bridge 直读原始日志首帧 header，正文帧一帧不解）；未检测到 ⇒ 请安装/升级桥插件后重试",
                     "lineage unavailable: scope " + level + " needs the bridge plugin lineage section (first-frame headers only); install/upgrade dsh-minato-bridge and retry"));
-                return 0;
+                return 1;   // 执行失败：缺桥插件血缘前置（EXIT-02 政策 A 裁决同上）
             }
             SessionTotals tot = SessionStats.Aggregate(list);
             int liveCount = 0;

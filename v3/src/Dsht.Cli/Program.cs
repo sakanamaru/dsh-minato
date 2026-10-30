@@ -927,7 +927,8 @@ namespace Dsht.Cli
                     if (reason == "no-path") Console.WriteLine("RESTORE_FAIL " + T("未指定备份目录", "no backup specified"));
                     else if (reason == "outside") Console.WriteLine("RESTORE_FAIL " + T("备份目录不在备份根内", "backup dir is outside the backups root"));
                     else Console.WriteLine("RESTORE_FAIL " + T("无效备份目录", "invalid backup directory"));
-                    return 1;
+                    // EXIT-02 政策 A：缺 --path = 用法错误 2；根外/无效包 = 执行失败 1
+                    return reason == "no-path" ? 2 : 1;
                 }
                 // ★ 审查抓到：上面校验的是 ResolveBackupPath 的结果 ✗，而这里用的是**原始参数** ✗
                 //   → 只给名字时（GUI 就是这样）校验看的是 &lt;备份根&gt;/&lt;名字&gt;，实际读的却是 &lt;当前目录&gt;/&lt;名字&gt; ✗✗

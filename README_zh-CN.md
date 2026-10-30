@@ -173,15 +173,37 @@ dsh-minato version | about | selftest
 - **`desktop` profile 由官方桌面端管理** —— 它的插件要在桌面端自己的对话框里添加，命令行装不进去。
 - **已发布版本（3.0.0 起至 3.0.6）`backup-export` 不可用**：对非空包必然失败（文件会拷出但不写
   旁挂 `.manifest`，打印 `BKEXPORT_FAIL`）。**3.0.7 起已修**（`BKEXPORT_OK` + 旁挂标记 + 端到端断言）。
-- **CLI 退出码**：成功与计划/只读预览为 `0`；拒绝或失败为 `1`；用法错误为 `2`；启动时自身完整性校验拒绝为 `3`。
-  下表列出已经逐条跑过真实失败场景的命令；未列出的命令，其失败路径仍可能返回 `0`，自动化请同时检查标记行：
+- **CLI 退出码**（2026-10-30 全量裁决 · 政策 A）：成功与计划/只读预览为 `0`；拒绝或失败为 `1`（**包括**
+  "要核对/查找/读取的东西不存在或无法核对"）；用法错误（缺参数、取值非法、参数互斥）为 `2`；启动时自身完整性校验
+  拒绝为 `3`。**明确降级/跳过保持 `0`**，并在自己的标记行里如实说明（`RESTORE_WS_SKIPPED`、`INTEGRITY_SKIPPED`、
+  `PROFILECHK_SKIPPED_VENDOR`、`BRIDGE_FAIL_RAW`、`*_PRE_BACKUP_FAILED` 诊断行）。下表每个族都有
+  `v3/tests/verify_exit_codes.ps1` 的端到端断言；逐族的理由、反例与未覆盖清单见
+  [`docs/退出码裁决-2026-10-30.md`](docs/退出码裁决-2026-10-30.md)：
 
-  | 命令 | 成功 / 计划 | 拒绝或失败 | 用法错误 |
+  | 命令 | 成功 / 计划 | 拒绝或失败 `1` | 用法错误 `2` |
   |---|---|---|---|
-  | `config-set` | `0`：`CONFIGSET_OK` | `1`：写入未生效（`CONFIGSET_FAIL`） | `2`：未知键或非法值（`CONFIGSET_FAIL`） |
-  | `backup-dir` | `0`：`BACKUP_DIR` / `BACKUP_DIR_OK` / `BACKUP_DIR_RESET` | `1`：无法删除、创建或保存设置（`BACKUP_DIR_FAIL`） | `2`：相对路径、无法解析的路径（`BACKUP_DIR_FAIL`） |
-  | `restore --dry-run` | `0`：`DRYRUN_OK` | `1`：没有有效备份、包无效或未完成（`DRYRUN_FAIL`） | — |
-  | `wipe` | `0`：带 `--yes`，只打印手动删除路径 | `1`：没有 `--yes`（未确认）；`WIPE_FAIL`（连路径都算不出） | — |
+  | `config-set` | `CONFIGSET_OK` | 写入未生效 | 未知键 / 非法值 |
+  | `backup-dir` | `BACKUP_DIR` / `_OK` / `_RESET` | 无法删除、创建或保存设置 | 相对路径、无法解析的路径 |
+  | `restore` | `RESTORE_OK` | 没有备份、根外、包无效/未完成、回滚失败 | 缺 `--path` |
+  | `restore --dry-run` | `DRYRUN_OK` | 没有有效备份、包无效/未完成 | — |
+  | `wipe` | 带 `--yes`：只打印手动删除路径 | 没有 `--yes`；连路径都算不出 | — |
+  | `backup-delete` | `BKDEL_PLAN` / `BKDEL_OK` | 根外、不是备份、确认时间过期、删除失败 | 缺 `--path`、`--confirm-time` 格式不对 |
+  | `backup-export` | `BKEXPORT_PLAN` / `BKEXPORT_OK` | 根外、找不到、目标嵌套/无效、导出失败 | 缺 `--path` / `--to` |
+  | `import` | `IMPORT_PLAN` / `IMPORT_OK` | 源不存在、空目录/无效包、复制失败 | 缺 `--path`、路径无法解析 |
+  | `verify-install` | `VERIFY_OK 1` | 文件不存在、清单缺失/读不到、不在清单、哈希不一致 | — |
+  | `start` | `START_OK` / `START_PLAN` | 端口被非 dsh 占、启动命令发不出、30 秒未就绪 | `--profile` 非法 |
+  | `stop` | `STOP_OK` / `STOP_PLAN` | 没有在跑的 dsh、非 dsh 监听、安全拒绝、12 秒仍未停 | — |
+  | `bridge-install` | `BRIDGE_OK` / `BRIDGE_PLAN` | 缺插件目录/dsh/pnpm、安装或补 patch 失败、desktop profile 由桌面端独占 | `--profile` 非法 |
+  | `ui` | `UI_OK` | 找不到 GUI、`DSHT_GUI` 不存在/不可执行、启动异常 | — |
+  | `profilepatch` | `PROFILEPATCH_PLAN` / `_DRYRUN` / `_OK` / `_NOOP` | patch 文件不存在、方案无效、应用失败 | 缺 `--profile`、profile 名非法 |
+  | `profiles` | `PROFILES_OK` | 找不到 profiles 目录 | — |
+  | `bootdiag` | `BOOTDIAG_OK` | 文件读不到、内容认不出 | 缺 `--from` |
+  | `doctor --report` | `DOCTOR_REPORT` | 报告写不出（`DOCTOR_WRITE_FAIL`） | — |
+  | `log --export` | `LOG_EXPORT` | 导出写不出（`LOG_FAIL`） | — |
+  | `sessions` | `SESSIONS_OK` | 没有可读投影、血缘（桥插件）不可用 | `--days` / `--from` / `--to` / `--level` 非法、区间互斥 |
+  | `cost` | `COST_META` / `COST_TOTAL` | 没有可读投影、血缘（桥插件）不可用 | 与 `sessions` 同一套参数错误 |
+  | `install` / `update` | `*_PLAN` / `*_OK` / `*_SKIP` | Node 引导失败、版本列表/最新版拿不到、npm 失败、只回滚成功 | `--version` 未过白名单 |
+  | `uninstall` | `UNINSTALL_PLAN` / `UNINSTALL_OK` / `UNINSTALL_SKIP` | npm 失败且仍观测到 dsh | — |
 
   `wipe` 无论退出码如何都不会删除任何东西；这是有意的行为，不是失败。
 - **测试数量 ≠ 安全承诺的证明**：契约 / GUI / 插件测试的全绿只说明回归覆盖面；导出不可用与退出码不实这两类问题

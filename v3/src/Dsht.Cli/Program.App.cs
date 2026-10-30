@@ -92,7 +92,7 @@ namespace Dsht.Cli
                 || !System.Text.RegularExpressions.Regex.IsMatch(profile, @"^[A-Za-z0-9._-]+$")))
             {
                 Console.WriteLine("BRIDGE_FAIL " + T("profile 名字不合法（只允许字母数字与 . _ -）：" + profile, "invalid profile name: " + profile));
-                return 0;
+                return 2;   // 用法错误：参数取值不合法（EXIT-02 政策 A）
             }
             if (string.IsNullOrEmpty(profile)) profile = "web";
             bool yes = Has(args, "--yes");
@@ -112,14 +112,14 @@ namespace Dsht.Cli
                 Console.WriteLine("BRIDGE_NO_PLUGIN " + T(
                     "随包分发的插件目录不存在：" + plugin + "（官方发布包会带 plugin/dsh-minato-bridge；源码编译请从仓库的 plugin/ 目录取）",
                     "bundled plugin folder not found: " + plugin));
-                return 0;
+                return 1;   // 执行失败：命令没达成"装好插件"（EXIT-02 政策 A）
             }
 
             string dsh = ResolveDsh(reg);
             if (string.IsNullOrEmpty(dsh))
             {
                 Console.WriteLine("BRIDGE_NO_DSH " + T("没有找到 dsh，请先装 dsh 再装插件", "dsh not found; install dsh first"));
-                return 0;
+                return 1;   // 执行失败：前置条件不满足（EXIT-02 政策 A）
             }
 
             string pnpm = WhichOnPath("pnpm");
@@ -129,7 +129,7 @@ namespace Dsht.Cli
                     "没有找到 pnpm；而 `dsh plugin add` 依赖它。请先装：npm i -g pnpm，然后重跑本命令"
                     + "（dsh 自己不会替你装 pnpm，这一步不能省）",
                     "pnpm not found - dsh's plugin command needs it. Install it with: npm i -g pnpm, then run this again."));
-                return 0;
+                return 1;   // 执行失败：前置条件不满足（EXIT-02 政策 A）
             }
             Console.WriteLine("BRIDGE_NOTE " + T("pnpm: " + pnpm + " · dsh: " + dsh + " · 插件: " + plugin,
                                                 "pnpm: " + pnpm + " / dsh: " + dsh + " / plugin: " + plugin));
@@ -166,7 +166,7 @@ namespace Dsht.Cli
                     "profile '" + profile + "' is managed by dsh's desktop application; paste the local folder path below into its add-plugin dialog, or use --profile web"));
                 Console.WriteLine("BRIDGE_MANAGED_PATH " + (string.IsNullOrEmpty(profileDir) ? "(拿不到路径)" : profileDir));
                 Console.WriteLine("BRIDGE_MANAGED_PLUGIN " + plugin + T("   ← 把这一行粘进桌面端的「添加插件」对话框", "   <- paste this into the desktop add-plugin dialog"));
-                return 0;
+                return 1;   // 执行失败/拒绝：命令行装不进去，需用户改走桌面端（EXIT-02 政策 A）
             }
 
             bool linked = false, patched = false;
@@ -203,6 +203,7 @@ namespace Dsht.Cli
                 Console.WriteLine("BRIDGE_OK " + T(
                     "插件已装好并已注册进加载树；重启 dsh 后生效，届时工具箱的「运行中」会变成真实值",
                     "plugin installed and registered in the load tree; restart dsh to take effect"));
+                return 0;   // 成功：插件已装好（EXIT-02 政策 A）
             }
             else if (linked && !patched)
             {
@@ -220,6 +221,7 @@ namespace Dsht.Cli
                     Console.WriteLine("BRIDGE_OK " + T(
                         "插件已装好并已注册进加载树；重启 dsh 后生效，届时工具箱的「运行中」会变成真实值",
                         "plugin installed and registered in the load tree; restart dsh to take effect"));
+                    return 0;   // 成功：自动补 patch 也成功（EXIT-02 政策 A）
                 }
                 else
                 {
@@ -235,7 +237,7 @@ namespace Dsht.Cli
                     "安装没有成功；退出码 " + rc + "；上面 BRIDGE_FAIL_RAW 是原始输出（最常见原因：pnpm 不在 PATH，或 dsh 的 profile 名不对）",
                     "install did not succeed; exit code " + rc + "; see BRIDGE_FAIL_RAW above"));
             }
-            return 0;
+            return 1;   // 执行失败：linked/patched 未同时成立（EXIT-02 政策 A）
         }
         /// <summary>把插件自带的 `cordis.patch.yml` 里的 `- id: shio-bridge` 条目**合并进** profile 的 patch 文件 ✓。
         /// ★ 动机：装完还要用户**手动**补这一行 ✗ → 门槛太高 ✓ 而且**漏了 dsh 不报错**（插件静默不加载 ✗）。
@@ -370,9 +372,9 @@ namespace Dsht.Cli
             if (target.Length == 0)
             {
                 try { target = System.Diagnostics.Process.GetCurrentProcess().MainModule.FileName; } catch { }
-                if (string.IsNullOrEmpty(target)) { Console.WriteLine("VERIFY_FAIL " + T("拿不到自身路径，请用 --file 指定要核对的文件", "cannot determine own path; pass --file")); return 0; }
+                if (string.IsNullOrEmpty(target)) { Console.WriteLine("VERIFY_FAIL " + T("拿不到自身路径，请用 --file 指定要核对的文件", "cannot determine own path; pass --file")); return 1; }
             }
-            if (!System.IO.File.Exists(target)) { Console.WriteLine("VERIFY_FAIL " + T("文件不存在: ", "file does not exist: ") + target); return 0; }
+            if (!System.IO.File.Exists(target)) { Console.WriteLine("VERIFY_FAIL " + T("文件不存在: ", "file does not exist: ") + target); return 1; }
             string manifestPath = FlagOf(args, "--manifest");
             string url = FlagOf(args, "--url");
             string text = null;
@@ -391,7 +393,7 @@ namespace Dsht.Cli
                     }
                     Console.WriteLine("VERIFY_MANIFEST " + url + " " + T("(已下载)", "(downloaded)"));
                 }
-                catch (Exception wex) { Console.WriteLine("VERIFY_MANIFEST_MISSING " + T("无法下载清单: ", "could not download the manifest: ") + wex.Message); Console.WriteLine("VERIFY_FAIL 0"); return 0; }
+                catch (Exception wex) { Console.WriteLine("VERIFY_MANIFEST_MISSING " + T("无法下载清单: ", "could not download the manifest: ") + wex.Message); Console.WriteLine("VERIFY_FAIL 0"); return 1; }
             }
             else
             {
@@ -405,14 +407,14 @@ namespace Dsht.Cli
                     Console.WriteLine("VERIFY_MANIFEST_MISSING " + T("找不到清单文件（默认取同目录的 hashes.txt）: ", "manifest not found (defaults to hashes.txt next to the file): ") + (manifestPath == null ? "" : manifestPath));
                     Console.WriteLine("VERIFY_HINT " + T("用 --manifest 指定清单，或用 --url https://github.com/sakanamaru/dsh-minato/releases/latest/download/hashes.txt 联网取官方清单", "pass --manifest, or --url https://github.com/sakanamaru/dsh-minato/releases/latest/download/hashes.txt to fetch the official manifest"));
                     Console.WriteLine("VERIFY_FAIL 0");
-                    return 0;
+                    return 1;
                 }
                 try { text = System.IO.File.ReadAllText(manifestPath); Console.WriteLine("VERIFY_MANIFEST " + manifestPath); }
-                catch (Exception rex) { Console.WriteLine("VERIFY_MANIFEST_MISSING " + rex.Message); Console.WriteLine("VERIFY_FAIL 0"); return 0; }
+                catch (Exception rex) { Console.WriteLine("VERIFY_MANIFEST_MISSING " + rex.Message); Console.WriteLine("VERIFY_FAIL 0"); return 1; }
             }
             string selfHash;
             try { selfHash = Sha256Of(target); }
-            catch (Exception hex) { Console.WriteLine("VERIFY_FAIL " + T("无法计算哈希: ", "cannot hash: ") + hex.Message); return 0; }
+            catch (Exception hex) { Console.WriteLine("VERIFY_FAIL " + T("无法计算哈希: ", "cannot hash: ") + hex.Message); return 1; }
             Console.WriteLine("VERIFY_SELF " + target + " " + selfHash);
             string leaf = System.IO.Path.GetFileName(target);
             string want = null;
@@ -428,19 +430,20 @@ namespace Dsht.Cli
                 string name = m.Groups[2].Value.Trim();
                 if (string.Equals(name, leaf, StringComparison.OrdinalIgnoreCase)) want = m.Groups[1].Value.ToLowerInvariant();
             }
-            if (entries == 0) { Console.WriteLine("VERIFY_MANIFEST_MISSING " + T("清单里没有可解析的 SHA-256 行", "the manifest has no parsable SHA-256 lines")); Console.WriteLine("VERIFY_FAIL 0"); return 0; }
+            if (entries == 0) { Console.WriteLine("VERIFY_MANIFEST_MISSING " + T("清单里没有可解析的 SHA-256 行", "the manifest has no parsable SHA-256 lines")); Console.WriteLine("VERIFY_FAIL 0"); return 1; }
             Console.WriteLine("VERIFY_ENTRIES " + entries);
             if (want == null)
             {
                 Console.WriteLine("VERIFY_NOT_IN_MANIFEST " + leaf);
                 Console.WriteLine("VERIFY_HINT " + T("清单里没有这个文件名 —— 它可能不是本项目的发布产物（发布清单只列发布资产）", "that filename is not in the manifest - it may not be a release artifact of this project"));
                 Console.WriteLine("VERIFY_FAIL 1");
-                return 0;
+                return 1;
             }
             if (string.Equals(want, selfHash, StringComparison.OrdinalIgnoreCase))
             {
                 Console.WriteLine("VERIFY_MATCH " + leaf + " " + want);
                 Console.WriteLine("VERIFY_OK 1");
+                return 0;   // 成功：哈希一致（EXIT-02 政策 A）
             }
             else
             {
@@ -448,7 +451,7 @@ namespace Dsht.Cli
                 Console.WriteLine("VERIFY_HINT " + T("不一致：本机文件与清单记录不符（可能被替换或篡改），请从官方 Release 重新下载", "mismatch: the local file does not match the manifest (it may have been replaced or tampered with); download it again from the official release"));
                 Console.WriteLine("VERIFY_FAIL 1");
             }
-            return 0;
+            return 1;   // 失败：哈希不一致（EXIT-02 政策 A）
         }
         /// <summary>wipe（V3 独有）：只打印数据根内的条目数与**手动删除路径**，从不删除任何东西。
         /// 用户要求（2026-09-30）：清除按钮只弹手动删除路径；本命令无论有没有 --yes 都不删除。
@@ -483,8 +486,8 @@ namespace Dsht.Cli
         private static int ImportCmd(string[] args, ServiceRegistry reg)
         {
             string src = FlagOf(args, "--path");
-            if (src.Length == 0) { Console.WriteLine("IMPORT_FAIL usage: import --path <外部备份包> [--yes]"); return 0; }
-            if (!System.IO.Directory.Exists(src)) { Console.WriteLine("IMPORT_FAIL " + T("源目录不存在: ", "source directory does not exist: ") + src); return 0; }
+            if (src.Length == 0) { Console.WriteLine("IMPORT_FAIL usage: import --path <外部备份包> [--yes]"); return 2; }
+            if (!System.IO.Directory.Exists(src)) { Console.WriteLine("IMPORT_FAIL " + T("源目录不存在: ", "source directory does not exist: ") + src); return 1; }
             IBackupSource bk = reg.Get<IBackupSource>();
             string root = bk.BackupsRoot;
             string srcFull, rootFull;
@@ -493,7 +496,7 @@ namespace Dsht.Cli
                 srcFull = System.IO.Path.GetFullPath(src).TrimEnd(System.IO.Path.DirectorySeparatorChar);
                 rootFull = System.IO.Path.GetFullPath(root).TrimEnd(System.IO.Path.DirectorySeparatorChar);
             }
-            catch (Exception ex) { Console.WriteLine("IMPORT_FAIL " + ex.Message); return 0; }
+            catch (Exception ex) { Console.WriteLine("IMPORT_FAIL " + ex.Message); return 2; }   // 用法错误：路径无法解析
             if (srcFull == rootFull || srcFull.StartsWith(rootFull + System.IO.Path.DirectorySeparatorChar, StringComparison.Ordinal))
             {
                 Console.WriteLine("IMPORT_NOTE " + T("该备份已在本机备份根内，无需导入 —— 直接 restore 即可", "that backup is already inside the local backups root - just restore it"));
@@ -502,7 +505,7 @@ namespace Dsht.Cli
             }
             string[] entries = null;
             try { entries = System.IO.Directory.GetFileSystemEntries(srcFull); } catch { }
-            if (entries == null || entries.Length == 0) { Console.WriteLine("IMPORT_FAIL " + T("无效备份目录（空目录）", "invalid backup directory (empty)")); return 0; }
+            if (entries == null || entries.Length == 0) { Console.WriteLine("IMPORT_FAIL " + T("无效备份目录（空目录）", "invalid backup directory (empty)")); return 1; }
             if (!Has(args, "--yes"))
             {
                 Console.WriteLine("IMPORT_PLAN " + T("将把 ", "will copy ") + srcFull + T(" 复制进备份根 ", " into the backups root ") + rootFull + T("，并先对当前数据根做一次 -pre-import 安全备份（会写盘）—— 确认请加 --yes", ", taking a -pre-import safety backup of the current data root first (writes to disk) - add --yes to confirm"));
@@ -527,7 +530,7 @@ namespace Dsht.Cli
                 Console.WriteLine("IMPORT_OK " + dest + " " + files);
                 Console.WriteLine("IMPORT_NEXT " + T("下一步：restore --path ", "next: restore --path ") + dest + T(" --dry-run 先预览，再去掉 --dry-run 执行", " --dry-run to preview, then drop --dry-run to apply"));
             }
-            catch (Exception cex) { OpLog(reg, "ERROR", "import failed: " + cex.Message); Console.WriteLine("IMPORT_FAIL " + cex.Message); }
+            catch (Exception cex) { OpLog(reg, "ERROR", "import failed: " + cex.Message); Console.WriteLine("IMPORT_FAIL " + cex.Message); return 1; }   // 执行失败：复制没成功
             return 0;
         }
         private static int AboutCmd()
@@ -559,7 +562,7 @@ namespace Dsht.Cli
         private static int UiCmd()
         {
             string gui = Environment.GetEnvironmentVariable("DSHT_GUI");
-            if (!string.IsNullOrEmpty(gui) && !System.IO.File.Exists(gui)) { Console.WriteLine("UI_FAIL " + T("DSHT_GUI 指向的文件不存在：", "DSHT_GUI points at a missing file: ") + gui); return 0; }
+            if (!string.IsNullOrEmpty(gui) && !System.IO.File.Exists(gui)) { Console.WriteLine("UI_FAIL " + T("DSHT_GUI 指向的文件不存在：", "DSHT_GUI points at a missing file: ") + gui); return 1; }
             if (string.IsNullOrEmpty(gui))
             {
                 string dir = AppDomain.CurrentDomain.BaseDirectory;
@@ -576,7 +579,7 @@ namespace Dsht.Cli
             if (string.IsNullOrEmpty(gui))
             {
                 Console.WriteLine("UI_FAIL " + T("没找到 GUI（把 dsht-gui 放在本程序同目录，或用环境变量 DSHT_GUI 指定）", "no GUI found (put dsht-gui next to this program, or set DSHT_GUI)"));
-                return 0;
+                return 1;   // 执行失败：找不到可启动的 GUI（EXIT-02 政策 A）
             }
             try
             {
@@ -586,9 +589,9 @@ namespace Dsht.Cli
                 System.Diagnostics.Process p = System.Diagnostics.Process.Start(psi);
                 string legacy = (gui.IndexOf("dsht-gui", StringComparison.OrdinalIgnoreCase) < 0) ? T("（提示：这是 v2.x 的旧界面；跨平台新界面请用 dsht-gui）", " (note: this is the v2.x UI; the cross-platform one is dsht-gui)") : "";
                 Console.WriteLine("UI_OK " + gui + (p != null ? " pid=" + p.Id : "") + legacy);
+                return 0;   // 成功：已发出启动（EXIT-02 政策 A）
             }
-            catch (Exception ex) { Console.WriteLine("UI_FAIL " + ex.Message); }
-            return 0;
+            catch (Exception ex) { Console.WriteLine("UI_FAIL " + ex.Message); return 1; }   // 执行失败：启动异常
         }
         private static int InstallLike(string[] args, ServiceRegistry reg, bool update)
         {
@@ -635,7 +638,7 @@ namespace Dsht.Cli
                     Console.WriteLine(verb + "_FAIL " + T("Node 引导失败（退出码 ", "Node bootstrap failed (exit code ") + ncW + T("）：", "): ") + Dsht.Platform.Windows.WindowsToolchainQuery.LastError);
                     Console.WriteLine(verb + "_NODE_HINT " + T("可手动安装：winget install OpenJS.NodeJS.LTS（或官网安装包），装完重开一个终端", "install by hand: winget install OpenJS.NodeJS.LTS (or the official installer), then reopen the terminal"));
                     Console.WriteLine(verb + "_OBSERVED not-installed");
-                    return 0;
+                    return 1;   // 执行失败：Node 引导失败，dsh 装不上（EXIT-02 政策 A）
                 }
                 Console.WriteLine(verb + "_NODE_OK " + nvW + T("（由 winget 安装，可能需要重开终端才能用）", " (installed by winget; a new terminal may be needed)"));
             }
@@ -661,7 +664,7 @@ namespace Dsht.Cli
                     Console.WriteLine(verb + "_FAIL " + T("Node 引导失败（退出码 ", "Node bootstrap failed (exit code ") + nc + T("）：", "): ") + Dsht.Platform.Linux.LinuxToolchainQuery.LastError);
                     Console.WriteLine(verb + "_NODE_HINT " + T("可改用系统包管理器：sudo apt install -y nodejs npm", "or use your package manager: sudo apt install -y nodejs npm"));
                     Console.WriteLine(verb + "_OBSERVED not-installed");
-                    return 0;
+                    return 1;   // 执行失败：Node 引导失败，dsh 装不上（EXIT-02 政策 A）
                 }
                 Console.WriteLine(verb + "_NODE_OK " + nv + T("（免 sudo，装在 ~/.local/node）", " (no sudo, installed under ~/.local/node)"));
             }
@@ -669,9 +672,10 @@ namespace Dsht.Cli
             if (Has(args, "--list"))
             {
                 string vers = tc.NpmViewVersions();
-                if (string.IsNullOrEmpty(vers)) Console.WriteLine(verb + "_LIST_FAIL " + T("拿不到版本列表（离线或 npm 不可用）", "could not list versions (offline or npm unavailable)"));
+                bool listed = !string.IsNullOrEmpty(vers);
+                if (!listed) Console.WriteLine(verb + "_LIST_FAIL " + T("拿不到版本列表（离线或 npm 不可用）", "could not list versions (offline or npm unavailable)"));
                 else Console.WriteLine(verb + "_VERSIONS " + vers.Replace(Environment.NewLine, " ").Trim());
-                return 0;
+                return listed ? 0 : 1;   // 失败：版本列表拿不到（EXIT-02 政策 A）
             }
             // --version: install one explicit version (still whitelisted - it is pasted into a command line).
             string wantVersion = NpmVersionGuard.Normalize(FlagOf(args, "--version"));
@@ -679,7 +683,7 @@ namespace Dsht.Cli
             {
                 Console.WriteLine(verb + "_FAIL " + T("指定的版本号未通过白名单：", "the requested version failed the whitelist: ") + wantVersion);
                 Console.WriteLine(verb + "_OBSERVED " + (installed.Length > 0 ? installed : "not-installed"));
-                return 0;
+                return 2;   // 用法错误：--version 取值不合法（EXIT-02 政策 A）
             }
             string channel = _cfg == null ? "rc" : _cfg.UpdateChannel;
             string latest = wantVersion.Length > 0 ? wantVersion : VersionForChannel(tc, channel);
@@ -688,7 +692,7 @@ namespace Dsht.Cli
             {
                 Console.WriteLine(verb + "_FAIL " + T("拿不到可信的最新版本（离线，或 npm 返回值未通过白名单）", "no trustworthy latest version (offline, or the npm value failed the whitelist)"));
                 Console.WriteLine(verb + "_OBSERVED " + (installed.Length > 0 ? installed : "not-installed"));
-                return 0;
+                return 1;   // 执行失败：拿不到可信版本（EXIT-02 政策 A）
             }
             string target = "@deepseek-ai/dsh@" + latest;
             string registry = tc.NpmRegistryConfig();
@@ -740,13 +744,13 @@ namespace Dsht.Cli
                 {
                     Console.WriteLine(verb + "_ROLLBACK_OK " + back);
                     Console.WriteLine(verb + "_OBSERVED " + back);
-                    return 0;
+                    return 1;   // 执行失败：更新没成，只是回滚回旧版（EXIT-02 政策 A）
                 }
                 Console.WriteLine(verb + "_ROLLBACK_FAILED " + T("回滚后仍未观测到旧版本；请手动执行 npm install -g @deepseek-ai/dsh@", "old version still not observed after rollback; run npm install -g @deepseek-ai/dsh@") + installed + T("（npm 退出码 ", " (npm exit code ") + rc + "）");
             }
             Console.WriteLine(verb + "_FAIL " + T("npm 退出码 ", "npm exit code ") + code + T("，且复检仍未观测到 dsh", ", and dsh is still not observed"));
             Console.WriteLine(verb + "_OBSERVED not-installed");
-            return 0;
+            return 1;   // 执行失败：npm 安装失败（EXIT-02 政策 A）
         }
         /// <summary>uninstall（V3 独有）：卸载 dsh（**不动数据目录**）。同样：计划 → 闸门 → npm → 复检。</summary>
         private static int UninstallCmd(string[] args, ServiceRegistry reg)
@@ -818,7 +822,7 @@ namespace Dsht.Cli
                     Console.WriteLine("START_FAIL " + T("端口被非 dsh 进程占用（PID ", "that port is held by a non-dsh process (PID ") + before.Pid + T("）；请先停掉它或换一个端口", "); stop it first or choose another port"));
                     Console.WriteLine("START_OBSERVED " + st.ToLowerInvariant() + " " + T("（端口被占用，但不是 dsh）", "(port in use, but not by dsh)"));
                     OpLog(reg, "ERROR", "start refused: port held by non-dsh pid " + before.Pid);
-                    return 0;
+                    return 1;   // 执行失败/拒绝：端口被非 dsh 占（EXIT-02 政策 A）
                 }
                 Console.WriteLine("START_OK " + (before.Pid > 0 ? before.Pid.ToString() : "0"));
                 { string su2 = StartUrlFromLog(); if (su2 != "") Console.WriteLine("START_URL " + su2); else Console.WriteLine("START_URL_UNKNOWN " + T("已在运行，但读不到 dsh 打印的带 token 地址；请在启动它的终端里复制那条地址（裸端口会认证失败）", "already running, but the token URL could not be read; copy it from the terminal that started dsh (a bare port fails authentication)")); }
@@ -851,7 +855,7 @@ namespace Dsht.Cli
                 if (!System.Text.RegularExpressions.Regex.IsMatch(profile ?? "", @"^[A-Za-z0-9._\-]+$"))
                 {
                     Console.WriteLine("START_FAIL " + T("profile 名不合法（只允许字母数字 . _ -）：" + profile, "invalid profile name: " + profile));
-                    return 0;
+                    return 2;   // 用法错误：参数取值不合法（EXIT-02 政策 A）
                 }
                 // ★★ 架构审查抓到（v2 对等）：这里用**裸 `dsh`** ✗ 而 v2 用的是**解析后的完整路径** ✓
                 //   → winget/npm 刚装完、当前会话 PATH 未刷新时 ✗ → **start 会失败** ✗（v2 不会 ✓）
@@ -877,7 +881,7 @@ namespace Dsht.Cli
             {
                 Console.WriteLine("START_FAIL " + T("启动命令未能发出：", "could not launch: ") + err);
                 Console.WriteLine("START_OBSERVED down");
-                return 0;
+                return 1;   // 执行失败：启动命令没发出去（EXIT-02 政策 A）
             }
             Console.WriteLine("START_LAUNCHED " + pid + " " + T("（命令已发出，正在用可观测事实确认…）", "(launched; verifying by observation…)"));
 
@@ -900,7 +904,7 @@ namespace Dsht.Cli
             ServiceReport last = target.Probe();
             Console.WriteLine("START_FAIL " + T("命令已发出但 30 秒内未观测到端口/HTTP 就绪；子进程输出见 ", "launched but not observed ready within 30s; child output: ") + System.IO.Path.Combine(System.IO.Path.GetTempPath(), "dsh-minato-start.log"));
             Console.WriteLine("START_OBSERVED " + last.State.ToString().ToLowerInvariant() + " " + last.Basis);
-            return 0;
+            return 1;   // 执行失败：30 秒内未观测到就绪（EXIT-02 政策 A）
         }
         /// <summary>stop（V3 独有）：按**观测到的 PID** 结束 dsh，再用观测确认真的停了。
         /// 标记行：`STOP_OK <pid>` / `STOP_FAIL <原因>` + `STOP_OBSERVED <状态>`。</summary>
@@ -929,12 +933,12 @@ namespace Dsht.Cli
                 {
                     Console.WriteLine("STOP_FAIL " + T("没有检测到官方桌面端进程（DeepSeek Harness）", "no desktop app process (DeepSeek Harness) found"));
                     Console.WriteLine("STOP_OBSERVED down");
-                    return 0;
+                    return 1;   // 执行失败：没有可停的桌面端（EXIT-02 政策 A）
                 }
                 if (dpid == System.Diagnostics.Process.GetCurrentProcess().Id)
                 {
                     Console.WriteLine("STOP_FAIL " + T("拒绝执行：那是本程序自己（安全保护）", "refused: that is this program itself (safety)"));
-                    return 0;
+                    return 1;   // 拒绝：安全闸门（EXIT-02 政策 A）
                 }
                 if (!Has(args, "--yes"))
                 {
@@ -964,14 +968,14 @@ namespace Dsht.Cli
                 Console.WriteLine(dok ? "STOP_OK " + dpid : "STOP_FAIL " + (string.IsNullOrEmpty(derr) ? T("停止失败", "stop failed") : derr));
                 Console.WriteLine("STOP_OBSERVED " + (dok ? "down" : "unknown"));
                 if (dok) OpLog(reg, "INFO", "stop desktop pid=" + dpid);
-                return 0;
+                return dok ? 0 : 1;   // 失败：桌面端没停掉（EXIT-02 政策 A）
             }
             ServiceReport r = target.Probe();
             if (ServiceControlPolicy.BeforeStop(r.State.ToString(), r.Pid) == StopDecision.NothingToStop)
             {
                 Console.WriteLine("STOP_FAIL " + T("没有观测到在运行的 dsh（端口未监听）", "no running dsh observed (port not listening)"));
                 Console.WriteLine("STOP_OBSERVED down");
-                return 0;
+                return 1;   // 执行失败：没有可停的实例（EXIT-02 政策 A）
             }
             if (!Has(args, "--yes"))
             {
@@ -985,18 +989,18 @@ namespace Dsht.Cli
             if (r.Pid <= 1)
             {
                 Console.WriteLine("STOP_FAIL " + T("拒绝执行：观测到的 PID ", "refused: observed PID ") + r.Pid + T(" 不可能是 dsh（安全保护）", " cannot be dsh (safety guard)"));
-                return 0;
+                return 1;   // 拒绝：安全闸门（EXIT-02 政策 A）
             }
             if (r.Pid == System.Diagnostics.Process.GetCurrentProcess().Id)
             {
                 Console.WriteLine("STOP_FAIL " + T("拒绝执行：那是本程序自己（安全保护）", "refused: that is this program itself (safety guard)"));
-                return 0;
+                return 1;   // 拒绝：安全闸门（EXIT-02 政策 A）
             }
             if (!reg.Get<IProcessQuery>().IsDshCommandLine(r.Pid) && Has(args, "--force")) OpLog(reg, "WARN", "stop used --force on a non-dsh listener pid " + r.Pid);
             if (!reg.Get<IProcessQuery>().IsDshCommandLine(r.Pid) && !Has(args, "--force"))
             {
                 Console.WriteLine("STOP_FAIL " + T("监听该端口的进程不是 dsh（PID ", "the process on that port is not dsh (PID ") + r.Pid + T("）；如确认要停，请加 --force", "); add --force to stop it anyway"));
-                return 0;
+                return 1;   // 拒绝：不是 dsh，需 --force（EXIT-02 政策 A）
             }            bool ok = ctl.StopTree(r.Pid, out err);
             // 再观测要**重试**：进程刚收到信号还没死透 ✗，立刻复探会看到"仍在监听"→ 假失败 ✗（真机抓到的）
             string st = "";
@@ -1015,7 +1019,7 @@ namespace Dsht.Cli
             }
             Console.WriteLine("STOP_FAIL " + (ok ? T("进程已结束但端口仍在监听（12 秒后仍未观测到停止）", "process gone but the port is still listening (still not stopped after 12s)") : (string.IsNullOrEmpty(err) ? T("结束进程失败（未给出原因）", "failed to stop the process (no reason given)") : err)));
             Console.WriteLine("STOP_OBSERVED " + st.ToLowerInvariant());
-            return 0;
+            return 1;   // 执行失败：12 秒后仍未观测到停止（EXIT-02 政策 A）
         }
         /// <summary>selftest：写自检报告并打印 report -> 路径。内容逐条对齐 v2.x 的 Selftest。
         /// 可选 `--runquiet &lt;exe&gt; [参数…]`：诊断用，跑一次 RunQuiet 并报告结果（超时返回非零）。</summary>

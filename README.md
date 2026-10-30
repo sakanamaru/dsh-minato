@@ -183,16 +183,39 @@ This section states only what the code does. If a claim here is not backed by th
 - **`backup-export` was broken in every published release from 3.0.0 through 3.0.6**: it always failed on a
   non-empty package (files were copied but the sibling `.manifest` was not written, and `BKEXPORT_FAIL` was printed).
   **Fixed in 3.0.7** (`BKEXPORT_OK` + sibling marker + end-to-end assertions).
-- **CLI exit codes**: `0` for success and for plans/read-only previews; `1` for a refusal or a failed operation; `2` for a usage
-  error; `3` when the startup self-integrity check refuses to run. The table lists the commands whose failure paths are exercised
-  end to end; for commands not listed, a failure path may still return `0`, so scripts should also check the marker line:
+- **CLI exit codes** (fully adjudicated 2026-10-30, policy A): `0` for success and for plans/read-only previews;
+  `1` for a refusal or a failed operation (**including** "the thing you asked about cannot be found / read / verified");
+  `2` for a usage error (missing, invalid or conflicting arguments); `3` when the startup self-integrity check refuses
+  to run. Paths that are **explicitly degraded or skipped stay `0`** and say so on their own marker line
+  (`RESTORE_WS_SKIPPED`, `INTEGRITY_SKIPPED`, `PROFILECHK_SKIPPED_VENDOR`, `BRIDGE_FAIL_RAW` and the
+  `*_PRE_BACKUP_FAILED` diagnostics). Every family below has an end-to-end assertion in
+  `v3/tests/verify_exit_codes.ps1`; the per-family verdict, reason and not-covered list is
+  [`docs/退出码裁决-2026-10-30.md`](docs/退出码裁决-2026-10-30.md) (Chinese, authoritative).
 
-  | Command | Success / plan | Refusal or failure | Usage error |
+  | Command | Success / plan | Failure / refusal `1` | Usage error `2` |
   |---|---|---|---|
-  | `config-set` | `0`: `CONFIGSET_OK` | `1`: write did not take effect (`CONFIGSET_FAIL`) | `2`: unknown key or invalid value (`CONFIGSET_FAIL`) |
-  | `backup-dir` | `0`: `BACKUP_DIR` / `BACKUP_DIR_OK` / `BACKUP_DIR_RESET` | `1`: cannot delete, create or save (`BACKUP_DIR_FAIL`) | `2`: relative or unparsable path (`BACKUP_DIR_FAIL`) |
-  | `restore --dry-run` | `0`: `DRYRUN_OK` | `1`: no valid backup, invalid or incomplete package (`DRYRUN_FAIL`) | — |
-  | `wipe` | `0`: with `--yes`, prints the manual delete path only | `1`: missing `--yes` (not confirmed); `WIPE_FAIL` (cannot even compute the path) | — |
+  | `config-set` | `CONFIGSET_OK` | write did not take effect | unknown key / invalid value |
+  | `backup-dir` | `BACKUP_DIR` / `_OK` / `_RESET` | cannot delete/create/save | relative or unparsable path |
+  | `restore` | `RESTORE_OK` | no backups, outside root, invalid/incomplete package, rollback failed | missing `--path` |
+  | `restore --dry-run` | `DRYRUN_OK` | no valid backup, invalid/incomplete package | — |
+  | `wipe` | with `--yes`: manual-delete path only | missing `--yes`; cannot compute the path | — |
+  | `backup-delete` | `BKDEL_PLAN` / `BKDEL_OK` | outside root, not a backup, stale confirm time, delete failed | missing `--path`, bad `--confirm-time` format |
+  | `backup-export` | `BKEXPORT_PLAN` / `BKEXPORT_OK` | outside root, not found, nested/invalid target, export failed | missing `--path` / `--to` |
+  | `import` | `IMPORT_PLAN` / `IMPORT_OK` | source missing, empty/invalid package, copy failed | missing `--path`, unparsable path |
+  | `verify-install` | `VERIFY_OK 1` | file missing, manifest missing/unreadable, not in manifest, hash mismatch | — |
+  | `start` | `START_OK` / `START_PLAN` | port held by non-dsh, launch failed, not ready in 30 s | invalid `--profile` |
+  | `stop` | `STOP_OK` / `STOP_PLAN` | no running dsh, non-dsh listener, safety refusals, still listening | — |
+  | `bridge-install` | `BRIDGE_OK` / `BRIDGE_PLAN` | plugin/dsh/pnpm missing, install or patch failed, desktop-managed profile | invalid `--profile` |
+  | `ui` | `UI_OK` | GUI not found, `DSHT_GUI` missing/unexecutable, launch failed | — |
+  | `profilepatch` | `PROFILEPATCH_PLAN` / `_DRYRUN` / `_OK` / `_NOOP` | patch file missing, invalid plan, apply failed | missing `--profile`, invalid profile name |
+  | `profiles` | `PROFILES_OK` | profiles directory not found | — |
+  | `bootdiag` | `BOOTDIAG_OK` | file unreadable, output unrecognised | missing `--from` |
+  | `doctor --report` | `DOCTOR_REPORT` | report write failed (`DOCTOR_WRITE_FAIL`) | — |
+  | `log --export` | `LOG_EXPORT` | export write failed (`LOG_FAIL`) | — |
+  | `sessions` | `SESSIONS_OK` | no readable projection, lineage (bridge plugin) unavailable | bad `--days` / `--from` / `--to` / `--level`, conflicting range |
+  | `cost` | `COST_META` / `COST_TOTAL` | no readable projection, lineage (bridge plugin) unavailable | same argument errors as `sessions` |
+  | `install` / `update` | `*_PLAN` / `*_OK` / `*_SKIP` | node bootstrap failed, version list/latest unavailable, npm failed, rollback only | unsafe `--version` |
+  | `uninstall` | `UNINSTALL_PLAN` / `UNINSTALL_OK` / `UNINSTALL_SKIP` | npm failed and dsh still observed | — |
 
   `wipe` never deletes anything regardless of exit code; that is intentional, not a failure.
 - **Test counts are not proof of individual safety promises**: an all-green contract/GUI/plugin suite only shows

@@ -18,6 +18,15 @@
 #    restore --dry-run  无有效备份 -> 1 · 无效包目录 -> 1 · 根外路径 -> 1 · 未完成包（自动/显式）-> 1
 #    wipe            缺 --yes -> 1 · 带 --yes -> 0（两种都不删除）
 #    RunQuiet        狂写 stderr 的子进程不卡死 · 不退出子进程在超时后被结束
+#   ★ EXIT-02（2026-10-30 政策 A：全量裁决并补齐）—— 新增族：
+#    import / backup-delete / backup-export / restore-path   用法 2 · 执行失败 1
+#    verify-install  文件不存在/清单缺失/哈希不一致/下载失败 -> 1 · 一致 -> 0
+#    ui              DSHT_GUI 缺失或不可执行 -> 1
+#    start / stop    非法 profile -> 2 · 端口被非 dsh 占/无可停实例/安全拒绝 -> 1
+#    bridge-install  非法 profile -> 2 · 没有随包插件 -> 1
+#    sessions/cost   参数非法（FailKind=arg）-> 2 · 无投影/血缘不可用 -> 1
+#    install/update  --version 白名单不过 -> 2（npm 失败面 not-covered，见 §12）
+#    裁决表：docs/退出码裁决-2026-10-30.md（逐族理由 + 反例 + 覆盖/未覆盖）
 #
 #  用法：
 #    powershell -NoProfile -ExecutionPolicy Bypass -File v3\tests\verify_exit_codes.ps1 -Repo .
@@ -68,6 +77,7 @@ function Run-Cli([string]$exe, [string[]]$cmdArgs) {
     $raw = (Invoke-External { & $exe @cmdArgs 2>&1 }) | Out-String
     return @{ rc = $LASTEXITCODE; raw = $raw; out = (Clean $raw) }
 }
+
 function HasMarker([string]$clean, [string]$regex) {
     return (@(($clean -split "`n") | Where-Object { $_ -match $regex }).Count -gt 0)
 }
@@ -271,9 +281,272 @@ try {
     Skip "WIPE_FAIL 分支（GetFullPath 抛异常）" "DSH_HOME 的异常取值在 .NET 8 全部被平台层兜住，防御分支在本机不可达"
 
     # ------------------------------------------------------------------
-    # 5) RunQuiet：双路并发读 + 超时 kill
+    # 5) doctor / profiles / profilepatch / bootdiag / log（EXIT-02 政策 A：失败 1 · 用法 2）
     # ------------------------------------------------------------------
-    Section "5. RunQuiet（狂写 stderr 不卡死 · 不退出会在超时后结束）"
+    Section "5. doctor / profiles / profilepatch / bootdiag / log（失败 1 · 用法 2）"
+
+    $r = Run-Cli $exe @("profiles")
+    Check "profiles 找不到 profiles 目录 -> PROFILES_FAIL" (HasMarker $r.out '^PROFILES_FAIL ')
+    Check "profiles 找不到 profiles 目录 -> 退出码 1" ($r.rc -eq 1)
+
+    $r = Run-Cli $exe @("profilepatch")
+    Check "profilepatch 缺 --profile -> PROFILEPATCH_FAIL usage" (HasMarker $r.out '^PROFILEPATCH_FAIL usage')
+    Check "profilepatch 缺 --profile -> 退出码 2（用法错误）" ($r.rc -eq 2)
+    $r = Run-Cli $exe @("profilepatch", "--profile", "bad name", "--id", "x")
+    Check "profilepatch 非法 profile 名 -> PROFILEPATCH_FAIL" (HasMarker $r.out '^PROFILEPATCH_FAIL ')
+    Check "profilepatch 非法 profile 名 -> 退出码 2（用法错误）" ($r.rc -eq 2)
+    $r = Run-Cli $exe @("profilepatch", "--profile", "no-such-profile", "--id", "x")
+    Check "profilepatch profile 不存在 -> PROFILEPATCH_FAIL file-not-found" (HasMarker $r.out '^PROFILEPATCH_FAIL file-not-found')
+    Check "profilepatch profile 不存在 -> 退出码 1（执行失败）" ($r.rc -eq 1)
+
+    $r = Run-Cli $exe @("bootdiag")
+    Check "bootdiag 缺 --from -> BOOTDIAG_FAIL no-input" (HasMarker $r.out '^BOOTDIAG_FAIL no-input')
+    Check "bootdiag 缺 --from -> 退出码 2（用法错误）" ($r.rc -eq 2)
+    $r = Run-Cli $exe @("bootdiag", "--from", (Join-Path $iso "no-such-boot.log"))
+    Check "bootdiag 文件读不到 -> BOOTDIAG_FAIL cannot-read" (HasMarker $r.out '^BOOTDIAG_FAIL cannot-read')
+    Check "bootdiag 文件读不到 -> 退出码 1" ($r.rc -eq 1)
+    $junkBoot = Join-Path $iso "junk-boot.log"
+    [System.IO.File]::WriteAllText($junkBoot, "not a boot log`n")
+    $r = Run-Cli $exe @("bootdiag", "--from", $junkBoot)
+    Check "bootdiag 内容认不出 -> BOOTDIAG_FAIL" (HasMarker $r.out '^BOOTDIAG_FAIL')
+    Check "bootdiag 内容认不出 -> 退出码 1" ($r.rc -eq 1)
+
+    $r = Run-Cli $exe @("doctor", "--report", $bkDir)
+    Check "doctor --report 指向目录 -> DOCTOR_WRITE_FAIL" (HasMarker $r.out '^DOCTOR_WRITE_FAIL ')
+    Check "doctor --report 指向目录 -> 退出码 1" ($r.rc -eq 1)
+
+    $logDir = Join-Path $cliDir "logs"
+    New-Item -ItemType Directory -Path $logDir -Force | Out-Null
+    [System.IO.File]::WriteAllText((Join-Path $logDir "launcher.log"), "INFO test line`n")
+    $r = Run-Cli $exe @("log", "--export", $bkDir, "--yes")
+    Check "log --export 指向目录 -> LOG_FAIL" (HasMarker $r.out '^LOG_FAIL ')
+    Check "log --export 指向目录 -> 退出码 1" ($r.rc -eq 1)
+
+    # ------------------------------------------------------------------
+    # 6) 用法错误 2 与失败 1：import / backup-delete / backup-export / restore
+    #    EXIT-02 政策 A：缺参数/非法值 = 2；路径不存在/空目录/时间相差过大 = 1
+    # ------------------------------------------------------------------
+    Section "6. import / backup-delete / backup-export / restore（用法 2 · 失败 1）"
+
+    $r = Run-Cli $exe @("import")
+    Check "import 缺 --path -> IMPORT_FAIL usage" (HasMarker $r.out '^IMPORT_FAIL usage')
+    Check "import 缺 --path -> 退出码 2（用法错误）" ($r.rc -eq 2)
+
+    $r = Run-Cli $exe @("import", "--path", (Join-Path $iso "no-such-source"))
+    Check "import 源目录不存在 -> IMPORT_FAIL" (HasMarker $r.out '^IMPORT_FAIL .*源目录不存在')
+    Check "import 源目录不存在 -> 退出码 1（执行失败）" ($r.rc -eq 1)
+
+    $emptySrc = Join-Path $iso "empty-source"
+    New-Item -ItemType Directory -Path $emptySrc -Force | Out-Null
+    $r = Run-Cli $exe @("import", "--path", $emptySrc)
+    Check "import 空目录 -> IMPORT_FAIL 无效备份目录" (HasMarker $r.out '^IMPORT_FAIL .*无效备份目录')
+    Check "import 空目录 -> 退出码 1" ($r.rc -eq 1)
+
+    $r = Run-Cli $exe @("backup-delete")
+    Check "backup-delete 缺 --path -> BKDEL_FAIL" (HasMarker $r.out '^BKDEL_FAIL ')
+    Check "backup-delete 缺 --path -> 退出码 2（用法错误）" ($r.rc -eq 2)
+
+    if ($null -ne $pkg) {
+        $r = Run-Cli $exe @("backup-delete", "--path", $pkg, "--confirm-time", "not-a-time")
+        Check "backup-delete 时间格式不对 -> BKDEL_FAIL" (HasMarker $r.out '^BKDEL_FAIL ')
+        Check "backup-delete 时间格式不对 -> 退出码 2（用法错误）" ($r.rc -eq 2)
+        Check "backup-delete 时间格式不对 -> 备份原样还在（没有误删）" (Test-Path -LiteralPath $pkg)
+        $stale = (Get-Date).AddHours(-1).ToString("yyyy-MM-dd HH:mm:ss")
+        $r = Run-Cli $exe @("backup-delete", "--path", $pkg, "--confirm-time", $stale)
+        Check "backup-delete 时间相差过大 -> BKDEL_FAIL" (HasMarker $r.out '^BKDEL_FAIL .*相差')
+        Check "backup-delete 时间相差过大 -> 退出码 1（执行失败/拒绝）" ($r.rc -eq 1)
+        Check "backup-delete 时间相差过大 -> 备份原样还在（没有误删）" (Test-Path -LiteralPath $pkg)
+    } else {
+        Skip "backup-delete 时间/目标不动三件套" "§3 前置（backup 成功）没拿到包路径，无法构造"
+    }
+
+    $r = Run-Cli $exe @("backup-export", "--path", $pkg)
+    Check "backup-export 缺 --to -> BKEXPORT_FAIL" (HasMarker $r.out '^BKEXPORT_FAIL ')
+    Check "backup-export 缺 --to -> 退出码 2（用法错误）" ($r.rc -eq 2)
+
+    $r = Run-Cli $exe @("restore", "--path", "   ")
+    Check "restore --path 空白 -> RESTORE_FAIL 未指定备份目录" (HasMarker $r.out '^RESTORE_FAIL .*未指定备份目录')
+    Check "restore --path 空白 -> 退出码 2（用法错误）" ($r.rc -eq 2)
+
+    # ------------------------------------------------------------------
+    # 7) verify-install / ui（EXIT-02 政策 A：无法核对/找不到 GUI = 1；一致 = 0）
+    # ------------------------------------------------------------------
+    Section "7. verify-install / ui"
+    $selfCopy = Join-Path $cliDir (Split-Path -Leaf $exe)
+
+    $r = Run-Cli $exe @("verify-install", "--file", (Join-Path $iso "no-such-file.exe"))
+    Check "verify-install 文件不存在 -> VERIFY_FAIL" (HasMarker $r.out '^VERIFY_FAIL ')
+    Check "verify-install 文件不存在 -> 退出码 1" ($r.rc -eq 1)
+
+    $badMan = Join-Path $iso "bad-manifest.txt"
+    [System.IO.File]::WriteAllText($badMan, "this is not a sha line`n")
+    $r = Run-Cli $exe @("verify-install", "--file", $selfCopy, "--manifest", $badMan)
+    Check "verify-install 清单无可解析行 -> VERIFY_MANIFEST_MISSING" (HasMarker $r.out '^VERIFY_MANIFEST_MISSING ')
+    Check "verify-install 清单无可解析行 -> 退出码 1" ($r.rc -eq 1)
+
+    $wrongMan = Join-Path $iso "wrong-manifest.txt"
+    [System.IO.File]::WriteAllText($wrongMan, (("0" * 64) + "  " + (Split-Path -Leaf $selfCopy) + "`n"))
+    $r = Run-Cli $exe @("verify-install", "--file", $selfCopy, "--manifest", $wrongMan)
+    Check "verify-install 哈希不一致 -> VERIFY_MISMATCH" (HasMarker $r.out '^VERIFY_MISMATCH ')
+    Check "verify-install 哈希不一致 -> VERIFY_FAIL 1" (HasMarker $r.out '^VERIFY_FAIL 1$')
+    Check "verify-install 哈希不一致 -> 退出码 1" ($r.rc -eq 1)
+
+    $hash = (Get-FileHash -Algorithm SHA256 -LiteralPath $selfCopy).Hash.ToLower()
+    $goodMan = Join-Path $iso "good-manifest.txt"
+    [System.IO.File]::WriteAllText($goodMan, ($hash + "  " + (Split-Path -Leaf $selfCopy) + "`n"))
+    $r = Run-Cli $exe @("verify-install", "--file", $selfCopy, "--manifest", $goodMan)
+    Check "verify-install 哈希一致 -> VERIFY_OK 1" (HasMarker $r.out '^VERIFY_OK 1$')
+    Check "verify-install 哈希一致 -> 退出码 0（成功面不回退）" ($r.rc -eq 0)
+
+    $r = Run-Cli $exe @("verify-install", "--file", $selfCopy, "--url", "notaurl")
+    Check "verify-install 清单下载失败 -> VERIFY_FAIL" (HasMarker $r.out '^VERIFY_FAIL ')
+    Check "verify-install 清单下载失败 -> 退出码 1" ($r.rc -eq 1)
+
+    $oldGui = $env:DSHT_GUI
+    $env:DSHT_GUI = (Join-Path $iso "no-such-gui.exe")
+    $r = Run-Cli $exe @("ui")
+    Check "ui DSHT_GUI 指向不存在文件 -> UI_FAIL" (HasMarker $r.out '^UI_FAIL ')
+    Check "ui DSHT_GUI 指向不存在文件 -> 退出码 1" ($r.rc -eq 1)
+    $notGui = Join-Path $iso "not-a-gui.txt"
+    [System.IO.File]::WriteAllText($notGui, "x")
+    $env:DSHT_GUI = $notGui
+    $r = Run-Cli $exe @("ui")
+    Check "ui 指向不可执行文件 -> UI_FAIL" (HasMarker $r.out '^UI_FAIL ')
+    Check "ui 指向不可执行文件 -> 退出码 1" ($r.rc -eq 1)
+    $env:DSHT_GUI = $oldGui
+
+    # ------------------------------------------------------------------
+    # 8) start / stop（EXIT-02 政策 A：非法参数 2 · 端口被非 dsh 占/无可停实例 = 1）
+    #    纪律：只碰**空闲端口**与自己的占位进程；绝不碰默认 3080、绝不杀别人的进程。
+    # ------------------------------------------------------------------
+    Section "8. start / stop"
+    # 纪律：只碰**空闲端口**与**自己起的占位进程**；绝不碰默认 3080、绝不杀别人的进程。
+    # ⚠ 占位进程的**命令行与脚本路径都必须不含 "dsh"**：Windows 侧 IsDshCommandLine = "命令行含 dsh"，
+    #   若占位进程路径带 dsh（例如本仓库路径），CLI 会把它当 dsh → stop --yes 会把测试进程自己杀掉（实测踩过 ✗）。
+    $tmpL = New-Object System.Net.Sockets.TcpListener([System.Net.IPAddress]::Loopback, 0)
+    $tmpL.Start()
+    $freePort = ([System.Net.IPEndPoint]$tmpL.LocalEndpoint).Port
+    $tmpL.Stop()
+    $tmpL2 = New-Object System.Net.Sockets.TcpListener([System.Net.IPAddress]::Loopback, 0)
+    $tmpL2.Start()
+    $occPort = ([System.Net.IPEndPoint]$tmpL2.LocalEndpoint).Port
+    $tmpL2.Stop()
+
+    # ① 端口空闲：非法 profile -> 2（校验发生在"准备启动"阶段，且不会真的启动）
+    $r = Run-Cli $exe @("start", "--yes", "--port", $freePort, "--profile", "bad name")
+    Check "start 非法 profile -> START_FAIL" (HasMarker $r.out '^START_FAIL ')
+    Check "start 非法 profile -> 退出码 2（用法错误，且没有真的启动）" ($r.rc -eq 2)
+
+    # ② 端口空闲：stop 报"没有可停的实例" -> 1
+    $r = Run-Cli $exe @("stop", "--port", $freePort)
+    Check "stop 端口无监听 -> STOP_FAIL" (HasMarker $r.out '^STOP_FAIL ')
+    Check "stop 端口无监听 -> 退出码 1" ($r.rc -eq 1)
+
+    # ③ 占位监听进程（命令行/路径都不含 dsh）-> 非 dsh 监听面
+    $holdDir = Join-Path $env:TEMP ("exit02_hold_" + [guid]::NewGuid().ToString("N").Substring(0, 8))
+    $holdScript = Join-Path $holdDir "hold.ps1"
+    $holder = $null
+    $listening = $false
+    try {
+        New-Item -ItemType Directory -Path $holdDir -Force | Out-Null
+        $holdLines = @(
+            '$l2 = New-Object System.Net.Sockets.TcpListener([System.Net.IPAddress]::Loopback, ' + $occPort + ')',
+            '$l2.Start()',
+            'Start-Sleep -Seconds 300')
+        Set-Content -LiteralPath $holdScript -Value $holdLines -Encoding ASCII
+        $holder = Start-Process powershell -ArgumentList @("-NoProfile", "-ExecutionPolicy", "Bypass", "-WindowStyle", "Hidden", "-File", $holdScript) -PassThru
+        for ($i = 0; $i -lt 40; $i++) {
+            Start-Sleep -Milliseconds 250
+            $cl = New-Object System.Net.Sockets.TcpClient
+            try { $cl.Connect("127.0.0.1", $occPort); $listening = $true } catch { }
+            try { $cl.Close() } catch { }
+            if ($listening) { break }
+        }
+        if ($listening) {
+            $r = Run-Cli $exe @("start", "--port", $occPort, "--yes")
+            Check "start 端口被非 dsh 占 -> START_FAIL" (HasMarker $r.out '^START_FAIL ')
+            Check "start 端口被非 dsh 占 -> 退出码 1（拒绝，不启动）" ($r.rc -eq 1)
+            $r = Run-Cli $exe @("stop", "--port", $occPort, "--yes")
+            Check "stop 非 dsh 监听 -> STOP_FAIL" (HasMarker $r.out '^STOP_FAIL ')
+            Check "stop 非 dsh 监听 -> 退出码 1（拒绝，不杀）" ($r.rc -eq 1)
+            $r = Run-Cli $exe @("stop", "--port", $occPort)
+            Check "stop 未确认 -> STOP_PLAN 且退出码 0（计划态不是失败）" ((HasMarker $r.out '^STOP_PLAN ') -and ($r.rc -eq 0))
+            Check "占位进程仍在（CLI 没有误杀别人的进程）" ($null -ne $holder -and -not $holder.HasExited)
+        } else {
+            Skip "start/stop 端口被非 dsh 占三条" "占位监听进程 10 秒内没起来；不冒险让 start 去启动真实 dsh"
+        }
+    } finally {
+        if ($null -ne $holder) { Stop-Process -Id $holder.Id -Force -ErrorAction SilentlyContinue }
+        Remove-Item -LiteralPath $holdDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
+
+    $r = Run-Cli $exe @("stop", "--target", "desktop")
+    Check "stop --target desktop 终态与 rc 一致（STOP_FAIL→1 / STOP_PLAN→0；不执行）" `
+        (((HasMarker $r.out '^STOP_FAIL ') -and ($r.rc -eq 1)) -or ((HasMarker $r.out '^STOP_PLAN ') -and ($r.rc -eq 0)))
+
+    # ------------------------------------------------------------------
+    # 9) bridge-install（EXIT-02 政策 A：非法参数 2 · 没有随包插件 = 1）
+    # ------------------------------------------------------------------
+    Section "9. bridge-install"
+    $r = Run-Cli $exe @("bridge-install", "--profile", "bad name")
+    Check "bridge-install 非法 profile -> BRIDGE_FAIL" (HasMarker $r.out '^BRIDGE_FAIL ')
+    Check "bridge-install 非法 profile -> 退出码 2（用法错误）" ($r.rc -eq 2)
+
+    $r = Run-Cli $exe @("bridge-install", "--yes")
+    Check "bridge-install 隔离副本没有随包插件 -> BRIDGE_NO_PLUGIN" (HasMarker $r.out '^BRIDGE_NO_PLUGIN ')
+    Check "bridge-install 隔离副本没有随包插件 -> 退出码 1（执行失败）" ($r.rc -eq 1)
+
+    # ------------------------------------------------------------------
+    # 10) sessions / cost（EXIT-02 政策 A：参数非法 = 2 · 无投影/血缘不可用 = 1）
+    # ------------------------------------------------------------------
+    Section "10. sessions / cost"
+    $r = Run-Cli $exe @("sessions", "--days", "99")
+    Check "sessions 坏 --days -> SESSIONS_FAIL" (HasMarker $r.out '^SESSIONS_FAIL ')
+    Check "sessions 坏 --days -> 退出码 2（用法错误）" ($r.rc -eq 2)
+    $r = Run-Cli $exe @("sessions", "--from", "2026/10/01", "--to", "2026-10-30")
+    Check "sessions 坏日期格式 -> SESSIONS_FAIL" (HasMarker $r.out '^SESSIONS_FAIL ')
+    Check "sessions 坏日期格式 -> 退出码 2" ($r.rc -eq 2)
+    $r = Run-Cli $exe @("sessions", "--days", "7", "--from", "2026-10-01", "--to", "2026-10-30")
+    Check "sessions --days 与 --from/--to 互斥 -> 退出码 2" (($r.rc -eq 2) -and (HasMarker $r.out '^SESSIONS_FAIL '))
+    $r = Run-Cli $exe @("sessions")
+    Check "sessions 无投影 -> SESSIONS_FAIL + 退出码 1（执行失败，不是用法错误）" (($r.rc -eq 1) -and (HasMarker $r.out '^SESSIONS_FAIL '))
+    $r = Run-Cli $exe @("sessions", "--level", "parents")
+    Check "sessions 无血缘快照 + --level parents -> SESSIONS_FAIL + 退出码 1" (($r.rc -eq 1) -and (HasMarker $r.out '^SESSIONS_FAIL '))
+    $r = Run-Cli $exe @("cost", "--days", "99")
+    Check "cost 坏 --days -> COST_FAIL" (HasMarker $r.out '^COST_FAIL ')
+    Check "cost 坏 --days -> 退出码 2（用法错误）" ($r.rc -eq 2)
+    $r = Run-Cli $exe @("cost", "--level", "parents")
+    Check "cost 无血缘快照 + --level parents -> COST_FAIL + 退出码 1" (($r.rc -eq 1) -and (HasMarker $r.out '^COST_FAIL '))
+
+    # ------------------------------------------------------------------
+    # 11) install / update（EXIT-02 政策 A：--version 白名单不过 = 2）
+    # ------------------------------------------------------------------
+    Section "11. install / update"
+    $r = Run-Cli $exe @("update", "--version", "9.9.9;calc")
+    Check "update 非法 --version -> UPDATE_FAIL" (HasMarker $r.out '^UPDATE_FAIL ')
+    Check "update 非法 --version -> 退出码 2（用法错误，且没有调用 npm）" ($r.rc -eq 2)
+
+    # ------------------------------------------------------------------
+    # 12) not-covered 登记（EXIT-02 政策 A 要求：构造不出本地场景必须显式登记，不静默跳过）
+    #     裁决表：docs/退出码裁决-2026-10-30.md
+    # ------------------------------------------------------------------
+    Section "12. not-covered 登记（不构造本地场景的原因）"
+    Skip "SHORTCUT_FAIL 失败面（5 点，rc 已改 1）" "会写用户真实桌面/开始菜单；验收脚本不污染本机"
+    Skip "AUTOSTART_FAIL 失败面（3 点，rc 已改 1）" "会写用户真实启动目录；验收脚本不污染本机"
+    Skip "START_FAIL 的启动命令发不出 / 30 秒未就绪（rc 已改 1）" "需要真实启动 dsh 子进程（动全局安装与端口），验收脚本不启动真实 dsh"
+    Skip "STOP_FAIL 的自身/桌面端停止失败/12 秒未停（rc 已改 1）" "需要杀真实桌面端或让 CLI 自身监听端口；不安全，不构造"
+    Skip "BRIDGE_FAIL 的 auto-patch 失败 / 安装未成功（rc 已改 1）" "需要真实 dsh + pnpm 并改用户 profile；不构造（BRIDGE_NO_PLUGIN/非法 profile 已覆盖）"
+    Skip "BRIDGE_NO_DSH / BRIDGE_NO_PNPM / BRIDGE_MANAGED（rc 已改 1）" "隔离副本先命中 BRIDGE_NO_PLUGIN 就返回；要构造需改用户环境"
+    Skip "VERIFY_FAIL 的拿不到自身路径 / 无法计算哈希（rc 已改 1）" "需要无法解析 MainModule 或无法读自身文件的异常环境，防御分支不可达"
+    Skip "INSTALL/UPDATE 的 npm 失败 / 回滚失败 / 版本列表拿不到（rc 已改 1）" "会真的调用 npm 改全局包；白名单/用法面已覆盖"
+    Skip "BACKUP_FAIL / WIPE_FAIL / RESTORE_ROLLBACK_FAILED 的写盘失败面" "需要只读盘/恢复与回滚双重失败；构造会破坏隔离根或依赖平台竞态"
+    Skip "BKDEL_FAIL 的删除后仍在 / BKEXPORT_FAIL 的导出失败" "需要平台层写盘失败（只读盘/被杀进程）；用法与拒绝面已覆盖"
+    Skip "诊断行保持 0：BRIDGE_FAIL_RAW / IMPORT_PRE_BACKUP_FAILED / INSTALL_PRE_BACKUP_FAILED" "诊断行随主流程继续，裁决表明确保持 0；不当作失败族"
+
+    # ------------------------------------------------------------------
+    # 13) RunQuiet：双路并发读 + 超时 kill
+    # ------------------------------------------------------------------
+    Section "13. RunQuiet（狂写 stderr 不卡死 · 不退出会在超时后结束）"
 
     $sw = [System.Diagnostics.Stopwatch]::StartNew()
     $r = Run-Cli $exe @("selftest", "--runquiet", "cmd.exe", "/c", "for /L %i in (1,1,30000) do @echo xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx 1>&2")
@@ -308,7 +581,7 @@ Write-Host ""
 $total = $script:pass + $script:fail
 Write-Host ("== 退出码契约：" + $script:pass + "/" + $total + " passed, " + $script:fail + " failed（SKIP " + $script:skip + "）==")
 # 项数下限：删掉用例会静默变绿 -> 这里必须红（SKIP 不计入，避免用 SKIP 冲抵）
-$EXPECTED_MIN = 28
+$EXPECTED_MIN = 118   # ★ EXIT-02（2026-10-30）：全族补齐后实跑 118 项（SKIP 不计入）；删掉任何一条都会红
 if (($script:pass + $script:fail) -lt $EXPECTED_MIN) {
     Write-Host ("  [FAIL] 项数不足：实跑 " + ($script:pass + $script:fail) + " < 声明 " + $EXPECTED_MIN)
     $script:fail++

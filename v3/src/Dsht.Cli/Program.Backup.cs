@@ -383,7 +383,12 @@ namespace Dsht.Cli
             string reason = PathValidator.ValidateExport(Flag(args, "--path"), Flag(args, "--to"), bk.BackupsRoot,
                 delegate(string p) { return fs.DirectoryExists(p); },
                 delegate(string p) { return System.IO.Path.GetFullPath(p); });
-            if (reason != null) { Console.WriteLine("BKEXPORT_FAIL " + T("导出校验失败: " + reason, "export validation failed: " + reason)); return 1; }
+            if (reason != null)
+            {
+                Console.WriteLine("BKEXPORT_FAIL " + T("导出校验失败: " + reason, "export validation failed: " + reason));
+                // EXIT-02 政策 A：缺 --path / 缺 --to = 用法错误 2；根外 / 不是备份 / 目标无效 = 执行失败 1
+                return (reason == "no-path" || reason == "no-to") ? 2 : 1;
+            }
             if (!Has(args, "--yes")) { Console.WriteLine("BKEXPORT_PLAN " + T("将把备份复制到目标目录（会写盘）—— 确认请加 --yes", "will copy the backup to the target directory (writes to disk) - add --yes to confirm")); return 0; }
             string src = PathValidator.ResolveBackupPath((Flag(args, "--path") ?? "").Trim().Trim('"'), bk.BackupsRoot);
             string to = (Flag(args, "--to") ?? "").Trim().Trim('"');
@@ -401,7 +406,12 @@ namespace Dsht.Cli
             IFileSystemQuery fs = reg.Get<IFileSystemQuery>();
             string reason = PathValidator.ValidateDeletePath(Flag(args, "--path"), bk.BackupsRoot,
                 delegate(string p) { return fs.DirectoryExists(p); });
-            if (reason != null) { Console.WriteLine("BKDEL_FAIL " + T("删除校验失败: " + reason, "delete validation failed: " + reason)); return 1; }
+            if (reason != null)
+            {
+                Console.WriteLine("BKDEL_FAIL " + T("删除校验失败: " + reason, "delete validation failed: " + reason));
+                // EXIT-02 政策 A：缺 --path = 用法错误 2；根外 / 不是备份目录 / 找不到 = 执行失败 1
+                return reason == "no-path" ? 2 : 1;
+            }
             // ★★★ **用户要求（2026-09-30）**：「删除弹窗输入当前时间才执行」✓✓
             //   → 删除是**不可逆**的 ✓ → 光有 `--yes` 太容易误点 ✓
             //   → **必须输入当前时间**（`yyyy-MM-dd HH:mm:ss` ✓ 本地时间 ✓）且与真实时间相差 ≤ 120 秒 ✓✓
@@ -421,7 +431,7 @@ namespace Dsht.Cli
             if (!DateTime.TryParseExact(ct, "yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture, System.Globalization.DateTimeStyles.None, out ctParsed))
             {
                 Console.WriteLine("BKDEL_FAIL " + T("时间格式不对，应为 yyyy-MM-dd HH:mm:ss（现在：" + DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss", System.Globalization.CultureInfo.InvariantCulture) + "）", "bad time format"));
-                return 1;
+                return 2;   // 用法错误：--confirm-time 取值不合法（EXIT-02 政策 A）
             }
             // I1 FIX (cont): the window was symmetric, so a time up to two minutes in the FUTURE
             // was accepted. A confirmation is meant to prove the user is looking at the clock now,
