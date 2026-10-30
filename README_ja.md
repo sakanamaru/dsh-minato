@@ -143,6 +143,7 @@ dsh-minato bootdiag               dsh が起動しない理由は？
 dsh-minato verify-install         ダウンロードしたファイルの照合
 dsh-minato balance                DeepSeek の残高（設定に key が必要）
 dsh-minato log | config-get | config-set | autostart | shortcut
+dsh-minato ui                     同梱 GUI を起動（見つからなければ失敗し 1 を返す）
 dsh-minato version | about | selftest
 ```
 
@@ -174,6 +175,9 @@ dsh-minato version | about | selftest
 
 - **サイズ**：Windows の自己完結パッケージは約 50 MB（.NET ランタイムを内包するため、別途の導入は不要です）。
 - **デジタル署名はありません**：証明書ではなく、公開されている `.sha256` と GPG 署名で照合してください。
+- **v2.x 旧 UI へのフォールバックはありません**：`ui` は同梱の GUI（`gui/` 内の `dsht-gui`、または `DSHT_GUI` の
+  指定先）だけを起動します。見つからない場合は `UI_FAIL` を出力して **1** で終了し、メンテナンスを終了した
+  v2.x の旧 UI は起動しません。
 - **ブリッジプラグインには pnpm が必要**（`npm i -g pnpm`）。`dsh` は代わりに導入してくれません。
 - **`desktop` profile は公式デスクトップアプリが管理します** —— そのプラグインはアプリ側のダイアログから追加します。
 - **CLI 終了コード**: 成功・計画・読み取り専用プレビューは `0`、実行失敗/拒否は `1`、使い方の誤りは `2`、

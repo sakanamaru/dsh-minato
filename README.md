@@ -144,6 +144,7 @@ dsh-minato bootdiag               why did dsh fail to start?
 dsh-minato verify-install         check the files you downloaded
 dsh-minato balance                DeepSeek account balance (needs a key in settings)
 dsh-minato log | config-get | config-set | autostart | shortcut
+dsh-minato ui                     launch the GUI bundled with this package (exit 1 if it is missing)
 dsh-minato version | about | selftest
 ```
 
@@ -177,6 +178,9 @@ This section states only what the code does. If a claim here is not backed by th
 - **Size**: the self-contained Windows package is roughly 50 MB (the .NET runtime is inside it, so no runtime
   install is needed).
 - **Not digitally signed**: verify the published `.sha256` and the GPG signature instead of relying on a certificate.
+- **No v2.x UI fallback**: `ui` only starts the GUI bundled with this package (the `dsht-gui` executable in the
+  `gui/` folder, or whatever `DSHT_GUI` points at). If it is missing it prints `UI_FAIL` and exits **1** - it does not
+  fall back to the retired v2.x interface.
 - **The bridge plugin needs pnpm** (`npm i -g pnpm`); `dsh` will not install it for you.
 - **The `desktop` profile is managed by the official desktop app** — plugins for it are added from that app's own
   dialog, not from the command line.
@@ -206,7 +210,7 @@ This section states only what the code does. If a claim here is not backed by th
   | `start` | `START_OK` / `START_PLAN` | port held by non-dsh, launch failed, not ready in 30 s | invalid `--profile` |
   | `stop` | `STOP_OK` / `STOP_PLAN` | no running dsh, non-dsh listener, safety refusals, still listening | — |
   | `bridge-install` | `BRIDGE_OK` / `BRIDGE_PLAN` | plugin/dsh/pnpm missing, install or patch failed, desktop-managed profile | invalid `--profile` |
-  | `ui` | `UI_OK` | GUI not found, `DSHT_GUI` missing/unexecutable, launch failed | — |
+  | `ui` | `UI_OK` | bundled GUI not found (no v2.x fallback), `DSHT_GUI` missing/unexecutable, launch failed | — |
   | `profilepatch` | `PROFILEPATCH_PLAN` / `_DRYRUN` / `_OK` / `_NOOP` | patch file missing, invalid plan, apply failed | missing `--profile`, invalid profile name |
   | `profiles` | `PROFILES_OK` | profiles directory not found | — |
   | `bootdiag` | `BOOTDIAG_OK` | file unreadable, output unrecognised | missing `--from` |

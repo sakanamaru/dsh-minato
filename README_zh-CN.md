@@ -141,6 +141,7 @@ dsh-minato bootdiag               dsh 为什么起不来？
 dsh-minato verify-install         核对你自己下载的文件
 dsh-minato balance                DeepSeek 账户余额（需先在设置里填 key）
 dsh-minato log | config-get | config-set | autostart | shortcut
+dsh-minato ui                     启动本包自带的 GUI（找不到则如实失败并返回 1）
 dsh-minato version | about | selftest
 ```
 
@@ -169,6 +170,8 @@ dsh-minato version | about | selftest
 
 - **体积**：Windows 自包含包约 50 MB（.NET 运行时在里面，所以不需要另装运行时）。
 - **没有数字签名**：请改用公布的 `.sha256` 与 GPG 签名核对，而不是依赖证书。
+- **不再回退 v2.x 旧界面**：`ui` 只启动本包自带的 GUI（`gui/` 目录里的 `dsht-gui`，或用 `DSHT_GUI` 指定）。
+  找不到就打印 `UI_FAIL` 并返回 **1** —— 不会再去拉起已停维护的 v2.x 旧界面。
 - **桥接插件需要 pnpm**（`npm i -g pnpm`）；`dsh` 不会替你装。
 - **`desktop` profile 由官方桌面端管理** —— 它的插件要在桌面端自己的对话框里添加，命令行装不进去。
 - **已发布版本（3.0.0 起至 3.0.6）`backup-export` 不可用**：对非空包必然失败（文件会拷出但不写
@@ -194,7 +197,7 @@ dsh-minato version | about | selftest
   | `start` | `START_OK` / `START_PLAN` | 端口被非 dsh 占、启动命令发不出、30 秒未就绪 | `--profile` 非法 |
   | `stop` | `STOP_OK` / `STOP_PLAN` | 没有在跑的 dsh、非 dsh 监听、安全拒绝、12 秒仍未停 | — |
   | `bridge-install` | `BRIDGE_OK` / `BRIDGE_PLAN` | 缺插件目录/dsh/pnpm、安装或补 patch 失败、desktop profile 由桌面端独占 | `--profile` 非法 |
-  | `ui` | `UI_OK` | 找不到 GUI、`DSHT_GUI` 不存在/不可执行、启动异常 | — |
+  | `ui` | `UI_OK` | 找不到本包自带的 GUI（不再回退 v2.x 旧界面）、`DSHT_GUI` 不存在/不可执行、启动异常 | — |
   | `profilepatch` | `PROFILEPATCH_PLAN` / `_DRYRUN` / `_OK` / `_NOOP` | patch 文件不存在、方案无效、应用失败 | 缺 `--profile`、profile 名非法 |
   | `profiles` | `PROFILES_OK` | 找不到 profiles 目录 | — |
   | `bootdiag` | `BOOTDIAG_OK` | 文件读不到、内容认不出 | 缺 `--from` |

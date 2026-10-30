@@ -339,7 +339,7 @@ True
 | `start` | 0 / 1 / 2 | 计划/已在运行/成功=0；端口被非 dsh 占/启动发不出/30 秒未就绪=1；`--profile` 非法=2 |
 | `stop` | 0 / 1 | 计划/成功=0；没有在跑的 dsh/非 dsh 监听/安全拒绝/12 秒未停=1 |
 | `bridge-install` | 0 / 1 / 2 | 计划/成功=0；缺插件/dsh/pnpm、安装或补 patch 失败、desktop profile 独占=1；`--profile` 非法=2 |
-| `ui` | 0 / 1 | 已启动=0；找不到 GUI / `DSHT_GUI` 不存在或不可执行 / 启动异常=1 |
+| `ui` | 0 / 1 | 已启动=0；找不到 GUI / `DSHT_GUI` 不存在或不可执行 / 启动异常=1（W4：只认本包自带的 `dsht-gui`，不再回退 v2.x 旧界面） |
 | `profilepatch` | 0 / 1 / 2 | 计划/DRYRUN/成功/NOOP=0；patch 文件不存在/方案无效/应用失败=1；缺 `--profile`/profile 名非法=2 |
 | `bootdiag` | 0 / 1 / 2 | 识别成功=0；文件读不到/内容认不出=1；缺 `--from`=2 |
 | `doctor --report` / `log --export` | 0 / 1 | 写入成功=0；`DOCTOR_WRITE_FAIL` / `LOG_FAIL`=1 |
