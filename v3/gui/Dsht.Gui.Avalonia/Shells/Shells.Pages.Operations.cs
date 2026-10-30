@@ -159,7 +159,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
             StackPanel bar = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
 
-            Button mk = ActionPrimary(host, "＋ 立即备份", delegate { host.CreateBackup(); });   // 走闸门 ✓ 有动作在跑时禁用 ✓
+            Button mk = ActionPrimary(host, "＋ 立即备份", delegate { _ = host.CreateBackup(); });   // 走闸门 ✓ 有动作在跑时禁用 ✓
 
             bar.Children.Add(mk);
 
@@ -205,7 +205,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 StackPanel lb = new StackPanel { Orientation = Orientation.Horizontal, Spacing = 8 };
 
-                lb.Children.Add(GhostButton(T("更改位置…", ShapeTokens.FsFoot, Palette.Text), delegate { host.ChangeBackupDir(); }, true));
+                lb.Children.Add(GhostButton(T("更改位置…", ShapeTokens.FsFoot, Palette.Text), delegate { _ = host.ChangeBackupDir(); }, true));
 
                 lb.Children.Add(GhostButton(T("恢复默认", ShapeTokens.FsFoot, Palette.TextDim), delegate { host.ResetBackupDir(); }, true));
 
@@ -255,7 +255,7 @@ namespace Dsht.Gui.Avalonia.Shells
 
                 acts.Children.Add(GhostButton(T("恢复", ShapeTokens.FsFoot, Palette.Text), delegate { host.ApplyRestore(b.Name); }, true));
 
-                Button del = GhostButton(T("删除", ShapeTokens.FsFoot, Palette.Warn), delegate { host.DeleteBackup(b.Name); }, true);
+                Button del = GhostButton(T("删除", ShapeTokens.FsFoot, Palette.Warn), delegate { _ = host.DeleteBackup(b.Name); }, true);
 
                 del.Background = Palette.WarnSoft;   // 删除仍是全行最显眼的一个 ✓（不可逆 ✓）
 
