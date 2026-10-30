@@ -14,6 +14,7 @@ using Avalonia.Styling;
 using FluentIcons.Avalonia;
 using FluentIcons.Common;
 using Dsht.Gui.Avalonia.Markers;
+using Dsht.Gui.Avalonia.Services;
 using Dsht.Gui.Avalonia.ViewModels;
 
 namespace Dsht.Gui.Avalonia
@@ -110,7 +111,7 @@ namespace Dsht.Gui.Avalonia
                 // close_action：tray=最小化到托盘（可取消）/ ask=弹确认（可取消）/ 空|exit=直接退出 ✓
                 string act = (_closeAction ?? "").Trim();
                 if (act == "tray" && !_realExit) { ce.Cancel = true; HideToTray(); return; }
-                if (act == "ask" && !_realExit) { ce.Cancel = true; ConfirmExitAsync(); return; }
+                if (act == "ask" && !_realExit) { ce.Cancel = true; _ = ConfirmExitAsync(); return; }
                 // ★ 悬边状态灯（提案 §11 ✓）：主窗口**真的退出**时把它一起关掉 ✗
                 //   （否则 Avalonia 的 OnLastWindowClose 会因为它还在而让进程活着 ✓ 用户以为没退 ✓）
                 try { StopOverlayTimer(); if (_overlay != null) { _overlay.Close(); _overlay = null; } } catch { }
@@ -122,43 +123,93 @@ namespace Dsht.Gui.Avalonia
             //   屏幕纹丝不动 ✓ 看起来就是"卡死" ✓✓
             //   ✓ 现在：首屏**先**画骨架 + 加载浮层（不等数据 ✓），数据到了再画一次 ✓
             // ★★★ 启动页可自选（2026-10-02 用户要求："启动默认打开页面设置里可自选" ✓✓）
-            //   读 config 的 gui_start_page ✓（0..9 = NavItems 索引 ✓）—— 必须在**首帧之前**读好 ✗
-            //   否则第一拍建在默认页上 ✗ → 同步读一次 config-get（~90ms ✓ 只此一次 ✓）
-            //   读不到 / 越界 → 停在默认页 ✓ **绝不因偏好而拒绝启动** ✓✓
-            try
-            {
-                string cfgText = Run(CliPath(), "config-get");
-                string[] cfgLines = cfgText.Replace("\r\n", "\n").Split('\n');
-                for (int i = 0; i < cfgLines.Length; i++)
-                {
-                    string t3 = cfgLines[i].Trim();
-                    if (t3.StartsWith("CONFIG gui_start_page ", StringComparison.Ordinal))
-                    {
-                        int np;
-                        if (int.TryParse(t3.Substring("CONFIG gui_start_page ".Length).Trim(), out np) && np >= 0 && np < NavItems.Length) _mainSection = np;
-                    }
-                    // ★ 概览自动刷新（2026-10-02 ✓）：同一份 config-get 里顺手读 ✓ 不多起进程 ✓
-                    if (t3.StartsWith("CONFIG gui_shell ", StringComparison.Ordinal))
-                    {
-                        // 布局偏好（2026-10-06 U4：顶栏切换器的选择被记住 ✓ 越界保持默认 ✗ 不猜 ✗）
-                        int ns; if (int.TryParse(t3.Substring("CONFIG gui_shell ".Length).Trim(), out ns) && ns >= 0 && ns <= 4) _shell = ns;
-                    }
-                    if (t3.StartsWith("CONFIG gui_style ", StringComparison.Ordinal))
-                    {
-                        int nt; if (int.TryParse(t3.Substring("CONFIG gui_style ".Length).Trim(), out nt) && nt >= 0 && nt <= 3) Palette.Apply(nt);
-                    }
-                    if (t3.StartsWith("CONFIG gui_auto_refresh ", StringComparison.Ordinal))
-                        ApplyAutoRefresh(t3.Substring("CONFIG gui_auto_refresh ".Length).Trim());
-                    if (t3.StartsWith("CONFIG close_action ", StringComparison.Ordinal)) _closeAction = t3.Substring("CONFIG close_action ".Length).Trim();
-                }
-            }
-            catch { }
-            // ★★ 版本显示（2026-10-11）：首帧之前**同步取一次**两个版本 ✓✓
-            //   （与上面那次 config-get 同一姿势 ✓ 只此一次 ✓ 页脚从此不再为空 ✗ 也不每拍起进程 ✗）
-            EnsureVersions();
+            //   ★★ F-07 修复（2026-10-30）：**构造期不再同步跑 CLI** ✗✗
+            //   ✗ 原来在首帧之前同步读 config-get、再同步 EnsureVersions()（注释写"~90ms 只此一次"）✗
+            //     而 CLI 是 66 MB 自包含 exe：冷启动 / 杀软扫描时一次就是几十秒（Run 预算是 30 秒）✓
+            //     → 窗口最长 30 秒不出现 ✓ 用户看不到任何加载反馈 ✓
+            //   ✓ 现在：先画骨架（默认页 + 默认布局 + 默认样式）→ 窗口出现（Opened）后再**后台**读偏好，
+            //     回到 UI 线程应用并重建一次（见 ApplyStartupPreferencesAsync）✓
+            //   · 读不到 / 越界 / 异常 → 一路保持默认 ✓ **绝不因偏好拒绝启动** ✓
+            //   · 版本页脚不在这里取：RefreshAsync 本来就有**后台**版本探测（同一条异步姿势 ✓ 不重复起进程）
             _loading = true;
             BuildShell();
             Refresh();
+            Opened += delegate { _ = ApplyStartupPreferencesAsync(); };
+        }
+
+        // ================================================================ 启动偏好（F-07：窗口出现后再读）
+
+        /// <summary>F-07：窗口出现后**在后台**读一次 config-get，回到 UI 线程应用启动偏好并重建一次。
+        /// 偏好 = gui_start_page / gui_shell / gui_style / gui_auto_refresh / close_action。
+        /// 纪律：整体 try/catch ✓ 读不到 / 越界 / 解析失败一律保持构造期默认 ✓ **绝不因偏好拒绝启动** ✓。</summary>
+        private async System.Threading.Tasks.Task ApplyStartupPreferencesAsync()
+        {
+            string cfgText = null;
+            try
+            {
+                string cli = CliPath();
+                if (cli != null) cfgText = await System.Threading.Tasks.Task.Run(delegate { return Run(cli, "config-get"); });
+            }
+            catch { cfgText = null; }
+            try
+            {
+                global::Avalonia.Threading.Dispatcher.UIThread.Post(delegate { ApplyStartupPreferences(cfgText); });
+            }
+            catch { /* 投递失败 ⇒ 保持默认 ✓ 不拒绝启动 ✓ */ }
+        }
+
+        /// <summary>把启动偏好应用到当前界面（**必须在 UI 线程**）：只应用能解析且越界检查通过的键；
+        /// 页面 / 布局 / 风格真的变了才重建一次（✗ 没变不白重建 ✓）。</summary>
+        private void ApplyStartupPreferences(string cfgText)
+        {
+            try
+            {
+                int newSection = _mainSection;
+                int newShell = _shell;
+                int newStyle = Palette.StyleKind;
+                string newClose = _closeAction;
+                string autoVal = null;
+                bool autoSeen = false;
+                if (!string.IsNullOrEmpty(cfgText))
+                {
+                    string[] cfgLines = cfgText.Replace("\r\n", "\n").Split('\n');
+                    for (int i = 0; i < cfgLines.Length; i++)
+                    {
+                        string t3 = cfgLines[i].Trim();
+                        if (t3.StartsWith("CONFIG gui_start_page ", StringComparison.Ordinal))
+                        {
+                            int np;
+                            if (int.TryParse(t3.Substring("CONFIG gui_start_page ".Length).Trim(), out np) && np >= 0 && np < NavItems.Length) newSection = np;
+                        }
+                        // 布局偏好（2026-10-06 U4：顶栏切换器的选择被记住 ✓ 越界保持默认 ✗ 不猜 ✗）
+                        if (t3.StartsWith("CONFIG gui_shell ", StringComparison.Ordinal))
+                        {
+                            int ns; if (int.TryParse(t3.Substring("CONFIG gui_shell ".Length).Trim(), out ns) && ns >= 0 && ns <= 4) newShell = ns;
+                        }
+                        // 风格（明暗/密度）0..3 ✓ 越界保持默认 ✗
+                        if (t3.StartsWith("CONFIG gui_style ", StringComparison.Ordinal))
+                        {
+                            int nt; if (int.TryParse(t3.Substring("CONFIG gui_style ".Length).Trim(), out nt) && nt >= 0 && nt <= 3) newStyle = nt;
+                        }
+                        // 概览自动刷新（2026-10-02）：同一份 config-get 里顺手读 ✓ 不多起进程 ✓
+                        if (t3.StartsWith("CONFIG gui_auto_refresh ", StringComparison.Ordinal)) { autoVal = t3.Substring("CONFIG gui_auto_refresh ".Length).Trim(); autoSeen = true; }
+                        if (t3.StartsWith("CONFIG close_action ", StringComparison.Ordinal)) newClose = t3.Substring("CONFIG close_action ".Length).Trim();
+                    }
+                }
+                bool styleChanged = newStyle != Palette.StyleKind;
+                if (styleChanged) Palette.Apply(newStyle);
+                bool shellChanged = newShell != _shell;
+                if (shellChanged) _shell = newShell;
+                _closeAction = newClose;    // 空串 = 直退（默认）✓
+                if (autoSeen) ApplyAutoRefresh(autoVal);
+                if (newSection != _mainSection)
+                {
+                    SetMainSection(newSection);   // 重置子页/排序 + 重建一次 + 刷新新页数据 ✓
+                    return;
+                }
+                if (styleChanged || shellChanged) BuildShell();
+            }
+            catch { /* 应用失败 ⇒ 保持默认 ✓ 不拒绝启动 ✓ */ }
         }
 
         private readonly List<Button> _windowButtons = new List<Button>();
@@ -246,9 +297,9 @@ namespace Dsht.Gui.Avalonia
         ///     · 成功 → 完事 ✓（已有备份时 CLI 会**沿用**上次的目录 ✓ 不追问 ✓）
         ///     · 返回「第一次备份必须指定目录」→ **弹文件夹选择器** ✓ → 再跑 `backup --to <选中的目录>` ✓✓
         ///   为什么这样：**判据放在 CLI 里** ✓ 界面不用自己猜"是不是第一次" ✓✓（单一事实来源 ✓）</summary>
-        public async void CreateBackup()
+        public async System.Threading.Tasks.Task CreateBackup()
         {
-            // ★ 写动作也过闸门（2026-10-04 ✓）：这里原来是**独立的 async void** ✗ 绕开了 RunCliAction 的闸门 ✗
+            // ★ 写动作也过闸门（2026-10-04 ✓）：这里原来是**独立的即发即忘方法**（不返回 Task）✗ 绕开了 RunCliAction 的闸门 ✗
             //   → 连点三次 = **三个 `backup` 同时跑** ✗（三份包 + 各自触发保留份数清理 ✓ 同名文件互相踩 ✓）
             if (_actionBusy)
             {
@@ -365,7 +416,7 @@ namespace Dsht.Gui.Avalonia
 
         /// <summary>改备份位置 ✓✓（用户要求：「备份路径在备份页面里设置并且显示吧」✓）。
         /// 弹系统文件夹选择器 ✓ → `backup-dir --set <目录>` ✓ → CLI 会校验并持久化 ✓✓。</summary>
-        public async void ChangeBackupDir()
+        public async System.Threading.Tasks.Task ChangeBackupDir()
         {
             string dir = await PickFolder("选择备份位置（建议放在安装目录之外，例如 D:\\dsh-backups）");
             if (string.IsNullOrEmpty(dir)) { _actionLog = "已取消更改备份位置"; BuildShell(); ShowToast(_actionLog); return; }
@@ -375,7 +426,7 @@ namespace Dsht.Gui.Avalonia
         /// <summary>恢复默认备份位置 ✓✓（删掉持久化文件 ✓ 回到 `StateDir/backup` ✓）。</summary>
         public void ResetBackupDir() { RunCliAction("backup-dir --reset", "恢复默认备份位置"); }
 
-        public async void DeleteBackup(string name)
+        public async System.Threading.Tasks.Task DeleteBackup(string name)
         {
             string now = System.DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
             string typed = await PromptDialog.Ask(this, "删除备份",
@@ -485,14 +536,13 @@ namespace Dsht.Gui.Avalonia
             //     ← 正是我在提交信息里说"不会发生"的那件事 ✓ **打脸** ✓
             //   ✓ 现在：**写完成后、最终 Refresh 之前**再清** ✓✓（见 320 行之后 ✓）
             Refresh();
-            string outp = cli == null ? "未找到工具箱 CLI。" : await System.Threading.Tasks.Task.Run(delegate { return Run(cli, args); });
-            // U9：动作结果的级别 → toast 边框色（error=红 / warn=橙 / info=中性 ✓ 成功不再顶橙边 ✓）
-            _lastActionLevel = "info";
-            if (outp != null)
-            {
-                if (outp.IndexOf("_FAIL", StringComparison.Ordinal) >= 0) _lastActionLevel = "error";
-                else if (outp.IndexOf("WARN", StringComparison.Ordinal) >= 0 || outp.IndexOf("未生效", StringComparison.Ordinal) >= 0 || outp.IndexOf("不完整", StringComparison.Ordinal) >= 0 || outp.IndexOf("拒绝", StringComparison.Ordinal) >= 0) _lastActionLevel = "warn";
-            }
+            // ★ F-11 修复（2026-10-30）：动作结果用**结构化结果**判级别 —— 超时 / 进程起不来现在判 error ✓
+            //   （✗ 原来只按输出里有没有 `_FAIL`/WARN 猜：超时文案是裸文本 → 被判 info 成功色 ✓）
+            CliResult actionRes = cli == null
+                ? CliResult.Failure("未找到工具箱 CLI。", "cli path is empty")
+                : await System.Threading.Tasks.Task.Run(delegate { return CliRunner.Run(cli, args); });
+            _lastActionLevel = CliRunner.ClassifyLevel(actionRes);
+            string outp = actionRes.Text == null ? "" : actionRes.Text;
             _actionLog = label + "结果：" + Environment.NewLine + outp.Trim();
             InvalidateCliCache();   // F4 FIX: 写**完成**之后清 ✓ 此时缓存里必然是写前状态 ✓ 紧接着的 Refresh 会重新跑命令 ✓✓
             Refresh();
@@ -649,12 +699,6 @@ namespace Dsht.Gui.Avalonia
         //   **先看计划**（只读 ✓ 不加 --yes 时 CLI 只输出 WIPE_PLAN ✓ 一个字节都不删 ✓）
         public void WipePlan() { RunCliAction("wipe", "清除计划（只读，未删除任何东西）"); }
 
-        // **真清除** ✓（`--yes` ✓ → CLI 会**先做安全备份且必须成功** ✓ 再删 ✓
-        //   `WIPE_PRE_BACKUP <路径>` 会显示在页面上 ✓ → 用户能看到安全备份在哪 ✓✓）
-        /// <summary>**已停用** ✓✓（用户要求删除清除数据操作 ✓ 只保留"显示手动删除路径" ✓）。
-        /// 留着方法体是为了不动调用点 ✓ 但它**不再做任何删除** ✓（CLI 的 wipe 本身也永不删除了 ✓✓）。</summary>
-        public void DoWipe() { RunCliAction("wipe", "查看手动删除路径（清除功能已停用；只读）"); }
-
         public void ExportLog()
         {
             string path = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "dsh-minato-log-export.txt");
@@ -667,49 +711,6 @@ namespace Dsht.Gui.Avalonia
         /// <summary>只停**官方桌面端**（Electron 多进程 → CLI 用 StopTree 杀整棵 ✓ 不动 web ✓）。</summary>
         public void StopDesktopOnly() { RunCliAction("stop --target desktop --yes", "停止桌面端"); }
 
-        private void RunCoreAction(string verb, string label)
-        {
-            string core = ToolkitCore();
-            if (core == null)
-            {
-                _actionLog = "无法" + label + "：" + CoreMissingText();
-                BuildShell();
-                return;
-            }
-            _actionLog = "已发起" + label + "…（" + Path.GetFileName(core) + " " + verb + "）";
-            BuildShell();
-            string outp = RunQuick(core, verb, 8);
-            _actionLog = label + "结果：" + Environment.NewLine + outp.Trim();
-            Refresh();
-        }
-
-        /// <summary>短超时运行（启动/停止这类命令可能一直挂着，不能把界面卡住 30 秒）。</summary>
-        private static string RunQuick(string cli, string args, int seconds)
-        {
-            try
-            {
-                ProcessStartInfo psi = new ProcessStartInfo(cli, args);
-                psi.RedirectStandardOutput = true;
-                psi.RedirectStandardError = true;
-                psi.UseShellExecute = false;
-                psi.CreateNoWindow = true;
-                psi.StandardOutputEncoding = new UTF8Encoding(false);
-                psi.StandardErrorEncoding = new UTF8Encoding(false);
-                using (Process p = Process.Start(psi))
-                {
-                    StringBuilder sb = new StringBuilder();
-                    string err = "";
-                    System.Threading.Tasks.Task<string> soT = System.Threading.Tasks.Task.Run(delegate { return p.StandardOutput.ReadToEnd(); });
-                    System.Threading.Tasks.Task<string> seT = System.Threading.Tasks.Task.Run(delegate { return p.StandardError.ReadToEnd(); });
-                    if (!p.WaitForExit(seconds * 1000)) { try { p.Kill(); } catch { } return "（超过 " + seconds + " 秒未结束，已结束该进程）"; }
-                    sb.Append(soT.Result);
-                    err = seT.Result;
-                    if (!string.IsNullOrEmpty(err)) sb.Append(Environment.NewLine).Append("[stderr] ").Append(err);
-                    return sb.Length == 0 ? "（无输出）" : sb.ToString();
-                }
-            }
-            catch (Exception ex) { return "执行失败：" + ex.Message; }
-        }
         /// <summary>窗口图标（任务栏/标题栏）。资源 URI 用**程序集名** dsht-gui —— 用命名空间会静默失败。</summary>
         private void SetWindowIcon()
         {
@@ -722,14 +723,7 @@ namespace Dsht.Gui.Avalonia
             }
             catch { /* 图标缺失不影响功能 */ }
         }
-        /// <summary>核心程序不可用时的说明（区分"平台不支持"与"文件缺失"）。</summary>
-        private static string CoreMissingText()
-        {
-            if (!System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows))
-                return "此功能需要 Windows 专有的 v2.x 核心（DeepSeek Harness Toolkit.exe）—— 当前平台不支持。"
-                     + Environment.NewLine + "跨平台可用的替代：状态/概览/会话/token/形态与插件/备份清单/设置（都走 V3 CLI）。";
-            return "未找到工具箱核心程序（DeepSeek Harness Toolkit.exe）：请把它与 GUI 放在同一目录，或设置环境变量 DSHT_CORE。";
-        }
+
         private void InitializeComponent()
         {
             AvaloniaXamlLoader.Load(this);
@@ -1121,23 +1115,6 @@ namespace Dsht.Gui.Avalonia
         private string _profilesRoot = "";
         public string ProfilesRoot { get { return _profilesRoot; } }
 
-        /// <summary>找工具箱核心程序（有 profilepatch 的那个 v2.x exe）。</summary>
-        private static string ToolkitCore()
-        {
-            string env = Environment.GetEnvironmentVariable("DSHT_CORE");
-            if (!string.IsNullOrEmpty(env) && File.Exists(env)) return env;
-            string dir = AppDomain.CurrentDomain.BaseDirectory;
-            if (!System.Runtime.InteropServices.RuntimeInformation.IsOSPlatform(System.Runtime.InteropServices.OSPlatform.Windows))
-                return null;   // v2.x 核心是 Windows/.NET Framework 专有：非 Windows 上不是"文件缺失"，而是平台不支持
-            string[] names = new string[] { "DeepSeek Harness Toolkit.exe", "dsht.exe" };
-            for (int i = 0; i < names.Length; i++)
-            {
-                string p = Path.Combine(dir, names[i]);
-                if (File.Exists(p)) return p;
-            }
-            return null;
-        }
-        public void SetProfileSearch(string text) { ProfileSearch = text == null ? "" : text; BuildShell(); }
         public List<SessionRowVm> Rows { get { return _rows; } }
         /// <summary>当前视图要显示的列表（过滤后 ✓；默认 = 全部 ✓）。</summary>
         public List<SessionRowVm> ListSource { get { return _listSource == null ? _rows : _listSource; } }
@@ -2010,7 +1987,6 @@ namespace Dsht.Gui.Avalonia
             {
                 _rawOutput = await System.Threading.Tasks.Task.Run(delegate { return RunCached(cli, "profiles"); });
                 _profiles = ProfilesMarkers.Parse(_rawOutput);
-                for (int i = 0; i < _rawOutput.Length && _profilesRoot.Length == 0; i++) { }
                 _profilesRoot = ProfilesRootFrom(cli);
                 return;
             }
@@ -2179,7 +2155,8 @@ namespace Dsht.Gui.Avalonia
         private bool _bridgeProbed = false;
         private readonly List<VersionMarkers.BridgeHit> _bridgeHits = new List<VersionMarkers.BridgeHit>();
 
-        /// <summary>取一次两个版本（幂等 ✓ 已取到就什么都不做 ✓）。启动时同步取一次 → 首帧页脚就是对的 ✓；
+        /// <summary>取一次两个版本（幂等 ✓ 已取到就什么都不做 ✓）。
+        /// ★ F-07（2026-10-30）：**不再在构造期调用** —— 由 RefreshAsync 的**后台**探测补页脚版本（不占首帧 ✓）；
         /// 之后 CLI 路径若变化（DSHT_CLI / 换了同目录的 exe）→ 重新取 ✓。</summary>
         private void EnsureVersions()
         {
@@ -2239,10 +2216,19 @@ namespace Dsht.Gui.Avalonia
         }
 
         // —— close_action 接线（2026-10-06 用户要求"无效选项接上"）：ask=确认 / tray=系统托盘 / exit=直退 ——
-        private async void ConfirmExitAsync()
+        private async System.Threading.Tasks.Task ConfirmExitAsync()
         {
-            bool yes = await ConfirmDialog.Ask(this, "退出 dsh-minato", "确定要退出吗？");
-            if (yes) { _realExit = true; Close(); }
+            try
+            {
+                bool yes = await ConfirmDialog.Ask(this, "退出 dsh-minato", "确定要退出吗？");
+                if (yes) { _realExit = true; Close(); }
+            }
+            catch (Exception ex)
+            {
+                // ★ F-14（2026-10-30）：确认框自己抛异常时**不许掀掉进程** ✓ 进 toast / 动作日志 ✓
+                //   （旧实现不返回 Task：这些异常走未处理异常路径，进程可能直接消失 ✓）
+                try { _actionLog = "退出确认失败：" + ex.Message; ShowToast(_actionLog); BuildShell(); } catch { }
+            }
         }
 
         /// <summary>tray 模式：隐藏主窗口 + 建系统托盘图标（一次性）。托盘不可用（个别 Linux）→ 退化为直退 ✓ 不猜 ✗。</summary>
@@ -2631,173 +2617,36 @@ namespace Dsht.Gui.Avalonia
             c.BridgePresent = d != null && d.IsLiveSource;
             return c;
         }
-        // ================================================================ CLI 结果短缓存（性能）
+        // ================================================================ CLI 进程执行（唯一实现 = Services/CliRunner.cs）
 
-        /// <summary>只读 CLI 命令的**短缓存** ✓✓
-        ///
-        /// **用户反馈（2026-09-30）**：「按钮交互还是有延迟，并且不低」✓✓
-        ///   根因：**每次刷新都要启动 CLI 子进程** ✗ 而 CLI 是 **66 MB 自包含 exe** ✓
-        ///     → 一次调用就是几百毫秒的进程启动 ✓ 概览页一次刷新要 4 个 ✓ → **1~2 秒** ✗✗
-        ///
-        /// **纪律（重要 ✓）**：
-        ///   · **只缓存只读命令** ✓（`status --detail` / `profiles` / `sessions` / `backup-list` / `config-get` ✓）
-        ///   · **写操作绝不缓存** ✗（`backup` / `start` / `stop` / `config-set` / `wipe` … 一律直接跑 ✓✓）
-        ///   · TTL 很短 ✓（默认 4 秒 ✓）→ 用户看到的仍是"刚刚"的状态 ✓ 不会显示过期数据 ✓
-        ///   · **写操作会清空整个缓存** ✓✓（点完"停止"再刷新，看到的必须是新状态 ✓）
-        ///
-        /// 为什么这样是**诚实**的：这些命令读的都是**磁盘上的持久状态** ✓
-        ///   4 秒内的两次读取结果**本来就一样** ✓ → 复用**不是**在猜 ✓ 是省掉一次必然相同的进程启动 ✓✓
-        ///   （`status` 里的"运行中"也一样：它查的是进程是否存在 ✓ 4 秒内不会变 ✓）</summary>
-        private static readonly System.Collections.Generic.Dictionary<string, string> _cliCache =
-            new System.Collections.Generic.Dictionary<string, string>(StringComparer.Ordinal);
-        private static readonly System.Collections.Generic.Dictionary<string, DateTime> _cliCacheAt =
-            new System.Collections.Generic.Dictionary<string, DateTime>(StringComparer.Ordinal);
-        // ★★★ **F5 修复（GUI 审计 MAJOR —— 数据竞争）** ✓✓
-        //   ✗ 普通 `Dictionary` ✗ 而概览页的 `Task.WhenAll(tPf, tSe, tBk)` 会**三个线程同时写** ✗✗
-        //     → 丢条目 ✓ 桶链错乱（**可能取到另一条命令的输出** ✗✗）✓ 甚至抛异常 ✓
-        //     → 而异常被 fire-and-forget 吞掉 ✓ → **页面空白或显示旧数据** ✗
-        //   ✓ 现在：**一把锁** ✓✓（读写都进锁 ✓ 微秒级 ✓ 命令本身在锁外跑 ✓ 不串行化 ✓✓）
-        private static readonly object _cliCacheLock = new object();
-        private const double CliCacheTtlSec = 4.0;
+        // ★ W2 / F-10 / F-11 / F-12 / F-13 / F-08（2026-10-30）：三份旧运行器（普通 / 短超时 / 流式）
+        //   与两份 stderr 拼装已合并到 Services/CliRunner.cs —— 逐行 stderr 前缀、超时预算 + Kill(true) 杀树、
+        //   结构化结果（Ok / TimedOut）只在那里实现一次。
+        //   本文件保留这三个**私有静态包装**，是为了让 130+ 个调用点一字不改（✗ 不制造大 diff ✗）：
+        //   · Run          = 拿文本（失败/超时也给人话文本；需要区分失败的地方直接用 CliRunner.Run 的结构化结果）
+        //   · RunCached    = 只读命令的 4 秒短缓存（键 = CLI 路径 + 参数；失败/超时不入缓存；≤128 条 FIFO）
+        //   · RunStreaming = 流式（stdout 逐行回调；超时保留已收行再追加超时行 —— F-12）
+        private static string Run(string cli, string args)
+        {
+            return CliRunner.Run(cli, args).Text;
+        }
 
-        /// <summary>跑一条**只读**命令，带短缓存 ✓✓。写操作请直接用 `Run` ✗ 不要走这里 ✓。</summary>
         private static string RunCached(string cli, string args)
         {
-            if (string.IsNullOrEmpty(cli) || string.IsNullOrEmpty(args)) return Run(cli, args);
-            lock (_cliCacheLock)
-            {
-                DateTime at;
-                string hit;
-                if (_cliCache.TryGetValue(args, out hit) && _cliCacheAt.TryGetValue(args, out at)
-                    && (System.DateTime.UtcNow - at).TotalSeconds < CliCacheTtlSec)
-                {
-                    return hit;
-                }
-            }
-            string outp = Run(cli, args);   // F5 FIX: run OUTSIDE the lock so the three parallel tasks do not serialise
-            lock (_cliCacheLock)
-            {
-                _cliCache[args] = outp;
-                _cliCacheAt[args] = System.DateTime.UtcNow;
-            }
-            return outp;
+            return CliRunner.CliCache.GetOrRun(cli, args, delegate { return CliRunner.Run(cli, args); }).Text;
+        }
+
+        private static string RunStreaming(string cli, string args, System.Action<string> onLine)
+        {
+            return CliRunner.RunStreaming(cli, args, onLine).Text;
         }
 
         /// <summary>清空只读缓存 ✓✓。**任何写操作之后都要调它** ✓
         ///   （否则点完"停止"再刷新，4 秒内还会看到"运行中" ✗✗ —— 那就是**撒谎** ✓）</summary>
         private static void InvalidateCliCache()
         {
-            try { lock (_cliCacheLock) { _cliCache.Clear(); _cliCacheAt.Clear(); } } catch { }   // F5 FIX: clear under the lock too
+            CliRunner.CliCache.Clear();
             InvalidateCfgCache();   // ✓ config 缓存一起清 ✓（写操作可能改了配置 ✓）
-        }
-
-
-        /// <summary>按命令给超时上限（2026-10-06 优化 #4）：原来 30 秒一刀切 ✗ 会把跑了一半的
-        /// npm install / 大备份 / 大恢复直接杀掉（留半截状态 ✗ 交接 §9 挂账的高危项）。
-        /// 长任务 10 分钟封顶 ✓ 其余维持 30 秒 —— 挂住的只读命令快速反馈更重要 ✓。
-        /// RunStreaming 保持 30 秒：它跑的 doctor/update-center 是会自行收尾的只读流 ✓。</summary>
-        private static int TimeoutForMs(string args)
-        {
-            if (string.IsNullOrEmpty(args)) return 30000;
-            string a = args.TrimStart();
-            string[] longCmds = new string[] { "update ", "install ", "uninstall ", "backup ", "backup-export", "backup-delete", "restore ", "import ", "bridge-install" };
-            for (int i = 0; i < longCmds.Length; i++) if (a.StartsWith(longCmds[i], StringComparison.Ordinal)) return 600000;
-            if (a == "update" || a == "install" || a == "uninstall" || a == "backup" || a == "restore" || a == "import") return 600000;
-            return 30000;
-        }
-
-        private static string Run(string cli, string args)
-        {
-            try
-            {
-                ProcessStartInfo psi = new ProcessStartInfo(cli, args);
-                psi.RedirectStandardOutput = true;
-                psi.RedirectStandardError = true;
-                psi.UseShellExecute = false;
-                psi.CreateNoWindow = true;
-                psi.StandardOutputEncoding = new UTF8Encoding(false);
-                psi.StandardErrorEncoding = new UTF8Encoding(false);
-                using (Process p = Process.Start(psi))
-                {
-                    StringBuilder sb = new StringBuilder();
-                    string err = "";
-                    System.Threading.Tasks.Task<string> soT = System.Threading.Tasks.Task.Run(delegate { return p.StandardOutput.ReadToEnd(); });
-                    System.Threading.Tasks.Task<string> seT = System.Threading.Tasks.Task.Run(delegate { return p.StandardError.ReadToEnd(); });
-                    int limitMs = TimeoutForMs(args);
-                    if (!p.WaitForExit(limitMs)) { try { p.Kill(); } catch { } return "（超时 " + (limitMs / 1000) + " 秒，已结束该进程）"; }
-                    sb.Append(soT.Result);
-                    err = seT.Result;
-                    if (!string.IsNullOrEmpty(err)) sb.Append(Environment.NewLine).Append("[stderr] ").Append(err);
-                    return sb.Length == 0 ? "（无输出）" : sb.ToString();
-                }
-            }
-            catch (Exception ex)
-            {
-                return "运行 CLI 失败: " + ex.Message;
-            }
-        }
-
-        /// <summary>流式跑一条 CLI 命令 ✓（`--stream` 专用 ✓）：stdout **每读到一行就回调**。
-        ///   ★ 回调发生在**后台线程** → GUI 侧必须自己包 Dispatcher.UIThread.Post ✓（见 StreamLine ✓）。
-        ///   stderr 用后台任务**先排空** ✓✓ —— 与 Run 同一套防死锁姿势 ✓
-        ///   （子进程往 stderr 狂写时管道写满会把自己卡死 ✗）。
-        ///   返回完整全文 ✓（供 `_rawOutput` 与解析器收尾用 ✓）。</summary>
-        private static string RunStreaming(string cli, string args, System.Action<string> onLine)
-        {
-            try
-            {
-                ProcessStartInfo psi = new ProcessStartInfo(cli, args);
-                psi.RedirectStandardOutput = true;
-                psi.RedirectStandardError = true;
-                psi.UseShellExecute = false;
-                psi.CreateNoWindow = true;
-                psi.StandardOutputEncoding = new UTF8Encoding(false);
-                psi.StandardErrorEncoding = new UTF8Encoding(false);
-                using (Process p = Process.Start(psi))
-                {
-                    System.Threading.Tasks.Task<string> seT = System.Threading.Tasks.Task.Run(delegate { return p.StandardError.ReadToEnd(); });
-                    StringBuilder sb = new StringBuilder();
-                    string ln;
-                    while ((ln = p.StandardOutput.ReadLine()) != null)
-                    {
-                        sb.Append(ln).Append("\r\n");
-                        if (onLine != null) { try { onLine(ln); } catch { } }
-                    }
-                    if (!p.WaitForExit(30000)) { try { p.Kill(); } catch { } return "（超时 30 秒，已结束该进程）"; }   // 只读流保持 30 秒（见 TimeoutForMs 注释 ✓）
-                    string err = seT.Result;
-                    // ★★★ 2026-10-11 **实测抓到的解析污染** ✗✗（更新页上凭空多出一张 webui 卡 ✓）
-                    //   本方法返回的全文**同时**喂给页面解析器（`_rawOutput` ✓ 更新页/体检页都按标记行解析它 ✓）
-                    //   ✗ 旧写法把 stderr 拼成 `"[stderr] " + err` ✗ —— 只有**第一行**带前缀 ✓
-                    //   → stderr 里换行之后的每一行都成了"裸标记行" ✗
-                    //   → 真机实证：CLI 往 stderr 打了一行诊断（INTEGRITY_SKIPPED ✓ 中文 ✓ 里面根本没有标记词 ✓）
-                    //     而**它前面那段 NOTE 长文**换行后恰好以 `UPDATECENTER_ITEM webui …` 开头 ✓
-                    //     （NOTE 是自由文本 ✓ 我们自己的 CLI 就会这么换行 ✓）
-                    //     → 那个续行被当成**第二张 webui 卡**渲染出来 ✓✓（同一张卡出现两遍 ✗）
-                    //   ✓ 现在：stderr 的**每一行**都带 `[stderr] ` 前缀 ✓ → 不可能被误认成标记行 ✓
-                    //     诊断**仍然可见**（✗ 不静默丢掉 ✗）—— 只是不再冒充 CLI 的标准输出 ✓
-                    if (!string.IsNullOrEmpty(err)) sb.Append(PrefixStderr(err));
-                    return sb.Length == 0 ? "（无输出）" : sb.ToString();
-                }
-            }
-            catch (Exception ex)
-            {
-                return "运行 CLI 失败: " + ex.Message;
-            }
-        }
-
-        /// <summary>把 CLI 的 stderr 逐行打上 `[stderr] ` 前缀 ✓（**每一行**都要 ✗ 只给第一行打 =
-        /// 后面每一行都变成"裸标记行"✗ → 会被页面解析器当成真条目 ✓ 真机实测过 ✓）。
-        /// 空行跳过（不追加无意义的空行 ✓）。</summary>
-        private static string PrefixStderr(string err)
-        {
-            StringBuilder o = new StringBuilder();
-            string[] ls = err.Replace("\r\n", "\n").Replace("\r", "\n").Split('\n');
-            for (int i = 0; i < ls.Length; i++)
-            {
-                if (ls[i].Length == 0) continue;
-                o.Append("[stderr] ").Append(ls[i]).Append("\r\n");
-            }
-            return o.ToString();
         }
 
         /// <summary>把流式行**投递回 UI 线程** ✓：追加进原文 + 体检页记入逐行列表 + 立即重画 ✓✓。

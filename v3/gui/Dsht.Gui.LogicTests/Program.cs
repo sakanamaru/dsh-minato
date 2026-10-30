@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using Dsht.Gui.Avalonia.Markers;
 using Dsht.Gui.Avalonia.Design;
+using Dsht.Gui.Avalonia.Services;
 
 namespace Dsht.Gui.LogicTests
 {
@@ -2057,6 +2058,142 @@ namespace Dsht.Gui.LogicTests
                 && opsTxt.IndexOf("SetConfig(OverlayStyleCatalog.Key", StringComparison.Ordinal) >= 0;
             Check("⑯-15 · 接线：设置页三选一（三个选项 + 预览）· 设置/悬浮窗读同一个键 · 改设置立刻重画 · 无第二套状态键", mvdWiring2);
 
+            // ================= W2 GUI 运行时（2026-10-30 · task-5）：CliRunner 纯逻辑 =================
+            //  每条都指向"改坏哪一行会让它变红"的具体事实：
+            //  · stderr 逐行前缀（F-10）· 超时分档与流式预算（F-12/F-13）· 结构化失败分类（F-11）
+            //  · 缓存键含 CLI / 失败不入缓存 / 容量上限（F-08）
+            Console.WriteLine();
+            Console.WriteLine("== W2 GUI 运行时：CliRunner（stderr 前缀 / 超时 / 失败分类 / 缓存）==");
+
+            // W2-1 多行 stderr 逐行前缀（F-10）：第 2 行起也必须是 [stderr] 开头
+            string crStderr = CliRunner.PrefixStderr("NOTE 第一行\r\nSESSION fake turns=2\n\n第三行");
+            bool crPrefix = crStderr == "[stderr] NOTE 第一行\r\n[stderr] SESSION fake turns=2\r\n[stderr] 第三行\r\n";
+            Check("W2-1 · stderr 逐行前缀：多行 stderr 的每一行都带 [stderr]（空行跳过；✗ 旧 Run 只给第一行加 ✗）", crPrefix);
+            Check("W2-2 · stderr 前缀真的挡住裸标记行：stderr 里的 SESSION 续行不再被解析成会话行（F-10 真机事故形态）",
+                SessionsMarkers.Parse("SESSIONS_OK 1\r\nSESSION real turns=1\r\n" + CliRunner.PrefixStderr("NOTE 续行\r\nSESSION fake turns=2")).Rows.Count == 1);
+
+            // W2-3 缓存键含 CLI 路径（F-08）
+            Check("W2-3 · 缓存键 = CLI 路径 + 参数（换 CLI 不串数据）：同参不同 CLI 分键、同 CLI 不同参数分键",
+                CliRunner.CliCache.KeyOf("C:\\x\\a.exe", "status") != CliRunner.CliCache.KeyOf("C:\\x\\b.exe", "status")
+                && CliRunner.CliCache.KeyOf("a", "status") != CliRunner.CliCache.KeyOf("a", "sessions")
+                && CliRunner.CliCache.KeyOf("a", "s") == "a|s");
+
+            // W2-4 命中：同 cli+args 两次只跑一次（假运行器，不起进程）
+            CliRunner.CliCache.Clear();
+            int crRuns = 0;
+            Func<CliResult> crFake = delegate { crRuns++; return CliResult.Success("OUT", 0); };
+            CliResult crA = CliRunner.CliCache.GetOrRun("cli-a", "status", crFake);
+            CliResult crB = CliRunner.CliCache.GetOrRun("cli-a", "status", crFake);
+            Check("W2-4 · 缓存命中：同 CLI + 同参数第二次直接吃缓存（假运行器只跑 1 次）", crRuns == 1 && crA.Text == "OUT" && crB.Text == "OUT" && crA.Ok && crB.Ok);
+
+            // W2-5 不同 CLI 同参数不串
+            CliRunner.CliCache.Clear();
+            crRuns = 0;
+            CliRunner.CliCache.GetOrRun("cli-a", "status", crFake);
+            CliRunner.CliCache.GetOrRun("cli-b", "status", crFake);
+            Check("W2-5 · 不同 CLI 路径 + 同参数 ⇒ 不吃对方的缓存（F-08 换 DSHT_CLI 场景）", crRuns == 2);
+
+            // W2-6 失败/超时结果不入缓存（F-08）
+            CliRunner.CliCache.Clear();
+            int crFailRuns = 0;
+            Func<CliResult> crBad = delegate { crFailRuns++; return CliResult.Timeout("（超时 30 秒，已结束该进程）", "timeout"); };
+            CliRunner.CliCache.GetOrRun("cli-a", "status --detail", crBad);
+            CliRunner.CliCache.GetOrRun("cli-a", "status --detail", crBad);
+            Check("W2-6 · 失败/超时结果**不入缓存**（旧实现会把超时文案缓存 4 秒）：失败跑 2 次、缓存条数 0",
+                crFailRuns == 2 && CliRunner.CliCache.Count == 0);
+
+            // W2-7 容量上限 ≤128（F-08：旧实现键无限增）
+            CliRunner.CliCache.Clear();
+            for (int crI = 0; crI < CliRunner.CliCache.MaxEntries + 2; crI++)
+                CliRunner.CliCache.GetOrRun("cli-a", "cmd " + crI, delegate { return CliResult.Success("ok", 0); });
+            Check("W2-7 · 缓存有容量上限（FIFO）：塞 " + (CliRunner.CliCache.MaxEntries + 2) + " 条后只留 " + CliRunner.CliCache.MaxEntries + " 条、TTL 仍 4 秒",
+                CliRunner.CliCache.Count == CliRunner.CliCache.MaxEntries
+                && CliRunner.CliCache.MaxEntries == 128
+                && CliRunner.CliCache.TtlSeconds == 4.0);
+            CliRunner.CliCache.Clear();
+
+            // W2-8 超时分档（F-12/F-13）：长命令 600s、其余 30s
+            Check("W2-8 · 超时分档：update/install/backup/restore 类 600s，只读命令 30s，参数前导空格也认",
+                CliRunner.TimeoutForMs("update --yes") == 600000
+                && CliRunner.TimeoutForMs("install --yes") == 600000
+                && CliRunner.TimeoutForMs("backup --to \"D:\\bk\"") == 600000
+                && CliRunner.TimeoutForMs("restore --dry-run --path x") == 600000
+                && CliRunner.TimeoutForMs("  backup") == 600000
+                && CliRunner.TimeoutForMs("status --detail") == 30000
+                && CliRunner.TimeoutForMs("update-info") == 30000
+                && CliRunner.TimeoutForMs("") == 30000
+                && CliRunner.TimeoutForMs(null) == 30000);
+            Check("W2-9 · 流式超时预算：doctor/update-center 的 --stream 给 120 秒（F-12 ✗ 不再硬编码 30 秒 ✗），其余按普通档",
+                CliRunner.StreamTimeoutForMs("doctor --stream") == 120000
+                && CliRunner.StreamTimeoutForMs("update-center --stream") == 120000
+                && CliRunner.StreamTimeoutForMs("status") == 30000);
+
+            // W2-10 结构化失败分类（F-11）：超时/异常必须 error
+            Check("W2-10 · 失败分类：超时 / 起不来 / _FAIL ⇒ error；WARN/拒绝 ⇒ warn；普通输出 ⇒ info",
+                CliRunner.ClassifyLevel(CliResult.Timeout("（超时 30 秒，已结束该进程）", "timeout")) == "error"
+                && CliRunner.ClassifyLevel(CliResult.Failure("运行 CLI 失败: boom", "boom")) == "error"
+                && CliRunner.ClassifyLevel(CliResult.Success("BACKUP_FAIL 磁盘满", 0)) == "error"
+                && CliRunner.ClassifyLevel(CliResult.Success("BACKUP_OK 1", 0)) == "info"
+                && CliRunner.ClassifyLevel(CliResult.Success("WARN 部分未生效", 0)) == "warn"
+                && CliRunner.ClassifyLevel(CliResult.Success("拒绝执行", 0)) == "warn"
+                && CliRunner.ClassifyLevel(null) == "error");
+            // W2-11 死代码清空（源码级 · 可证伪）：空循环 + v2 核心死簇 + 零调用者的两个方法
+            string mwTxtW2 = ReadIfExists(vtGuiDir == null ? null : System.IO.Path.Combine(vtGuiDir, "MainWindow.axaml.cs"));
+            Check("W2-11 · 死代码清空：空 for 循环 / RunCoreAction / RunQuick / ToolkitCore / CoreMissingText / DoWipe / SetProfileSearch 在 MainWindow 里 0 处残留",
+                vtGuiDir != null && mwTxtW2.Length > 0
+                && mwTxtW2.IndexOf("_profilesRoot.Length == 0; i++) { }", StringComparison.Ordinal) < 0
+                && mwTxtW2.IndexOf("RunCoreAction", StringComparison.Ordinal) < 0
+                && mwTxtW2.IndexOf("RunQuick", StringComparison.Ordinal) < 0
+                && mwTxtW2.IndexOf("ToolkitCore", StringComparison.Ordinal) < 0
+                && mwTxtW2.IndexOf("CoreMissingText", StringComparison.Ordinal) < 0
+                && mwTxtW2.IndexOf("DoWipe", StringComparison.Ordinal) < 0
+                && mwTxtW2.IndexOf("SetProfileSearch", StringComparison.Ordinal) < 0);
+            // W2-12 F-07（源码级）：构造期不许有同步 CLI 调用；偏好改由 Opened 后的后台任务应用
+            string mwCtor = "";
+            if (vtGuiDir != null)
+            {
+                int ctor0 = mwTxtW2.IndexOf("public MainWindow()", StringComparison.Ordinal);
+                int ctor1 = mwTxtW2.IndexOf("// ================================================================ 启动偏好", StringComparison.Ordinal);
+                if (ctor0 >= 0 && ctor1 > ctor0) mwCtor = mwTxtW2.Substring(ctor0, ctor1 - ctor0);
+            }
+            string mwCtorCode = CodeOnly(mwCtor);   // 扫**代码**：注释里点名"不许同步调用"是好事，不该判红
+            Check("W2-12 · F-07 首帧阻塞：MainWindow 构造期 0 处同步 CLI 调用（Run( / EnsureVersions），改由 Opened 后后台读偏好",
+                mwCtor.Length > 0
+                && mwCtorCode.IndexOf("Run(", StringComparison.Ordinal) < 0
+                && mwCtorCode.IndexOf("EnsureVersions(", StringComparison.Ordinal) < 0
+                && mwCtorCode.IndexOf("Opened += delegate { _ = ApplyStartupPreferencesAsync(); };", StringComparison.Ordinal) >= 0
+                && mwTxtW2.IndexOf("private async System.Threading.Tasks.Task ApplyStartupPreferencesAsync()", StringComparison.Ordinal) >= 0
+                && mwTxtW2.IndexOf("Dispatcher.UIThread.Post(delegate { ApplyStartupPreferences(cfgText); });", StringComparison.Ordinal) >= 0);
+            // W2-13 F-14（源码级）：4 个 async-void 方法全部改成 Task；ConfirmExitAsync 有 try/catch；入口显式 _ =
+            string mwConfirmBody = "";
+            if (vtGuiDir != null)
+            {
+                int cf0 = mwTxtW2.IndexOf("private async System.Threading.Tasks.Task ConfirmExitAsync()", StringComparison.Ordinal);
+                int cf1 = mwTxtW2.IndexOf("/// <summary>tray 模式", StringComparison.Ordinal);
+                if (cf0 >= 0 && cf1 > cf0) mwConfirmBody = mwTxtW2.Substring(cf0, cf1 - cf0);
+            }
+            Check("W2-13 · F-14：MainWindow 里 async void = 0；4 个方法都返回 Task（入口显式 _ =）；ConfirmExitAsync 整体 try/catch 进 toast（不再掀进程）",
+                vtGuiDir != null
+                && mwTxtW2.IndexOf("async void", StringComparison.Ordinal) < 0
+                && mwTxtW2.IndexOf("public async System.Threading.Tasks.Task CreateBackup()", StringComparison.Ordinal) >= 0
+                && mwTxtW2.IndexOf("public async System.Threading.Tasks.Task ChangeBackupDir()", StringComparison.Ordinal) >= 0
+                && mwTxtW2.IndexOf("public async System.Threading.Tasks.Task DeleteBackup(string name)", StringComparison.Ordinal) >= 0
+                && mwTxtW2.IndexOf("private async System.Threading.Tasks.Task ConfirmExitAsync()", StringComparison.Ordinal) >= 0
+                && mwTxtW2.IndexOf("_ = ConfirmExitAsync();", StringComparison.Ordinal) >= 0
+                && mwConfirmBody.IndexOf("catch (Exception ex)", StringComparison.Ordinal) >= 0
+                && mwConfirmBody.IndexOf("ShowToast", StringComparison.Ordinal) >= 0);
+            // W2-14 F-11（源码级）：动作级别判定真的走结构化结果（✗ 不是又回去按裸文本猜 ✗）
+            string mwActionBody = "";
+            if (vtGuiDir != null)
+            {
+                int ar0 = mwTxtW2.IndexOf("private async System.Threading.Tasks.Task RunCliActionAsync(string args, string label)", StringComparison.Ordinal);
+                int ar1 = mwTxtW2.IndexOf("/// <summary>看板上的操作日志", StringComparison.Ordinal);
+                if (ar0 >= 0 && ar1 > ar0) mwActionBody = mwTxtW2.Substring(ar0, ar1 - ar0);
+            }
+            Check("W2-14 · F-11 接线：动作结果走 CliRunner.Run 结构化结果 + CliRunner.ClassifyLevel 判级别（超时/起不来不再是裸文本按 info 成功）",
+                mwActionBody.Length > 0
+                && mwActionBody.IndexOf("return CliRunner.Run(cli, args);", StringComparison.Ordinal) >= 0
+                && mwActionBody.IndexOf("CliRunner.ClassifyLevel(actionRes)", StringComparison.Ordinal) >= 0);
             Console.WriteLine("== " + _pass + "/" + (_pass + _fail) + " passed, " + _fail + " failed ==");
             return _fail == 0 ? 0 : 1;
         }
