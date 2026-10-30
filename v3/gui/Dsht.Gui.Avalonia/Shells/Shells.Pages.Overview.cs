@@ -142,6 +142,14 @@ namespace Dsht.Gui.Avalonia.Shells
 
         }
 
+        /// <summary>时间统一成 YYYY-MM-DD HH:mm（去掉秒；格式不符原样返回）。</summary>
+        private static string FmtShortTime(string raw)
+        {
+            if (string.IsNullOrEmpty(raw)) return "—";
+            string t = raw.Trim().Replace('T', ' ');
+            return t.Length >= 16 ? t.Substring(0, 16) : t;
+        }
+
         private static Control KpiStrip(MainWindow host)
 
         {
@@ -517,8 +525,8 @@ namespace Dsht.Gui.Avalonia.Shells
             clock.VerticalAlignment = VerticalAlignment.Center;
             Grid.SetColumn(clock, 0);
             row.Children.Add(clock);
-            // ★ 数据时刻的口径说明（唯一出处）：它是"本机解析出这份 CLI 输出的时刻"，不是 dsh 里数据产生的时刻
-            TextBlock note = T("（本机解析出这份输出的时刻；不是数据在 dsh 里产生的时刻）", ShapeTokens.FsFoot, Palette.TextFaint);
+            // 口径只留一句；细节归看板图表与「说明」页（2026-10-30 缩短）
+            TextBlock note = T("（本次读取时刻）", ShapeTokens.FsFoot, Palette.TextFaint);
             note.VerticalAlignment = VerticalAlignment.Center;
             Grid.SetColumn(note, 1);
             row.Children.Add(note);
@@ -627,6 +635,9 @@ namespace Dsht.Gui.Avalonia.Shells
             TextBlock tok = LvLine(host, ShapeTokens.FsFoot, Palette.TextDim, FontWeight.Normal,
                 delegate { return CostMarkers.TodayTokensLine(CostToday(host)); });
             tok.TextWrapping = TextWrapping.Wrap;
+            // 缺块时金额行与 token 行会说同一句「该块不可用」→ 只留一次（2026-10-30）
+            tok.IsVisible = tok.Text != null && tok.Text.Length > 0 && tok.Text != money.Text;
+            host.Live(delegate { tok.IsVisible = tok.Text != null && tok.Text.Length > 0 && tok.Text != money.Text; });
             c.Children.Add(tok);
 
             TextBlock fn = T(BoardHierarchy.GaugeFootnote, ShapeTokens.FsFoot, Palette.TextFaint);
@@ -1661,64 +1672,36 @@ namespace Dsht.Gui.Avalonia.Shells
 
 
 
-            // —— 运行时事实 ——
-
-            Grid facts = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*,*") };
-
-            // ★★ 字段级刷新（2026-10-04 用户要求 ✓）：这一页的数字都可能变 → 全部走 StatCardLive ✓
-
-            //   取值函数**每拍重算** ✓（读 host.X 的最新快照 ✗ 不是建树那一刻的 st ✗✗ —— 传快照就永远显示旧值 ✓）
-
-            //   桌面端在跑时（端口没监听 ✓ 但 dsh 确实在运行 ✓）→ 显示**桌面端的** PID/启动时间/已运行 ✓✓
-
-            facts.Children.Add(StatCardLive(host, Symbol.NumberSymbol,
-
+            // —— 运行时事实：统一 2 列网格（2026-10-30；数据缺失也保持网格形状）——
+            StackPanel facts = new StackPanel { Spacing = ShapeTokens.S12 };
+            Grid factsRow1 = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*") };
+            factsRow1.Children.Add(StatCardLive(host, Symbol.NumberSymbol,
                 delegate { return DeskUp(host.Status) ? "桌面端 PID" : "进程 PID"; },
-
                 delegate { StatusSnapshot s2 = host.Status; string p2 = DeskUp(s2) ? s2.DesktopPid : s2.Pid; return (string.IsNullOrEmpty(p2) || p2 == "0") ? "—" : p2; },
-
-                delegate { return "运行 dsh 的进程号"; }, Palette.Text, null, 0, 3));
-
-            facts.Children.Add(StatCardLive(host, Symbol.Calendar, delegate { return "启动时间"; },
-
-                delegate { StatusSnapshot s2 = host.Status; string v2 = DeskUp(s2) ? s2.DesktopStart : s2.Start; return string.IsNullOrEmpty(v2) ? "—" : v2; },
-
-                delegate { return "dsh 启动的时刻"; }, Palette.Text, null, 1, 3));
-
-            facts.Children.Add(StatCardLive(host, Symbol.Clock, delegate { return "已运行"; },
-
+                delegate { return "运行 dsh 的进程号"; }, Palette.Text, null, 0, 2));
+            factsRow1.Children.Add(StatCardLive(host, Symbol.Calendar, delegate { return "启动时间"; },
+                delegate { StatusSnapshot s2 = host.Status; return FmtShortTime(DeskUp(s2) ? s2.DesktopStart : s2.Start); },
+                delegate { return "dsh 启动的时刻"; }, Palette.Text, null, 1, 2));
+            facts.Children.Add(factsRow1);
+            Grid factsRow2 = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*") };
+            factsRow2.Children.Add(StatCardLive(host, Symbol.Clock, delegate { return "已运行"; },
                 delegate { StatusSnapshot s2 = host.Status; string v2 = DeskUp(s2) ? s2.DesktopUptime : s2.Uptime; return string.IsNullOrEmpty(v2) ? "—" : v2; },
-
-                delegate { return "从启动到现在"; }, Palette.Accent, null, 2, 3));
-
+                delegate { return "从启动到现在"; }, Palette.Accent, null, 0, 2));
+            factsRow2.Children.Add(StatCardLive(host, Symbol.Box, delegate { return "当前形态"; },
+                delegate { return FormText(host.Status, host.Profiles); },
+                delegate { return "来自 profile 的 dsh.profile.bundles"; }, Palette.Text, null, 1, 2));
+            facts.Children.Add(factsRow2);
             s.Children.Add(facts);
 
 
 
-            // —— 总览指标（把其它页的要点也摆到这里，省得来回点）——
-
-            ProfilesSnapshot pf = host.Profiles;
-
-            SessionsSnapshot se = host.Data;
-
-            BackupSummary bk = host.Backups;
-
-            DoctorSummary dc = host.Doctor;
-
-            Grid row1 = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*") };   // 提案A：会话数/累计token 的唯一主场在看板 ✓ 这里只留"身份"两卡 ✓
-
-            row1.Children.Add(StatCardLive(host, Symbol.Box, delegate { return "当前形态"; },
-
-                delegate { return FormText(host.Status, host.Profiles); },
-
-                delegate { return "来自 profile 的 dsh.profile.bundles"; }, Palette.Text, null, 0, 2));
-
+            // —— 总览指标：profile/插件单独一行，仍保持 2 列节奏（2026-10-30）——
+            Grid row1 = new Grid { ColumnDefinitions = new ColumnDefinitions("*,*") };
             row1.Children.Add(StatCardLive(host, Symbol.PuzzlePiece, delegate { return "profile / 插件"; },
-
                 delegate { ProfilesSnapshot p2 = host.Profiles; return (p2 == null ? "—" : p2.Count.ToString()) + " / " + ThirdCount(p2); },
-
-                delegate { ProfilesSnapshot q = host.Profiles; return BundleCount(q) + " 个组合包（含第三方 " + (q == null ? "—" : q.Profiles.Count.ToString()) + " 个 profile）"; }, Palette.Text, null, 1, 2));
-            s.Children.Add(row1);   // ★ P1.1b 拼接时丢失的一行（row1 建了没挂上 → 身份卡整行隐身）
+                delegate { ProfilesSnapshot q = host.Profiles; return BundleCount(q) + " 个组合包（含第三方 " + (q == null ? "—" : q.Profiles.Count.ToString()) + " 个 profile）"; }, Palette.Text, null, 0, 2));
+            row1.Children.Add(new Border { IsHitTestVisible = false });   // 网格形状保持：右列留空而不是把卡片拉宽
+            s.Children.Add(row1);
 
 
 

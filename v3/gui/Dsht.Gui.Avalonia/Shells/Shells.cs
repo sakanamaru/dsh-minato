@@ -662,11 +662,11 @@ namespace Dsht.Gui.Avalonia.Shells
         private static Control StartStopButton(MainWindow host)
         {
             StatusSnapshot st = host.Status;
-            // ✗ 原来只看 web 服务（State==0）→ 桌面端在跑时左下角仍显示"未运行" ✓（用户反馈 ✓）
-            // 现在把**桌面端也算"dsh 在跑"** ✓（它确实在跑 ✓ 只是不走 3080 ✓）
             bool deskUp = st != null && st.Ok && st.State == 2 && !string.IsNullOrEmpty(st.DesktopClient);
             bool up = st != null && st.Ok && (st.State == 0 || deskUp);
-            Grid row = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*,Auto") };
+            bool webUp = st != null && st.State == 0;
+            // 状态只说一句（2026-10-30 去重）：句子里已说清的，不再另挂一枚「运行中」徽章。
+            Grid row = new Grid { ColumnDefinitions = new ColumnDefinitions("Auto,*") };
             Border dot = new Border
             {
                 Width = 8,
@@ -676,25 +676,12 @@ namespace Dsht.Gui.Avalonia.Shells
                 VerticalAlignment = VerticalAlignment.Center
             };
             Grid.SetColumn(dot, 0);
-            // 桌面端在跑 → 说清"桌面端运行中"✓（本工具**停不了它** ✓ 不能假装能 ✓）
-            // 三种状态都要说清 ✓：只有 web / 只有桌面端 / **两个都在** ✓✓（用户："两个可能同时开着" ✓）
-            // ★★★ **F1 修复（GUI 审计 CRITICAL —— 空引用）** ✓✓
-            //   ✗ `StatusSnapshot` 是**类** ✓ 而 `MainWindow._status` **只在概览分支里被赋值** ✗
-            //     → CLI 找不到时 `_status` 仍是 null ✓ → `st.State` **抛 NRE** ✗✗
-            //     → 异常被 fire-and-forget 的 Refresh 吞掉 ✓ → **窗口主体永远是空的** ✗
-            //       而且友好提示「未找到工具箱 CLI」**永远显示不出来** ✓✓
-            //   ✓ 现在：**先算一个 webUp 布尔** ✓ 再也不用 `st` 空着 ✓✓
-            bool webUp = st != null && st.State == 0;
             string stText = webUp && deskUp ? "web 与桌面端都在运行" : (deskUp ? "桌面端运行中" : (up ? "停止 dsh" : "一键启动 dsh"));
             TextBlock label = T(stText, ShapeTokens.FsBody, up ? Palette.Accent : Palette.OnAccent, FontWeight.SemiBold);
             label.Margin = new Thickness(10, 0, 0, 0);
             label.VerticalAlignment = VerticalAlignment.Center;
             Grid.SetColumn(label, 1);
-            TextBlock state = T(webUp && deskUp ? "web+桌面端" : (up ? "运行中" : "未运行"), ShapeTokens.FsFoot, up ? Palette.Good : Palette.OnAccent);
-            state.VerticalAlignment = VerticalAlignment.Center;
-            Grid.SetColumn(state, 2);
-            row.Children.Add(dot); row.Children.Add(label); row.Children.Add(state);
-
+            row.Children.Add(dot); row.Children.Add(label);
             Button b = new Button
             {
                 Content = row,
@@ -707,8 +694,8 @@ namespace Dsht.Gui.Avalonia.Shells
                 Padding = new Thickness(12, 10)
             };
             Hover(b, up ? Palette.AccentSoft : Palette.Accent, up ? Palette.CardHover : Palette.AccentHover);
-            b.Click += delegate { if (up) host.StopDsh(); else host.StartDsh(); };   // 桌面端在跑时 StopDsh 会如实说"没在监听 3080"✓ 不谎报 ✓
-            if (host.ActionBusy) { b.IsEnabled = false; b.Opacity = 0.55; }   // ★ 同上（2026-10-04 ✓）
+            b.Click += delegate { if (up) host.StopDsh(); else host.StartDsh(); };
+            if (host.ActionBusy) { b.IsEnabled = false; b.Opacity = 0.55; }
             return b;
         }
 
