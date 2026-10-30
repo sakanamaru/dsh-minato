@@ -94,6 +94,8 @@ namespace Dsht.Gui.Avalonia.Design
             public string Accent, AccentHover, AccentSoft, OnAccent;
             // 表面层级（低 → 高）
             public string PageBg, SidebarBg, CardBg, CardHover, InsetBg;
+            // 窗口画布渐变（上→下；只给窗口底用 ✓ 卡片/面板/文字保持不透明 ✓ 每通道差 ≤ WindowBgChannelMaxDelta）
+            public string WindowBgTop, WindowBgBottom;
             // 描边
             public string Border, BorderStrong;
             // 文字层级（三档：主 / 次 / 弱 ✓）
@@ -153,6 +155,7 @@ namespace Dsht.Gui.Avalonia.Design
                 Key = "A", Name = "A · 浅色卡片", Mode = Mode.Light,
                 Accent = "#4D6BFE", AccentHover = "#3B57E8", AccentSoft = "#E9EEFF", OnAccent = "#FFFFFF",
                 PageBg = "#F5F6F8", SidebarBg = "#FCFCFD", CardBg = "#FFFFFF", CardHover = "#F6F7FA", InsetBg = "#EFF1F5",
+                WindowBgTop = "#F6F7FA", WindowBgBottom = "#ECEFF5",
                 Border = "#E5E7EB", BorderStrong = "#D6D9E0",
                 Text = "#151A23", TextDim = "#5B6270", TextFaint = "#6B7280",
                 Normal = "#16A34A", Attention = "#B45309", Abnormal = "#DC2626", Unknown = "#8A919C",
@@ -166,6 +169,7 @@ namespace Dsht.Gui.Avalonia.Design
                 Key = "B", Name = "B · 深色卡片", Mode = Mode.Dark,
                 Accent = "#7C8DFF", AccentHover = "#97A4FF", AccentSoft = "#2A3558", OnAccent = "#FFFFFF",
                 PageBg = "#0E1013", SidebarBg = "#12151A", CardBg = "#161A20", CardHover = "#1C222B", InsetBg = "#0B0D10",
+                WindowBgTop = "#17191E", WindowBgBottom = "#101216",
                 Border = "#262C37", BorderStrong = "#343D4B",
                 Text = "#E8EAF0", TextDim = "#A6ADBB", TextFaint = "#7E8798",
                 Normal = "#3FB97F", Attention = "#F0B35E", Abnormal = "#EF6A6A", Unknown = "#9AA3B2",
@@ -179,6 +183,7 @@ namespace Dsht.Gui.Avalonia.Design
                 Key = "C", Name = "C · 深色紧凑", Mode = Mode.Dark,
                 Accent = "#2CC9B5", AccentHover = "#4BD4C2", AccentSoft = "#143B37", OnAccent = "#052622",
                 PageBg = "#0A0C0E", SidebarBg = "#0C0F12", CardBg = "#0F1318", CardHover = "#151B22", InsetBg = "#08090B",
+                WindowBgTop = "#101419", WindowBgBottom = "#0A0C0E",
                 Border = "#1F262E", BorderStrong = "#2C3540",
                 Text = "#D9DFE8", TextDim = "#93A0AE", TextFaint = "#5F6B78",
                 Normal = "#4ADE80", Attention = "#F2C14E", Abnormal = "#F2707C", Unknown = "#5F6B78",
@@ -192,6 +197,7 @@ namespace Dsht.Gui.Avalonia.Design
                 Key = "D", Name = "D · 浅色仪表盘", Mode = Mode.Light,
                 Accent = "#2F6BFF", AccentHover = "#2059DB", AccentSoft = "#E4ECFF", OnAccent = "#FFFFFF",
                 PageBg = "#EEF2F9", SidebarBg = "#F7F9FC", CardBg = "#FFFFFF", CardHover = "#F4F7FC", InsetBg = "#E8EEF7",
+                WindowBgTop = "#F4F7FC", WindowBgBottom = "#E9EEF7",
                 Border = "#E2E7F0", BorderStrong = "#D0D8E4",
                 Text = "#131C2B", TextDim = "#55617A", TextFaint = "#6B7280",
                 Normal = "#0EA36B", Attention = "#B45309", Abnormal = "#E5484D", Unknown = "#6B7280",
@@ -204,6 +210,10 @@ namespace Dsht.Gui.Avalonia.Design
 
         /// <summary>风格数（断言：= 4 ✓）。</summary>
         public const int StyleCount = 4;
+
+        /// <summary>窗口渐变端点的**每通道最大差**（0-255 ✓ 断言盯着：超过即红 ✓）——
+        /// 只给"轻微渐变"定上界，不是色值本身 ✓。</summary>
+        public const int WindowBgChannelMaxDelta = 12;
 
         /// <summary>风格下标归一（越界 ⇒ 0 ✓ 与旧 `Palette.Apply` 的 else 分支一致 ✓）。</summary>
         public static int Clamp(int styleKind) { return (styleKind >= 0 && styleKind < StyleCount) ? styleKind : 0; }

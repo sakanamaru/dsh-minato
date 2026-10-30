@@ -111,6 +111,21 @@ Check '空态：体检/日志统一走 EmptyState' ($opText.Contains('EmptyState
 Check '看板：缺块重复句只留一次' ($ovText.Contains('tok.Text != money.Text'))
 Check '看板：数据时刻口径缩成一句（≤30 字符）' (-not $ovText.Contains('本机解析出这份输出的时刻；不是数据在 dsh 里产生的时刻'))
 Check 'Toast：桌面端提示压缩为可行动短句' ($mwText.Contains('桌面端在运行，未启动 web') -and -not $mwText.Contains('避免两个同时跑；要用 web'))
+# 10 窗口渐变 token（task-13）：4 风格都有端点、每通道差 <= 阈值、画刷只在 Avalonia 侧构造。
+$gradRe = [regex]'WindowBgTop = "(#[0-9A-Fa-f]{6})",\s*WindowBgBottom = "(#[0-9A-Fa-f]{6})"'
+$grads = $gradRe.Matches($tokText)
+Check '渐变：4 种风格都登记了窗口渐变端点' ($grads.Count -eq 4) ($grads.Count.ToString())
+$gradBad = @()
+foreach ($m in $grads) {
+    $top = $m.Groups[1].Value; $bot = $m.Groups[2].Value
+    for ($ch = 0; $ch -lt 3; $ch++) {
+        $x = [Convert]::ToInt32($top.Substring(1 + $ch * 2, 2), 16)
+        $y = [Convert]::ToInt32($bot.Substring(1 + $ch * 2, 2), 16)
+        if ([Math]::Abs($x - $y) -gt 12) { $gradBad += ($top + '->' + $bot) }
+    }
+}
+Check '渐变：端点每通道差 <= 12/255（轻微）' ($gradBad.Count -eq 0) (($gradBad | Select-Object -Unique) -join ',')
+Check '渐变：画刷在 Avalonia 侧构造，DesignTokens 无 Avalonia 引用' ($mwText.Contains('Palette.WindowBgTop') -and $mwText.Contains('LinearGradientBrush') -and (-not $tokText.Contains('using Avalonia')))
 Write-Output ''
 Write-Output ('verify_ui_visual: ' + $pass + ' passed, ' + $fail + ' failed  (repo=' + $Repo + ')')
 if ($fail -gt 0) { exit 1 }

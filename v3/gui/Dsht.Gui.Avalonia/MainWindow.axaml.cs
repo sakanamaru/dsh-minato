@@ -754,7 +754,17 @@ namespace Dsht.Gui.Avalonia
         /// <summary>把 Palette 应用到窗口壳：主题变体（让 Fluent 控件跟随明暗）、顶栏、两个 segmented 切换器的激活态。</summary>
         private void ApplyChrome()
         {
-            Background = Palette.PageBg;
+            // 窗口画布：上→下轻微渐变（端点走 token；卡片/面板/文字仍不透明，对比度不变）
+            Background = new LinearGradientBrush
+            {
+                StartPoint = new RelativePoint(0, 0, RelativeUnit.Relative),
+                EndPoint = new RelativePoint(0, 1, RelativeUnit.Relative),
+                GradientStops = new GradientStops
+                {
+                    new GradientStop(((SolidColorBrush)Palette.WindowBgTop).Color, 0),
+                    new GradientStop(((SolidColorBrush)Palette.WindowBgBottom).Color, 1)
+                }
+            };
             if (Application.Current != null)
                 Application.Current.RequestedThemeVariant = Palette.Dark ? ThemeVariant.Dark : ThemeVariant.Light;
 
