@@ -2182,6 +2182,18 @@ namespace Dsht.Gui.LogicTests
                 && mwTxtW2.IndexOf("_ = ConfirmExitAsync();", StringComparison.Ordinal) >= 0
                 && mwConfirmBody.IndexOf("catch (Exception ex)", StringComparison.Ordinal) >= 0
                 && mwConfirmBody.IndexOf("ShowToast", StringComparison.Ordinal) >= 0);
+            // W2-14 F-11（源码级）：动作级别判定真的走结构化结果（✗ 不是又回去按裸文本猜 ✗）
+            string mwActionBody = "";
+            if (vtGuiDir != null)
+            {
+                int ar0 = mwTxtW2.IndexOf("private async System.Threading.Tasks.Task RunCliActionAsync(string args, string label)", StringComparison.Ordinal);
+                int ar1 = mwTxtW2.IndexOf("/// <summary>看板上的操作日志", StringComparison.Ordinal);
+                if (ar0 >= 0 && ar1 > ar0) mwActionBody = mwTxtW2.Substring(ar0, ar1 - ar0);
+            }
+            Check("W2-14 · F-11 接线：动作结果走 CliRunner.Run 结构化结果 + CliRunner.ClassifyLevel 判级别（超时/起不来不再是裸文本按 info 成功）",
+                mwActionBody.Length > 0
+                && mwActionBody.IndexOf("return CliRunner.Run(cli, args);", StringComparison.Ordinal) >= 0
+                && mwActionBody.IndexOf("CliRunner.ClassifyLevel(actionRes)", StringComparison.Ordinal) >= 0);
             Console.WriteLine("== " + _pass + "/" + (_pass + _fail) + " passed, " + _fail + " failed ==");
             return _fail == 0 ? 0 : 1;
         }
