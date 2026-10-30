@@ -53,8 +53,11 @@ namespace Dsht.Cli
         ///                                          只在真没取到时出现 ✓ ✗ 不塞进 NOTE ✗ GUI 不认识 → 忽略 ✓）
         ///   `UPDATECENTER_LOG <id> <一行日志>`   ← 更新日志（best-effort ✓ 取不到就说取不到 ✓）
         /// 纪律：**只读** ✓ 不改任何东西 ✓；取不到的字段写 `unknown` ✓ **不猜** ✗</summary>
-        private static int UpdateCenter(ServiceRegistry reg, string[] args)
+        private static int UpdateCenter(CommandContext ctx)
         {
+            ServiceRegistry reg = ctx.Reg;
+            string[] args = ctx.Args;
+            ToolkitConfig cfg = ctx.Cfg;
             IToolchainQuery tc = reg.Get<IToolchainQuery>();
             List<string> ids = new List<string>();
             List<string> lines = new List<string>();
@@ -77,7 +80,7 @@ namespace Dsht.Cli
                 List<string> part = new List<string>();
                 string dshInstalled = tc.DshVersion();
                 if (string.IsNullOrEmpty(dshInstalled)) dshInstalled = "unknown";
-                string dshLatest = VersionForChannel(tc, _cfg == null ? "rc" : _cfg.UpdateChannel);
+                string dshLatest = VersionForChannel(tc, cfg == null ? "rc" : cfg.UpdateChannel);
                 if (string.IsNullOrEmpty(dshLatest)) dshLatest = "unknown";
                 string dshState = "unknown";
                 if (dshInstalled != "unknown" && dshLatest != "unknown")
@@ -790,8 +793,11 @@ namespace Dsht.Cli
             if (emit != null) emit(line);
         }
 
-        private static int UpdateInfo(ServiceRegistry reg)
+        private static int UpdateInfo(CommandContext ctx)
         {
+            ServiceRegistry reg = ctx.Reg;
+            string[] args = ctx.Args;
+            ToolkitConfig cfg = ctx.Cfg;
             IToolchainQuery tc = reg.Get<IToolchainQuery>();
             string installed = tc.DshVersion();
             if (string.IsNullOrEmpty(installed))
@@ -800,8 +806,8 @@ namespace Dsht.Cli
                 if (string.IsNullOrEmpty(tc.WhichDsh())) { Console.WriteLine("UPDATEINFO_INSTALLED not-installed"); Console.WriteLine("UPDATEINFO_LATEST unknown"); Console.WriteLine("UPDATEINFO_STATE unknown"); return 0; }
             }
             Console.WriteLine("UPDATEINFO_INSTALLED " + (string.IsNullOrEmpty(installed) ? "unknown" : installed));
-            Console.WriteLine("UPDATEINFO_CHANNEL " + (string.IsNullOrEmpty(_cfg == null ? null : _cfg.UpdateChannel) ? "rc" : _cfg.UpdateChannel));
-            string latest = VersionForChannel(tc, _cfg == null ? "rc" : _cfg.UpdateChannel);
+            Console.WriteLine("UPDATEINFO_CHANNEL " + (string.IsNullOrEmpty(cfg == null ? null : cfg.UpdateChannel) ? "rc" : cfg.UpdateChannel));
+            string latest = VersionForChannel(tc, cfg == null ? "rc" : cfg.UpdateChannel);
             Console.WriteLine("UPDATEINFO_LATEST " + (latest.Length == 0 ? "unknown" : latest));
             string reg2 = tc.NpmRegistryConfig();
             Console.WriteLine("UPDATEINFO_REGISTRY " + (string.IsNullOrEmpty(reg2) ? "default" : reg2.Trim()));
@@ -829,8 +835,11 @@ namespace Dsht.Cli
             catch (Exception ex) { Console.WriteLine("UPDATEINFO_PRE_BACKUP none"); Console.WriteLine("UPDATEINFO_ROLLBACK none"); Console.WriteLine("UPDATEINFO_NOTE " + ex.Message); }
             return 0;
         }
-        private static int LogCmd(string[] args, ServiceRegistry reg)
+        private static int LogCmd(CommandContext ctx)
         {
+            ServiceRegistry reg = ctx.Reg;
+            string[] args = ctx.Args;
+            ToolkitConfig cfg = ctx.Cfg;
             string text = reg.Get<ILogSource>().ReadLog();
             if (text == null)
             {
@@ -877,8 +886,11 @@ namespace Dsht.Cli
         /// <summary>shortcut（V3 独有）：创建桌面/应用菜单入口。
         /// Windows 用 PowerShell 的 WScript.Shell 建 .lnk（与 v2.x 同思路）；Linux 写 XDG 的 .desktop 文件。
         /// 写操作 → 计划 → `--yes` 闸门；失败一律如实报原因（不静默）。</summary>
-        private static int ShortcutCmd(string[] args)
+        private static int ShortcutCmd(CommandContext ctx)
         {
+            ServiceRegistry reg = ctx.Reg;
+            string[] args = ctx.Args;
+            ToolkitConfig cfg = ctx.Cfg;
             bool win = PlatformIsWindows();
             // 单文件发布下 Assembly.Location 是空的 ✗（真机测试抓到的）→ 用 MainModule，两条构建路径都可用 ✓
             string exe = "";
@@ -938,10 +950,13 @@ namespace Dsht.Cli
         ///     Linux   → systemd **user** unit ✓（~/.config/systemd/user/ + systemctl --user enable ✓）
         /// · 全部**可回退** ✓（--disable 删掉 ✓；也会打印文件路径让你自己看 ✓）
         /// 标记：`AUTOSTART_STATUS <on|off> target=<desktop|web|auto>` / `AUTOSTART_OK <动作>` / `AUTOSTART_FAIL <原因>`</summary>
-        private static int AutoStartCmd(string[] args, ServiceRegistry reg)
+        private static int AutoStartCmd(CommandContext ctx)
         {
+            ServiceRegistry reg = ctx.Reg;
+            string[] args = ctx.Args;
+            ToolkitConfig cfg = ctx.Cfg;
             bool win = PlatformIsWindows();
-            string cfgTarget = _cfg == null || string.IsNullOrEmpty(_cfg.AutoStartTarget) ? "auto" : _cfg.AutoStartTarget;
+            string cfgTarget = cfg == null || string.IsNullOrEmpty(cfg.AutoStartTarget) ? "auto" : cfg.AutoStartTarget;
             string effective = cfgTarget;
             if (effective == "auto") effective = win ? "desktop" : "web";
             string label = effective == "desktop" ? T("官方桌面端", "the official desktop app") : T("dsh web", "dsh web");
@@ -1086,49 +1101,52 @@ namespace Dsht.Cli
         /// <para>★ 2026-10-28：多了一个 `CONFIGWARN` 行——**只在**配置原文里的悬边灯样式是非法值时出现：
         /// 那时解析已回落默认（`dot` ✓），这一行把"回落了、为什么"明说出来
         /// （✗ 不崩 ✗ 不静默当默认 ✓）。合法/缺省时不打任何多余行 ✓（既有输出逐字不变 ✓）。</para></summary>
-        private static int ConfigGet(ServiceRegistry reg)
+        private static int ConfigGet(CommandContext ctx)
         {
+            ServiceRegistry reg = ctx.Reg;
+            string[] args = ctx.Args;
+            ToolkitConfig cfg = ctx.Cfg;
             Console.WriteLine("CONFIGGET_OK");
             WarnUnknownConfigLines(reg);
-            Console.WriteLine("CONFIG lang " + _cfg.Lang);
-            Console.WriteLine("CONFIG host " + _cfg.Host);
-            Console.WriteLine("CONFIG ws " + (_cfg.Workspace == null ? "" : _cfg.Workspace));
-            Console.WriteLine("CONFIG keep_backups " + _cfg.KeepBackups);
-            Console.WriteLine("CONFIG check_update " + (_cfg.CheckUpdate ? "on" : "off"));
-            Console.WriteLine("CONFIG check_dsh_update " + (_cfg.CheckDshUpdate ? "on" : "off"));
-            Console.WriteLine("CONFIG update_channel " + _cfg.UpdateChannel);
-            Console.WriteLine("CONFIG close_action " + _cfg.CloseAction);
-            Console.WriteLine("CONFIG auto_start " + (_cfg.AutoStart ? "on" : "off"));
-            Console.WriteLine("CONFIG auto_start_target " + _cfg.AutoStartTarget);   // 审查修复：漏了这行 → GUI 设置页永远渲染不出这一项 ✗
-            Console.WriteLine("CONFIG dsh_versions " + _cfg.DshVersions);
+            Console.WriteLine("CONFIG lang " + cfg.Lang);
+            Console.WriteLine("CONFIG host " + cfg.Host);
+            Console.WriteLine("CONFIG ws " + (cfg.Workspace == null ? "" : cfg.Workspace));
+            Console.WriteLine("CONFIG keep_backups " + cfg.KeepBackups);
+            Console.WriteLine("CONFIG check_update " + (cfg.CheckUpdate ? "on" : "off"));
+            Console.WriteLine("CONFIG check_dsh_update " + (cfg.CheckDshUpdate ? "on" : "off"));
+            Console.WriteLine("CONFIG update_channel " + cfg.UpdateChannel);
+            Console.WriteLine("CONFIG close_action " + cfg.CloseAction);
+            Console.WriteLine("CONFIG auto_start " + (cfg.AutoStart ? "on" : "off"));
+            Console.WriteLine("CONFIG auto_start_target " + cfg.AutoStartTarget);   // 审查修复：漏了这行 → GUI 设置页永远渲染不出这一项 ✗
+            Console.WriteLine("CONFIG dsh_versions " + cfg.DshVersions);
             // —— 排障开关 ✓（用户要求：""给可能会发生可能不会发生的问题提供解决的选项"" + ""备注一下发生什么问题可以尝试启用和禁用"" ✓✓）——
-            Console.WriteLine("CONFIG browser_mode " + _cfg.BrowserMode);
-            Console.WriteLine("CONFIG ui_parallel " + (_cfg.UiParallel ? "on" : "off"));
-            Console.WriteLine("CONFIG scan_children " + (_cfg.ScanChildren ? "on" : "off"));
-            Console.WriteLine("CONFIG gui_start_page " + _cfg.GuiStartPage);   // ★ 界面偏好（2026-10-02 用户要求"启动默认打开页面可自选" ✓）
-            Console.WriteLine("CONFIG gui_auto_refresh " + _cfg.GuiAutoRefresh);   // ★ 概览自动刷新（2026-10-02 ✓：off/0.5/1/3/5/自定义秒 ✓）
-            Console.WriteLine("CONFIG gui_shell " + _cfg.GuiShell);   // ★ 布局偏好（2026-10-06：顶栏切换器的选择被记住 ✓ 仅 GUI 用 ✓）
-            Console.WriteLine("CONFIG gui_style " + _cfg.GuiStyle);   // ★ 风格偏好（同上 ✓ A/B/C/D → 0..3 ✓）
-            Console.WriteLine("CONFIG balance_key " + ((_cfg.BalanceKey == null ? "" : _cfg.BalanceKey).Trim().Length > 0 ? "set" : ""));   // ★ 审查 M1 修复：不回显明文（终端回滚缓冲留底 ✗）只报 set/unset ✓ GUI 按"留空=保持"工作 ✓
+            Console.WriteLine("CONFIG browser_mode " + cfg.BrowserMode);
+            Console.WriteLine("CONFIG ui_parallel " + (cfg.UiParallel ? "on" : "off"));
+            Console.WriteLine("CONFIG scan_children " + (cfg.ScanChildren ? "on" : "off"));
+            Console.WriteLine("CONFIG gui_start_page " + cfg.GuiStartPage);   // ★ 界面偏好（2026-10-02 用户要求"启动默认打开页面可自选" ✓）
+            Console.WriteLine("CONFIG gui_auto_refresh " + cfg.GuiAutoRefresh);   // ★ 概览自动刷新（2026-10-02 ✓：off/0.5/1/3/5/自定义秒 ✓）
+            Console.WriteLine("CONFIG gui_shell " + cfg.GuiShell);   // ★ 布局偏好（2026-10-06：顶栏切换器的选择被记住 ✓ 仅 GUI 用 ✓）
+            Console.WriteLine("CONFIG gui_style " + cfg.GuiStyle);   // ★ 风格偏好（同上 ✓ A/B/C/D → 0..3 ✓）
+            Console.WriteLine("CONFIG balance_key " + ((cfg.BalanceKey == null ? "" : cfg.BalanceKey).Trim().Length > 0 ? "set" : ""));   // ★ 审查 M1 修复：不回显明文（终端回滚缓冲留底 ✗）只报 set/unset ✓ GUI 按"留空=保持"工作 ✓
             // —— 看板（2026-10-08 · 第一批 ✓ 第三批口径全解锁 ✓）：口径默认 + 单价键（费用显示前置=D2b 多帧解码 ✓ 决策 D5 ✓ 现在只有存储与校验 ✓）——
-            Console.WriteLine("CONFIG sessions_default_level " + _cfg.SessionsDefaultLevel);   // ★ 第三批起三档全生效 ✓（parents/parents_sub 需要桥插件血缘段；缺血缘 ⇒ sessions 如实拒绝 ✓）
-            Console.WriteLine("CONFIG sessions_price_in_per_mtok " + _cfg.SessionsPriceInPerMTok.ToString(System.Globalization.CultureInfo.InvariantCulture));
-            Console.WriteLine("CONFIG sessions_price_cache_read_per_mtok " + _cfg.SessionsPriceCacheReadPerMTok.ToString(System.Globalization.CultureInfo.InvariantCulture));
-            Console.WriteLine("CONFIG sessions_price_cache_write_per_mtok " + _cfg.SessionsPriceCacheWritePerMTok.ToString(System.Globalization.CultureInfo.InvariantCulture));
-            Console.WriteLine("CONFIG sessions_price_out_per_mtok " + _cfg.SessionsPriceOutPerMTok.ToString(System.Globalization.CultureInfo.InvariantCulture));
-            Console.WriteLine("CONFIG sessions_budget_usd_per_day " + _cfg.SessionsBudgetUsdPerDay.ToString(System.Globalization.CultureInfo.InvariantCulture));   // ★ 成本面板 v3.2（2026-10-16 ✓ 维护者已确认键名 ✓）0 = 未设 → 不作超限判定 ✓
+            Console.WriteLine("CONFIG sessions_default_level " + cfg.SessionsDefaultLevel);   // ★ 第三批起三档全生效 ✓（parents/parents_sub 需要桥插件血缘段；缺血缘 ⇒ sessions 如实拒绝 ✓）
+            Console.WriteLine("CONFIG sessions_price_in_per_mtok " + cfg.SessionsPriceInPerMTok.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            Console.WriteLine("CONFIG sessions_price_cache_read_per_mtok " + cfg.SessionsPriceCacheReadPerMTok.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            Console.WriteLine("CONFIG sessions_price_cache_write_per_mtok " + cfg.SessionsPriceCacheWritePerMTok.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            Console.WriteLine("CONFIG sessions_price_out_per_mtok " + cfg.SessionsPriceOutPerMTok.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            Console.WriteLine("CONFIG sessions_budget_usd_per_day " + cfg.SessionsBudgetUsdPerDay.ToString(System.Globalization.CultureInfo.InvariantCulture));   // ★ 成本面板 v3.2（2026-10-16 ✓ 维护者已确认键名 ✓）0 = 未设 → 不作超限判定 ✓
             // —— 悬边状态灯悬浮窗（2026-10-26 · 提案 §11 ✓✓）：六个纯 GUI 偏好键（位置/尺寸记忆 + 标题开关 ✓）——
-            Console.WriteLine("CONFIG overlay_enabled " + (_cfg.OverlayEnabled ? "on" : "off"));
-            Console.WriteLine("CONFIG overlay_light_style " + _cfg.OverlayLightStyle);   // ★ 悬边灯样式（2026-10-28 ✓ dot=B 默认 / line=A / capsule=C）
+            Console.WriteLine("CONFIG overlay_enabled " + (cfg.OverlayEnabled ? "on" : "off"));
+            Console.WriteLine("CONFIG overlay_light_style " + cfg.OverlayLightStyle);   // ★ 悬边灯样式（2026-10-28 ✓ dot=B 默认 / line=A / capsule=C）
             // ★ 非法值 ⇒ 已回落默认，这里补**一句明确提示**（✗ 不静默当默认 ✓ 读原文才看得见非法值 ✓）
             string ovStyleRaw = RawConfigValue(reg, "overlay_light_style");
             if (ovStyleRaw.Length > 0 && !ConfigCodec.IsOverlayLightStyle(ovStyleRaw))
                 Console.WriteLine("CONFIGWARN overlay_light_style " + T("设置里的悬边灯样式「" + ovStyleRaw + "」无法识别，已按默认「圆点 + 轻环」处理；在设置里选一次即可改回来", "the saved lamp style '" + ovStyleRaw + "' is not recognized; falling back to the default (dot + light ring). Pick one in settings to fix it"));
-            Console.WriteLine("CONFIG overlay_edge " + _cfg.OverlayEdge);
-            Console.WriteLine("CONFIG overlay_offset " + _cfg.OverlayOffset.ToString(System.Globalization.CultureInfo.InvariantCulture));
-            Console.WriteLine("CONFIG overlay_scale " + _cfg.OverlayScale);
-            Console.WriteLine("CONFIG overlay_screen " + (_cfg.OverlayScreen == null ? "" : _cfg.OverlayScreen));
-            Console.WriteLine("CONFIG overlay_show_title " + (_cfg.OverlayShowTitle ? "on" : "off"));
+            Console.WriteLine("CONFIG overlay_edge " + cfg.OverlayEdge);
+            Console.WriteLine("CONFIG overlay_offset " + cfg.OverlayOffset.ToString(System.Globalization.CultureInfo.InvariantCulture));
+            Console.WriteLine("CONFIG overlay_scale " + cfg.OverlayScale);
+            Console.WriteLine("CONFIG overlay_screen " + (cfg.OverlayScreen == null ? "" : cfg.OverlayScreen));
+            Console.WriteLine("CONFIG overlay_show_title " + (cfg.OverlayShowTitle ? "on" : "off"));
             // 备注行 ✓✓：GUI 原样显示在对应设置项下面 ✓（"出现什么问题时试哪个" ✓）
             Console.WriteLine("CONFIGNOTE browser_mode " + T("【浏览器打不开时改这个】auto=自动（先 snap run firefox → 再直开 → 最后 xdg-open）/ snap=只走 snap（Ubuntu 的 snap 版 firefox 必须这样）/ direct=只直开 firefox / xdg=只交给系统默认", "when the browser will not open"));
             Console.WriteLine("CONFIGNOTE ui_parallel " + T("【切页卡顿时改这个】on=概览页一次聚合调用 overview（快，默认）/ off=四个命令分开跑（老行为，排障用）", "when switching pages feels slow"));
@@ -1161,25 +1179,32 @@ namespace Dsht.Cli
         }
         /// <summary>config-set <key> <value>：白名单内才写盘，否则 CONFIGSET_FAIL 原因。
         /// 退出码：0 = 写入生效；2 = 用法错误（键或值未通过白名单）；1 = 写盘未生效。</summary>
-        private static int ConfigSet(string[] args, ServiceRegistry reg)
+        private static int ConfigSet(CommandContext ctx)
         {
+            ServiceRegistry reg = ctx.Reg;
+            string[] args = ctx.Args;
+            ToolkitConfig cfg = ctx.Cfg;
             string key = args.Length > 1 ? args[1] : "";
             string val = args.Length > 2 ? args[2] : "";
             string reason = ConfigValidator.Validate(key, val, CanonPath);
             if (reason != null) { Console.WriteLine("CONFIGSET_FAIL " + reason); return 2; }
-            _cfg = ConfigValidator.ApplyTo(_cfg, key, val, CanonPath);
-            reg.Get<IConfigSource>().WriteConfig(ConfigCodec.Serialize(_cfg));
+            cfg = ConfigValidator.ApplyTo(cfg, key, val, CanonPath);
+            ctx.Cfg = cfg;   // W3：写回共享 holder —— 同一菜单会话里后续命令立即看到新配置（与旧 static _cfg 行为一致）
+            ApplyLanguageFlag(cfg);
+            reg.Get<IConfigSource>().WriteConfig(ConfigCodec.Serialize(cfg));
             // 回读校验 ✓：写盘可能静默失败（配置文件只读/被占用 ✗），实测曾报 CONFIGSET_OK 而文件根本没变 ✗✗。
             // 判据是"配置里这个键真的等于请求值" ✓，不是"我调用过写盘" ✗。
-            string wantText = ConfigCodec.Serialize(_cfg);
+            string wantText = ConfigCodec.Serialize(cfg);
             string gotText = ConfigCodec.Serialize(ConfigCodec.Parse(reg.Get<IConfigSource>().ReadConfig(), CanonPath));
             if (gotText != wantText)
             {
                 Console.WriteLine("CONFIGSET_FAIL " + T("写入未生效（配置文件可能只读或被占用）—— 已回读核对，值未改变", "the write did not take effect (the config file may be read-only or locked) - read back and the value is unchanged"));
-                _cfg = ConfigCodec.Parse(gotText, CanonPath);
+                cfg = ConfigCodec.Parse(gotText, CanonPath);
+                ctx.Cfg = cfg; ApplyLanguageFlag(cfg);
                 return 1;
             }
-            _cfg = ConfigCodec.Parse(gotText, CanonPath);
+            cfg = ConfigCodec.Parse(gotText, CanonPath);
+            ctx.Cfg = cfg; ApplyLanguageFlag(cfg);
             Console.WriteLine("CONFIGSET_OK " + key.Trim().ToLowerInvariant());
             return 0;
         }

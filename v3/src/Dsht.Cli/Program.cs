@@ -35,7 +35,11 @@ namespace Dsht.Cli
             }
             catch { }
             ServiceRegistry reg = Compose();
-            _cfg = LoadConfig(reg);
+            // W3 / CLI-01：配置不再放在 static 字段里 —— 由 CommandContext 显式携带。
+            // 语义保持：LoadConfig 的返回原样使用（可能为 null 的防御分支不动）；语言标记从配置派生一次。
+            CommandConfigHolder cfgHolder = new CommandConfigHolder();
+            cfgHolder.Value = LoadConfig(reg);
+            ApplyLanguageFlag(cfgHolder.Value);
             string cmd = args.Length > 0 ? args[0] : "";
 
             // —— **反银狐启动闸门** ✓✓（用户要求："反银狐木马感染/伪造的机制，至少被感染无法运行" ✓）
@@ -52,45 +56,12 @@ namespace Dsht.Cli
                 if (gate != 0) return gate;
             }
 
-            if (cmd == "") return Menu(reg);
-            if (cmd == "status") return Status(reg, Has(args, "--detail"));
-            if (cmd == "overview") return Overview(reg, args);   // 聚合只读：status --detail + sessions + backup-list + profiles（GUI 一次调用 ✓；--days 透传给 sessions ✓ 看板第一批 ✓）
-            if (cmd == "describe") return Describe(reg);
-            if (cmd == "bridge-install") return BridgeInstall(args, reg);   // ✓ 可选的桥接插件 ✓（用户要求"安装桥接插件有按钮吗" ✓）
-            if (cmd == "profilecheck") return ProfileCheck(args, reg);
-            if (cmd == "profilepatch") return ProfilePatch(args, reg);
-            if (cmd == "profiles") return Profiles(reg);
-            if (cmd == "verify-install") return VerifyInstall(args);
-            if (cmd == "wipe") return WipeCmd(args, reg);
-            if (cmd == "import") return ImportCmd(args, reg);
-            if (cmd == "update-info") return UpdateInfo(reg);
-            if (cmd == "update-center") return UpdateCenter(reg, args);   // args: --stream（GUI 流式 ✓ 默认输出不变 ✓）
-            if (cmd == "balance") return Balance(reg);   // ★ DeepSeek 余额检测（只读 ✓ key 来自配置 ✗ 不进命令行 ✓）
-            if (cmd == "log") return LogCmd(args, reg);
-            if (cmd == "about") return AboutCmd();
-            if (cmd == "shortcut") return ShortcutCmd(args);
-            if (cmd == "ui") return UiCmd();
-            if (cmd == "install") return InstallLike(args, reg, false);
-            if (cmd == "update") return InstallLike(args, reg, true);
-            if (cmd == "uninstall") return UninstallCmd(args, reg);
-            if (cmd == "start") return StartCmd(args, reg);
-            if (cmd == "stop") return StopCmd(args, reg);
-            if (cmd == "sessions") return Sessions(reg, args);   // --days 7|14|30 / --level global（看板第一批 ✓）
-            if (cmd == "cost") return Cost(reg, args);   // ★ 成本面板 v3.2（2026-10-16 ✓ 只读 ✓ 与 sessions 同一窗口口径 ✓ --days/--from/--to/--level 同一套 ✓）
-            if (cmd == "backup-list") return BackupList(args, reg);
-            if (cmd == "backup-dir") return BackupDirCmd(args, reg);   // ✓ 备份位置查看/设置 ✓（用户要求"备份路径在备份页面里设置并且显示" ✓）
-            if (cmd == "doctor") return Doctor(args, reg);
-            if (cmd == "version") { Console.WriteLine("DSHT_VERSION " + ToolkitVersion); return 0; }
-            if (cmd == "config-get") return ConfigGet(reg);
-            if (cmd == "config-set") return ConfigSet(args, reg);
-            if (cmd == "bootdiag") return BootDiag(args, reg);
-            if (cmd == "restore") return Restore(args, reg);
-            if (cmd == "selftest") return SelfTest(args, reg);
-            if (cmd == "check") return Check(reg);
-            if (cmd == "backup") return Backup(args, reg);
-            if (cmd == "backup-export") return BackupExport(args, reg);
-            if (cmd == "backup-delete") return BackupDelete(args, reg);
-            if (cmd == "autostart") return AutoStartCmd(args, reg);
+            // —— 命令派发（W3 / CLI-01）——
+            // 唯一真源 = CommandTable（Program.Commands.cs 里每命令一行 Reg("name", Handler)）；
+            // 这里只做一次查表：空串已在表里注册为数字菜单，未知命令仍走 Usage() + rc 2（与旧 if 链一致）。
+            CommandContext ctx = new CommandContext(reg, args, cfgHolder);
+            Func<CommandContext, int> handler;
+            if (CommandMap.TryGetValue(cmd, out handler)) return handler(ctx);
             Usage();
             return 2;
         }
@@ -219,17 +190,20 @@ namespace Dsht.Cli
         /// status --detail + sessions + backup-list + profiles 的并集。GUI 每拍从 4 个进程降到 1 个 ✓
         /// （0.5 秒实时档的刷新成本大头是进程启动 ✓）。各子命令输出逐字不变 ✓ 解析方按前缀取行 ✓
         /// 只读聚合页：任一子块失败不打断后面的块（能显示多少显示多少 ✓）。</summary>
-        private static int Overview(ServiceRegistry reg, string[] args)
+        private static int Overview(CommandContext ctx)
         {
-            Status(reg, true);
+            ServiceRegistry reg = ctx.Reg;
+            string[] args = ctx.Args;
+            ToolkitConfig cfg = ctx.Cfg;
+            StatusImpl(ctx, true);
             // ★ 成本面板 v3.2（2026-10-16 ✓ 规格 §3.1-①）：sessions 与 cost **共用同一次扫描** ✓ 只读一遍盘 ✓
             //   （✗ 不为成本再起进程 ✗ ✗ 也不读两遍 store ✗ —— 看板一拍仍是"一次进程 + 一次扫描" ✓）
             //   sessions 的输出**逐字不变** ✓（Lead 裁定：绝不动 sessions 输出 ✗）
-            SessionScan scan = ScanSessions(reg, args);   // ★ --days/--from/--to/--level 原样透传（看板第一批 ✓）
-            EmitSessions(scan);
-            EmitCost(scan);
-            BackupList(new string[] { "backup-list" }, reg);
-            Profiles(reg);
+            SessionScan scan = ScanSessions(reg, args, cfg);   // ★ --days/--from/--to/--level 原样透传（看板第一批 ✓）
+            EmitSessions(scan, cfg);
+            EmitCost(scan, cfg);
+            BackupList(ctx.WithArgs(new string[] { "backup-list" }));
+            Profiles(ctx);
             return 0;
         }
 
@@ -587,9 +561,9 @@ namespace Dsht.Cli
         /// dry-run 与真实恢复都走这里，保证两处目标一致。</summary>
         /// <summary>解析 `ws=` 里的**多个工作区**（`;` 分隔 ✓ —— 不用 `:` 因为 Windows 路径含 `:` ✗✓）。
         /// 单个路径（无 `;`）→ 返回一个元素 ✓ 完全向后兼容 ✓✓。</summary>
-        private static string[] ConfiguredWorkspaces()
+        private static string[] ConfiguredWorkspaces(ToolkitConfig cfg)
         {
-            string raw = _cfg == null || _cfg.Workspace == null ? "" : _cfg.Workspace;
+            string raw = cfg == null || cfg.Workspace == null ? "" : cfg.Workspace;
             if (raw.Trim().Length == 0) return new string[0];
             string[] parts = raw.Split(';');
             List<string> outp = new List<string>();
@@ -654,8 +628,11 @@ namespace Dsht.Cli
             catch { }
         }
 
-        private static int Backup(string[] args, ServiceRegistry reg)
+        private static int Backup(CommandContext ctx)
         {
+            ServiceRegistry reg = ctx.Reg;
+            string[] args = ctx.Args;
+            ToolkitConfig cfg = ctx.Cfg;
             // ★★ **用户要求（2026-09-30）**：「第一次备份必须手动设置目录」✓✓
             //   ✓ `--to <目录>` → **本次运行把备份根指定到那里** ✓✓（放在安装目录之外才稳妥 ✓）
             //   ✓ 没给 `--to` → 走默认根 ✓ 但**若默认根在安装/状态目录内 → 明确警告** ✓
@@ -782,7 +759,7 @@ namespace Dsht.Cli
                 Console.WriteLine("BACKUP_FAIL " + T("数据目录不存在：" + src, "data dir not found: " + src));
                 return 1;
             }
-            BackupResult r = bk.Create(src, BackupKind.Manual, _cfg == null ? 3 : _cfg.KeepBackups, WorkspaceRoot(reg));
+            BackupResult r = bk.Create(src, BackupKind.Manual, cfg == null ? 3 : cfg.KeepBackups, WorkspaceRoot(reg, cfg));
             if (r == null)
             {
                 // ★ 架构审计抓到（S7）：原来是"见 launcher.log" ✗ —— 而原因**就在手边** ✓
@@ -801,7 +778,7 @@ namespace Dsht.Cli
             //     → 半截 `_workspace/<名字>`（没有 .dshws）仍被判"完整" ✗✗（审查 B-04）
             //   ✓ 现在：工作区打包结果结构化返回（打包数/失败数/原因）→ 失败计入不完整并 rc=1 ✓
             //     → 标记行沿用 BACKUP_INCOMPLETE（不新增标记族）✓ → AddContentHashToMarker 放在全部打包**之后** ✓✓
-            WorkspacePackResult wsr = PackageAllWorkspaces(r.Path, reg);
+            WorkspacePackResult wsr = PackageAllWorkspaces(r.Path, reg, cfg);
             int totalFailed = r.FailedCopies + wsr.Failed;
             if (totalFailed > 0)
             {
@@ -861,8 +838,11 @@ namespace Dsht.Cli
         }
 
         /// <summary>check：安装/版本/更新/服务/语言一览（GUI 检查页数据源）。逐条对齐 v2.x 的 Check()。</summary>
-        private static int Check(ServiceRegistry reg)
+        private static int Check(CommandContext ctx)
         {
+            ServiceRegistry reg = ctx.Reg;
+            string[] args = ctx.Args;
+            ToolkitConfig cfg = ctx.Cfg;
             IToolchainQuery tc = reg.Get<IToolchainQuery>();
             Banner();
             string node = TrimOrNull(tc.NodeVersion());
@@ -880,7 +860,7 @@ namespace Dsht.Cli
             {
                 string v = TrimOrNull(tc.DshVersion());
                 Console.WriteLine("  dsh 版本   : " + (string.IsNullOrWhiteSpace(v) ? T("（读取失败）", "(read failed)") : v));
-                if (_cfg.CheckDshUpdate)
+                if (cfg.CheckDshUpdate)
                 {
                     string latest = VersionComparer.SanitizeLatest(tc.NpmViewLatest());
                     string line;
@@ -895,7 +875,7 @@ namespace Dsht.Cli
             string ws = sr.State == ServiceState.Ready ? PlatformComposition.WebUrl + " " + T("已在运行", "running")
                 : (sr.State == ServiceState.Listening ? T("启动中（端口已开，服务未就绪）", "starting (port open, not ready)") : T("未启动", "not started"));
             Console.WriteLine("  Web 服务   : " + ws);
-            Console.WriteLine("  UI 语言    : " + (_cfg.Lang == "auto" ? T("跟随系统", "follow system") : (_cfg.Lang == "zh" ? "简体中文" : "English")));
+            Console.WriteLine("  UI 语言    : " + (cfg.Lang == "auto" ? T("跟随系统", "follow system") : (cfg.Lang == "zh" ? "简体中文" : "English")));
             Pause();
             return 0;
         }
@@ -925,9 +905,12 @@ namespace Dsht.Cli
         /// V3 独有：`--apply` 显式开关 = **跳过「运行中」闸门 + 要求隔离数据根**（见 RestoreApplyPolicy）——
         ///   必须设置 `$DSH_HOME` 且生效数据根不等于任何默认候选，否则 `RESTORE_FAIL`；它**不是**"允许写盘"的开关。
         /// 与 v2.x 的有意差异（更诚实）：只有真正成功才打印 RESTORE_OK（v2.x 在恢复失败时也会打印 RESTORE_OK）。</summary>
-        private static int Restore(string[] args, ServiceRegistry reg)
+        private static int Restore(CommandContext ctx)
         {
-            if (Has(args, "--dry-run") || Has(args, "-dry-run")) return DryRun(args, reg);
+            ServiceRegistry reg = ctx.Reg;
+            string[] args = ctx.Args;
+            ToolkitConfig cfg = ctx.Cfg;
+            if (Has(args, "--dry-run") || Has(args, "-dry-run")) return DryRun(args, reg, cfg);
             bool apply = Has(args, "--apply");
             IBackupSource bk = reg.Get<IBackupSource>();
             IPaths paths = reg.Get<IPaths>();
@@ -1009,7 +992,7 @@ namespace Dsht.Cli
             string dstRoot = paths.DataRoot;
             if (fs.DirectoryExists(dstRoot))
             {
-                BackupResult pre = bk.Create(dstRoot, BackupKind.PreRestore, _cfg == null ? 3 : _cfg.KeepBackups, WorkspaceRoot(reg));
+                BackupResult pre = bk.Create(dstRoot, BackupKind.PreRestore, cfg == null ? 3 : cfg.KeepBackups, WorkspaceRoot(reg, cfg));
                 if (pre == null) { Console.WriteLine("RESTORE_FAIL " + T("恢复前自动备份失败", "pre-restore backup failed")); return 1; }
                 AddContentHashToMarker(pre.Path);   // 回滚锚点也要能自证完整 ✓✓（恢复前自动备份 ✓）
             preRollbackPath = pre.Path;   // ★ C1：记下来 ✓ 恢复失败时要自动回滚 ✓
@@ -1018,7 +1001,7 @@ namespace Dsht.Cli
 
             if (!IntegrityGate(reg)) return 1;   // ★ A2：RESTORE_FAIL → 1 ✓（对齐 v2.x：完整性不匹配时在写盘前拒绝）
 
-            RestoreOutcome o = bk.Restore(bkDir, dstRoot, WorkspaceRoot(reg));
+            RestoreOutcome o = bk.Restore(bkDir, dstRoot, WorkspaceRoot(reg, cfg));
             if (!o.Ok)
             {
                 Console.WriteLine("RESTORE_FAIL " + T("恢复失败：" + (o.Error ?? ""), "restore failed: " + (o.Error ?? "")));
@@ -1028,7 +1011,7 @@ namespace Dsht.Cli
                 // ✓ 现在：失败就自动把恢复前那份打回去 ✓✓ 并如实报告 ✓ 退出码非 0 ✓
                 if (!string.IsNullOrEmpty(preRollbackPath))
                 {
-                    RestoreOutcome rb = bk.Restore(preRollbackPath, dstRoot, WorkspaceRoot(reg));
+                    RestoreOutcome rb = bk.Restore(preRollbackPath, dstRoot, WorkspaceRoot(reg, cfg));
                     if (rb != null && rb.Ok)
                         Console.WriteLine("RESTORE_ROLLED_BACK " + preRollbackPath + " " + T("已自动回滚到恢复前的状态", "rolled back to the pre-restore state"));
                     else
@@ -1049,7 +1032,7 @@ namespace Dsht.Cli
 
         /// <summary>dryrun：只读合并计划。标记与文案逐条对齐 v2.x 的 NIRestoreDryRun。
         /// 退出码：0 = 成功给出计划（DRYRUN_OK）；1 = 拒绝（无有效备份 / 无效包 / 未完成包）。</summary>
-        private static int DryRun(string[] args, ServiceRegistry reg)
+        private static int DryRun(string[] args, ServiceRegistry reg, ToolkitConfig cfg)
         {
             string pathArg = Flag(args, "--path");
             IBackupSource bk = reg.Get<IBackupSource>();
@@ -1123,7 +1106,7 @@ namespace Dsht.Cli
                     {
                         if (!fs.FileExists(System.IO.Path.Combine(subs[i], ".dshws"))) continue;
                         string name = System.IO.Path.GetFileName(subs[i]);
-                        string wsRoot = WorkspaceRoot(reg);
+                        string wsRoot = WorkspaceRoot(reg, cfg);
                         if (wsRoot == null) { Console.WriteLine("DRYRUN_SCOPE workspace " + name + " skipped (unknown workspace root)"); continue; }
                         string target = System.IO.Path.Combine(wsRoot, name);
                         long[] wp = PlanMerge(reg, subs[i], target, null, ".dshws", false);
@@ -1134,7 +1117,7 @@ namespace Dsht.Cli
                 }
                 else
                 {
-                    string wsRoot2 = WorkspaceRoot(reg);
+                    string wsRoot2 = WorkspaceRoot(reg, cfg);
                     string target = wsRoot2 == null ? "" : wsRoot2;
                     if (wsRoot2 == null) Console.WriteLine("DRYRUN_SCOPE workspace-legacy skipped (unknown workspace root)");
                     else Console.WriteLine("DRYRUN_SCOPE workspace-legacy " + target);
@@ -1199,8 +1182,6 @@ namespace Dsht.Cli
             catch { }
             return null;
         }
-
-        private static ToolkitConfig _cfg = new ToolkitConfig();
 
         /// <summary>ws 规范化（平台侧真实路径校验，供领域层注入）。</summary>
         private static string CanonPath(string p) { return System.IO.Path.GetFullPath(p); }

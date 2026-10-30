@@ -13,8 +13,11 @@ namespace Dsht.Cli
     public static partial class Program
     {
         /// <summary>服务三态 + detail 三行。逐条对齐 v2.x 的 StatusCli。</summary>
-        private static int Status(ServiceRegistry reg, bool detail)
+        private static int StatusImpl(CommandContext ctx, bool detail)
         {
+            ServiceRegistry reg = ctx.Reg;
+            string[] args = ctx.Args;
+            ToolkitConfig cfg = ctx.Cfg;
             ServiceReport r = reg.Get<IServiceTarget>().Probe();
             Console.WriteLine(r.StatusMarker);
             // 官方桌面端（Electron）**不监听 3080** ✓（2026-09-30 真机实测：监听 19387 ✓）
@@ -57,8 +60,11 @@ namespace Dsht.Cli
             Console.WriteLine("STATUS_UPTIME " + (haveStart ? UptimeFormatter.Format(DateTime.Now - start) : ""));
             return 0;
         }
-        private static int Describe(ServiceRegistry reg)
+        private static int Describe(CommandContext ctx)
         {
+            ServiceRegistry reg = ctx.Reg;
+            string[] args = ctx.Args;
+            ToolkitConfig cfg = ctx.Cfg;
             IServiceTarget target = reg.Get<IServiceTarget>();
             Console.WriteLine(target.Describe());
             Console.WriteLine("basis: " + target.Probe().Basis);
@@ -80,8 +86,11 @@ namespace Dsht.Cli
         ///
         /// 标记行：BRIDGE_PLAN / BRIDGE_NO_PNPM / BRIDGE_NO_DSH / BRIDGE_NO_PLUGIN / BRIDGE_OK
         ///         / BRIDGE_FAIL / BRIDGE_VERIFY / BRIDGE_NOTE</summary>
-        private static int BridgeInstall(string[] args, ServiceRegistry reg)
+        private static int BridgeInstall(CommandContext ctx)
         {
+            ServiceRegistry reg = ctx.Reg;
+            string[] args = ctx.Args;
+            ToolkitConfig cfg = ctx.Cfg;
             string profile = Flag(args, "--profile");
             // N11 FIX (CLI audit MINOR): this value is pasted into a dsh command line, and the
             // plugin-patching command already validates its profile names - a name like "web&calc"
@@ -366,8 +375,11 @@ namespace Dsht.Cli
         /// **清单拿不到时绝不说 OK** ✗✓：只报 VERIFY_MANIFEST_MISSING 并说明如何取得 ✓。
         /// 诚实边界 ✓：本命令只做 SHA-256 比对；清单本身的 GPG 签名校验仍在 Windows 的 verify.ps1 里 ✓（CLI 不引入第三方依赖 ✗）。
         /// 标记行：VERIFY_SELF / VERIFY_MANIFEST / VERIFY_MATCH / VERIFY_MISMATCH / VERIFY_NOT_IN_MANIFEST / VERIFY_OK / VERIFY_FAIL。</summary>
-        private static int VerifyInstall(string[] args)
+        private static int VerifyInstall(CommandContext ctx)
         {
+            ServiceRegistry reg = ctx.Reg;
+            string[] args = ctx.Args;
+            ToolkitConfig cfg = ctx.Cfg;
             string target = FlagOf(args, "--file");
             if (target.Length == 0)
             {
@@ -457,8 +469,11 @@ namespace Dsht.Cli
         /// 用户要求（2026-09-30）：清除按钮只弹手动删除路径；本命令无论有没有 --yes 都不删除。
         /// 标记行：WIPE_PLAN / WIPE_PLAN_NOTE / WIPE_MANUAL；路径解析失败 → WIPE_FAIL。
         /// 退出码：0 = 已给出报告（带 --yes）；1 = 未确认（缺少 --yes）或报告做不出（WIPE_FAIL）。</summary>
-        private static int WipeCmd(string[] args, ServiceRegistry reg)
+        private static int WipeCmd(CommandContext ctx)
         {
+            ServiceRegistry reg = ctx.Reg;
+            string[] args = ctx.Args;
+            ToolkitConfig cfg = ctx.Cfg;
             string data = reg.Get<IPaths>().DataRoot;
             string backups = reg.Get<IBackupSource>().BackupsRoot;
             string dataFull;
@@ -483,8 +498,11 @@ namespace Dsht.Cli
         /// 恢复侧刻意只接受备份根内的路径（outside → 拒绝 ✓），所以外部包必须先导入 ✓。
         /// 用法：import --path &lt;外部包&gt; [--yes]。加 --yes 时：先对当前数据根做一次 -pre-import 安全备份 ✓，
         /// 再**复制**外部包进备份根（源包不动 ✓），最后提示用 restore 恢复 ✓。导入本身不改动数据 ✓。</summary>
-        private static int ImportCmd(string[] args, ServiceRegistry reg)
+        private static int ImportCmd(CommandContext ctx)
         {
+            ServiceRegistry reg = ctx.Reg;
+            string[] args = ctx.Args;
+            ToolkitConfig cfg = ctx.Cfg;
             string src = FlagOf(args, "--path");
             if (src.Length == 0) { Console.WriteLine("IMPORT_FAIL usage: import --path <外部备份包> [--yes]"); return 2; }
             if (!System.IO.Directory.Exists(src)) { Console.WriteLine("IMPORT_FAIL " + T("源目录不存在: ", "source directory does not exist: ") + src); return 1; }
@@ -514,7 +532,7 @@ namespace Dsht.Cli
             // 1) 安全网：导入前给当前数据根留一份 -pre-import 备份 ✓
             try
             {
-                Dsht.Domain.Model.BackupResult pb = bk.Create(reg.Get<IPaths>().DataRoot, Dsht.Domain.Model.BackupKind.PreImport, _cfg == null ? 3 : _cfg.KeepBackups, WorkspaceRoot(reg));
+                Dsht.Domain.Model.BackupResult pb = bk.Create(reg.Get<IPaths>().DataRoot, Dsht.Domain.Model.BackupKind.PreImport, cfg == null ? 3 : cfg.KeepBackups, WorkspaceRoot(reg, cfg));
                 if (pb != null && !string.IsNullOrEmpty(pb.Path)) { Console.WriteLine("IMPORT_PRE_BACKUP " + pb.Path); AddContentHashToMarker(pb.Path); }   // 回滚锚点也要能自证完整 ✓✓
             }
             catch (Exception bex) { Console.WriteLine("IMPORT_PRE_BACKUP_FAILED " + bex.Message); }
@@ -533,8 +551,11 @@ namespace Dsht.Cli
             catch (Exception cex) { OpLog(reg, "ERROR", "import failed: " + cex.Message); Console.WriteLine("IMPORT_FAIL " + cex.Message); return 1; }   // 执行失败：复制没成功
             return 0;
         }
-        private static int AboutCmd()
+        private static int AboutCmd(CommandContext ctx)
         {
+            ServiceRegistry reg = ctx.Reg;
+            string[] args = ctx.Args;
+            ToolkitConfig cfg = ctx.Cfg;
             // 图标署名 ✓✓（用户要求："README + 关于页署名原作者" ✓）
             Console.WriteLine("CREDITS " + T("鲸鱼娘（Whale-chan）形象来自 DeepSeek 社区同人创作；本项目图标为生成式 AI 产出（生成式 AI 工具），提示词由本项目作者编写。非官方、非商业、与 DeepSeek 官方无关。详见仓库 docs/ASSETS.md。", "Whale-chan is community fan art; this project's icon is AI-generated (生成式 AI 工具). Unofficial, non-commercial, not affiliated with DeepSeek. See ASSETS.md."));
             Console.WriteLine("dsh-minato " + ToolkitVersion);
@@ -562,8 +583,11 @@ namespace Dsht.Cli
         /// ★ W4（2026-10-30，v2 已停维护）：回退名单里的 **v2.x 旧界面程序名已全部删除** ——
         /// 只看本包自带的 `dsht-gui`（或 `DSHT_GUI` 显式指定）；找不到就**如实打印 UI_FAIL 并返回 1**，
         /// ✗ 不再静默拉起 v2 旧界面、也不再打"这是 v2.x 旧界面"的提示 ✗。</summary>
-        private static int UiCmd()
+        private static int UiCmd(CommandContext ctx)
         {
+            ServiceRegistry reg = ctx.Reg;
+            string[] args = ctx.Args;
+            ToolkitConfig cfg = ctx.Cfg;
             string gui = Environment.GetEnvironmentVariable("DSHT_GUI");
             if (!string.IsNullOrEmpty(gui) && !System.IO.File.Exists(gui)) { Console.WriteLine("UI_FAIL " + T("DSHT_GUI 指向的文件不存在：", "DSHT_GUI points at a missing file: ") + gui); return 1; }
             if (string.IsNullOrEmpty(gui))
@@ -595,8 +619,11 @@ namespace Dsht.Cli
             }
             catch (Exception ex) { Console.WriteLine("UI_FAIL " + ex.Message); return 1; }   // 执行失败：启动异常
         }
-        private static int InstallLike(string[] args, ServiceRegistry reg, bool update)
+        private static int InstallLike(CommandContext ctx, bool update)
         {
+            ServiceRegistry reg = ctx.Reg;
+            string[] args = ctx.Args;
+            ToolkitConfig cfg = ctx.Cfg;
             IToolchainQuery tc = reg.Get<IToolchainQuery>();
             string verb = update ? "UPDATE" : "INSTALL";
             string which = tc.WhichDsh();
@@ -687,7 +714,7 @@ namespace Dsht.Cli
                 Console.WriteLine(verb + "_OBSERVED " + (installed.Length > 0 ? installed : "not-installed"));
                 return 2;   // 用法错误：--version 取值不合法（EXIT-02 政策 A）
             }
-            string channel = _cfg == null ? "rc" : _cfg.UpdateChannel;
+            string channel = cfg == null ? "rc" : cfg.UpdateChannel;
             string latest = wantVersion.Length > 0 ? wantVersion : VersionForChannel(tc, channel);
             if (wantVersion.Length == 0) Console.WriteLine(verb + "_CHANNEL " + (string.IsNullOrEmpty(channel) ? "rc" : channel) + " -> " + (latest.Length == 0 ? "unknown" : latest));
             if (!NpmVersionGuard.IsSafe(latest))
@@ -713,7 +740,7 @@ namespace Dsht.Cli
                 try
                 {
                     Dsht.Domain.Abstractions.IBackupSource bks = reg.Get<Dsht.Domain.Abstractions.IBackupSource>();
-                    Dsht.Domain.Model.BackupResult pb = bks.Create(reg.Get<Dsht.Domain.Abstractions.IPaths>().DataRoot, Dsht.Domain.Model.BackupKind.PreUpdate, _cfg == null ? 3 : _cfg.KeepBackups, WorkspaceRoot(reg));
+                    Dsht.Domain.Model.BackupResult pb = bks.Create(reg.Get<Dsht.Domain.Abstractions.IPaths>().DataRoot, Dsht.Domain.Model.BackupKind.PreUpdate, cfg == null ? 3 : cfg.KeepBackups, WorkspaceRoot(reg, cfg));
                     if (pb != null && !string.IsNullOrEmpty(pb.Path)) { Console.WriteLine(verb + "_PRE_BACKUP " + pb.Path); AddContentHashToMarker(pb.Path); }   // 回滚锚点也要能自证完整 ✓✓
                     // Record the version we are about to replace, NEXT TO the package (a file inside it would
                     // be restored into the data root). This is what makes a rollback candidate knowable.
@@ -755,8 +782,11 @@ namespace Dsht.Cli
             return 1;   // 执行失败：npm 安装失败（EXIT-02 政策 A）
         }
         /// <summary>uninstall（V3 独有）：卸载 dsh（**不动数据目录**）。同样：计划 → 闸门 → npm → 复检。</summary>
-        private static int UninstallCmd(string[] args, ServiceRegistry reg)
+        private static int UninstallCmd(CommandContext ctx)
         {
+            ServiceRegistry reg = ctx.Reg;
+            string[] args = ctx.Args;
+            ToolkitConfig cfg = ctx.Cfg;
             IToolchainQuery tc = reg.Get<IToolchainQuery>();
             string which = tc.WhichDsh();
             string installed = tc.DshVersion();
@@ -808,8 +838,11 @@ namespace Dsht.Cli
             }
             catch { return ""; }
         }
-        private static int StartCmd(string[] args, ServiceRegistry reg)
+        private static int StartCmd(CommandContext ctx)
         {
+            ServiceRegistry reg = ctx.Reg;
+            string[] args = ctx.Args;
+            ToolkitConfig cfg = ctx.Cfg;
             IServiceTarget target = TargetForStart(args, reg);   // 先解析 --port 再选目标（顺序敏感）
             IServiceControl ctl = reg.Get<IServiceControl>();
 
@@ -910,8 +943,11 @@ namespace Dsht.Cli
         }
         /// <summary>stop（V3 独有）：按**观测到的 PID** 结束 dsh，再用观测确认真的停了。
         /// 标记行：`STOP_OK <pid>` / `STOP_FAIL <原因>` + `STOP_OBSERVED <状态>`。</summary>
-        private static int StopCmd(string[] args, ServiceRegistry reg)
+        private static int StopCmd(CommandContext ctx)
         {
+            ServiceRegistry reg = ctx.Reg;
+            string[] args = ctx.Args;
+            ToolkitConfig cfg = ctx.Cfg;
             IServiceTarget target = reg.Get<IServiceTarget>();
             // --port：把目标临时指向指定端口。**没有这个开关时 stop 只会认默认 3080（用户的实例）**，
             // 而 DSH_HOME 隔离不隔离端口 —— 这是踩过的坑，所以测试必须能指定端口。
@@ -1025,8 +1061,11 @@ namespace Dsht.Cli
         }
         /// <summary>selftest：写自检报告并打印 report -> 路径。内容逐条对齐 v2.x 的 Selftest。
         /// 可选 `--runquiet &lt;exe&gt; [参数…]`：诊断用，跑一次 RunQuiet 并报告结果（超时返回非零）。</summary>
-        private static int SelfTest(string[] args, ServiceRegistry reg)
+        private static int SelfTest(CommandContext ctx)
         {
+            ServiceRegistry reg = ctx.Reg;
+            string[] args = ctx.Args;
+            ToolkitConfig cfg = ctx.Cfg;
             int qi = -1;
             for (int i = 0; i < args.Length; i++) { if (args[i] == "--runquiet") { qi = i; break; } }
             if (qi >= 0)

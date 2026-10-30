@@ -211,8 +211,11 @@ namespace Dsht.Cli
         ///
         /// 标记行：BACKUP_DIR / BACKUP_DIR_OK / BACKUP_DIR_RESET / BACKUP_DIR_FAIL
         /// 退出码：0 = 查看/设置/恢复默认成功；2 = 用法错误（相对路径）；1 = 执行失败（删不掉、建不出、存不下）。</summary>
-        private static int BackupDirCmd(string[] args, ServiceRegistry reg)
+        private static int BackupDirCmd(CommandContext ctx)
         {
+            ServiceRegistry reg = ctx.Reg;
+            string[] args = ctx.Args;
+            ToolkitConfig cfg = ctx.Cfg;
             IBackupSource bk = reg.Get<IBackupSource>();
             IPaths paths = reg.Get<IPaths>();
             string sel = "";
@@ -281,8 +284,11 @@ namespace Dsht.Cli
             Console.WriteLine("BACKUP_DIR_OK " + full + " " + T("以后的备份都写到这里（已有备份不会被移动，仍留在原处）", "future backups go here; existing ones are not moved"));
             return 0;
         }
-        private static int BackupList(string[] args, ServiceRegistry reg)
+        private static int BackupList(CommandContext ctx)
         {
+            ServiceRegistry reg = ctx.Reg;
+            string[] args = ctx.Args;
+            ToolkitConfig cfg = ctx.Cfg;
             if (Has(args, "--verify")) return BackupVerify(reg);
             bool detail = Has(args, "--detail");
             IBackupSource src = reg.Get<IBackupSource>();
@@ -351,12 +357,12 @@ namespace Dsht.Cli
         /// <para>★★★ B-04（2026-10-30）：返回**结构化结果**（打包数 / 失败数 / 失败原因），不再逐目录静默 continue ✗：
         ///   · 复制/写标记失败 ⇒ 记原因 + **删掉半截目标目录**（不留"没有 .dshws 的半截工作区"给恢复侧误并 ✗）
         ///   · 配置的工作区目录不存在 / 与数据根互相包含 / 目标重名 ⇒ 也逐条说明（不再无声跳过）</para></summary>
-        private static WorkspacePackResult PackageAllWorkspaces(string pkgDir, ServiceRegistry reg)
+        private static WorkspacePackResult PackageAllWorkspaces(string pkgDir, ServiceRegistry reg, ToolkitConfig cfg)
         {
             WorkspacePackResult res = new WorkspacePackResult();
             try
             {
-                string[] all = ConfiguredWorkspaces();
+                string[] all = ConfiguredWorkspaces(cfg);
                 if (all.Length < 2) return res;                     // 单个 → 平台侧按旧式扁平打包 ✓
                 string wsRoot = System.IO.Path.Combine(pkgDir, "_workspace");
                 try { System.IO.Directory.CreateDirectory(wsRoot); }
@@ -487,18 +493,21 @@ namespace Dsht.Cli
                 return T("工作区完整性检查出错（", "workspace completeness check failed (") + ex.GetType().Name + T("）—— 按不完整处理：", ") - treated as incomplete: ") + System.IO.Path.GetFileName(pkgDir);
             }
         }
-        private static string WorkspaceRoot(ServiceRegistry reg)
+        private static string WorkspaceRoot(ServiceRegistry reg, ToolkitConfig cfg)
         {
             // **≥2 个工作区时传 null** ✓✓ —— 让平台侧一个都不打包 ✓（避免两代格式混在一个包里 ✗），
             // 同时**保留自动探测** ✓ → 恢复侧的目标仍然正确 ✓（各工作区落到当前项目目录下的 <名称>/ ✓）
-            string[] _wss = ConfiguredWorkspaces();
-            string _wsCfg = _wss.Length >= 2 ? null : (_cfg == null ? null : _cfg.Workspace);
+            string[] _wss = ConfiguredWorkspaces(cfg);
+            string _wsCfg = _wss.Length >= 2 ? null : (cfg == null ? null : cfg.Workspace);
             return WorkspaceResolver.Resolve(_wsCfg, reg.Get<IPaths>().WorkspaceRoot,
                 delegate(string p) { return System.IO.Path.GetFullPath(p); },
                 delegate(string p) { return System.IO.Directory.Exists(p); });
         }
-        private static int BackupExport(string[] args, ServiceRegistry reg)
+        private static int BackupExport(CommandContext ctx)
         {
+            ServiceRegistry reg = ctx.Reg;
+            string[] args = ctx.Args;
+            ToolkitConfig cfg = ctx.Cfg;
             IBackupSource bk = reg.Get<IBackupSource>();
             IFileSystemQuery fs = reg.Get<IFileSystemQuery>();
             string reason = PathValidator.ValidateExport(Flag(args, "--path"), Flag(args, "--to"), bk.BackupsRoot,
@@ -521,8 +530,11 @@ namespace Dsht.Cli
             return 0;
         }
         /// <summary>备份删除：校验路径后**真删**（会丢数据 → 需要 --yes 闸门 ✓）。</summary>
-        private static int BackupDelete(string[] args, ServiceRegistry reg)
+        private static int BackupDelete(CommandContext ctx)
         {
+            ServiceRegistry reg = ctx.Reg;
+            string[] args = ctx.Args;
+            ToolkitConfig cfg = ctx.Cfg;
             IBackupSource bk = reg.Get<IBackupSource>();
             IFileSystemQuery fs = reg.Get<IFileSystemQuery>();
             string reason = PathValidator.ValidateDeletePath(Flag(args, "--path"), bk.BackupsRoot,

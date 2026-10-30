@@ -29,14 +29,17 @@ namespace Dsht.Cli
     {
         /// <summary>cost [--days 7|14|30 | --from --to] [--level global|parents|parents_sub]
         /// —— 只读 ✓ 参数与 `sessions` **逐字同一套**（含成对/互斥/格式校验 ✓ 规格 §2 ✓）。</summary>
-        private static int Cost(ServiceRegistry reg, string[] args)
+        private static int Cost(CommandContext ctx)
         {
-            return EmitCost(ScanSessions(reg, args));
+            ServiceRegistry reg = ctx.Reg;
+            string[] args = ctx.Args;
+            ToolkitConfig cfg = ctx.Cfg;
+            return EmitCost(ScanSessions(reg, args, cfg), cfg);
         }
 
         /// <summary>成本发射端（`cost` 与 `overview` 共用 ✓）。
         /// ★ 失败面：**只打 COST_FAIL**（✗ 不打半截数字 ✗ 规格 §3.1 ④ ✓）；stderr 说明照 sessions 的形制 ✓。</summary>
-        private static int EmitCost(SessionScan sc)
+        private static int EmitCost(SessionScan sc, ToolkitConfig cfg)
         {
             if (!sc.Ok)
             {
@@ -52,7 +55,7 @@ namespace Dsht.Cli
                     "lineage unavailable: scope " + sc.Level + " needs the bridge plugin lineage section (first-frame headers only); install/upgrade dsh-minato-bridge and retry"));
                 return 1;   // 执行失败：缺桥插件血缘前置（EXIT-02 政策 A 的裁决：sessions/cost 血缘不可用 = 1，不是用法错误）
             }
-            ToolkitConfig cfg = _cfg == null ? new ToolkitConfig() : _cfg;
+            cfg = cfg == null ? new ToolkitConfig() : cfg;   // 原 null 语义不变（缺配置时用默认值，与旧 static _cfg 一致）
             bool priced = SessionCost.IsPriced(cfg);
             string tz = MarkerText.Encode(TimeZoneInfo.Local.Id);
 

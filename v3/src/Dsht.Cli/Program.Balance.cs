@@ -1,4 +1,5 @@
 using System;
+using Dsht.Domain.Model;
 
 namespace Dsht.Cli
 {
@@ -19,9 +20,12 @@ namespace Dsht.Cli
         ///     （命令行会进 shell 历史/进程列表 ✓ 配置文件只在你机器上 ✓ 比参数安全 ✓）
         ///   · 联网命令 ✓ —— 已加进 about 的"会联网的只有…"清单 ✓（诚实边界 ✓✓）
         ///   · 解析是领域层纯函数（BalanceJson ✓），HTTP 是 CLI 层 IO ✓ 领域纯净度门槛不破 ✓。</summary>
-        private static int Balance(ServiceRegistry reg)
+        private static int Balance(CommandContext ctx)
         {
-            string key = _cfg == null ? "" : (_cfg.BalanceKey == null ? "" : _cfg.BalanceKey).Trim();
+            ServiceRegistry reg = ctx.Reg;
+            string[] args = ctx.Args;
+            ToolkitConfig cfg = ctx.Cfg;
+            string key = cfg == null ? "" : (cfg.BalanceKey == null ? "" : cfg.BalanceKey).Trim();
             if (key.Length == 0)
             {
                 Console.WriteLine("BALANCE_STATE unbound");
