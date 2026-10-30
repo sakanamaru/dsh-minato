@@ -1,65 +1,17 @@
-using System;
-using System.Net;
-using System.Net.Sockets;
-using Dsht.Domain.Abstractions;
+using Dsht.Platform.Shared;
 
 namespace Dsht.Platform.Windows
 {
-    /// <summary>端口探测：TcpClient 连接回环地址。逐条对齐 v2.x 的 IsPortOpen。</summary>
-    public sealed class WindowsPortProbe : IPortProbe
+    /// <summary>端口探测（Windows）：实现见 Dsht.Platform.Shared/ProbesCommon.cs。
+    /// B-05 平台层去重：两平台原本逐行相同 ⇒ 编译同一份共享源，行为逐字不变。</summary>
+    public sealed class WindowsPortProbe : PortProbeCommon
     {
-        public bool IsOpen(int port, int timeoutMs)
-        {
-            try
-            {
-                using (TcpClient c = new TcpClient())
-                {
-                    System.Threading.Tasks.Task t = c.ConnectAsync(IPAddress.Loopback, port);
-                    return t.Wait(timeoutMs) && c.Connected;
-                }
-            }
-            catch { return false; }
-        }
     }
 
-    /// <summary>HTTP 探测：GET，2xx/3xx 视为就绪。对齐 v2.x 的 HttpReady / HttpResponds。</summary>
-    public sealed class WindowsHttpProbe : IHttpProbe
+    /// <summary>HTTP 探测（Windows）：实现见 Dsht.Platform.Shared/ProbesCommon.cs。
+    /// B-05 平台层去重；RespondsCore 是 WindowsProcessQuery 直接用的历史方法（语义与 Responds 逐字相同，保留以不改调用点）。</summary>
+    public sealed class WindowsHttpProbe : HttpProbeCommon
     {
-        public bool IsReady(string url, int timeoutMs)
-        {
-            try
-            {
-                HttpWebRequest req = (HttpWebRequest)WebRequest.Create(url);
-                req.Method = "GET";
-                req.Timeout = timeoutMs;
-                req.AllowAutoRedirect = true;
-                using (HttpWebResponse resp = (HttpWebResponse)req.GetResponse())
-                {
-                    int code = (int)resp.StatusCode;
-                    return code >= 200 && code < 400;
-                }
-            }
-            catch { return false; }
-        }
-
-        /// <summary>接口方法：任意状态码也算有应答（对齐 v2.x 的 HttpResponds）。</summary>
-        public bool Responds(string url, int timeoutMs) { return RespondsCore(url, timeoutMs); }
-
-        public bool RespondsCore(string url, int timeoutMs)
-        {
-            try
-            {
-                HttpWebRequest req = (HttpWebRequest)WebRequest.Create(url);
-                req.Method = "GET";
-                req.Timeout = timeoutMs;
-                req.AllowAutoRedirect = true;
-                using (HttpWebResponse resp = (HttpWebResponse)req.GetResponse())
-                {
-                    return resp != null;
-                }
-            }
-            catch (WebException wex) { return wex.Response != null; }
-            catch { return false; }
-        }
+        public bool RespondsCore(string url, int timeoutMs) { return Responds(url, timeoutMs); }
     }
 }

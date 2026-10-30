@@ -1048,6 +1048,39 @@ namespace Dsht.Cli
             return "";
         }
 
+        /// <summary>B-10：配置里**认不出的键/行**不再完全静默 —— config-get 是「看清配置文件里到底有什么」的命令，
+        /// 就地把它们打成一到多行 CONFIGWARN（沿用现有 CONFIGWARN 形制）。
+        /// ★ 走 **stderr**：stdout 的标记行契约被 compare_markers 的 full 模式逐行比对（v2.x 没有这些行），
+        ///   诊断进 stderr 既不破坏契约、又能被用户看见（与 INTEGRITY_SKIPPED 的处置同一口径）。
+        /// ★ 解析仍以 ConfigCodec.Parse 为唯一规则；本方法只**收集**、不改任何键的解析结果 ✓。</summary>
+        private static void WarnUnknownConfigLines(ServiceRegistry reg)
+        {
+            try
+            {
+                string text = reg.Get<IConfigSource>().ReadConfig();
+                if (string.IsNullOrEmpty(text)) return;
+                System.Collections.Generic.IList<string> unknown = new System.Collections.Generic.List<string>();
+                ConfigCodec.Parse(text, CanonPath, unknown);
+                for (int i = 0; i < unknown.Count; i++)
+                {
+                    string line = unknown[i] == null ? "" : unknown[i];
+                    int eq = line.IndexOf('=');
+                    if (eq > 0)
+                    {
+                        Console.Error.WriteLine("CONFIGWARN " + MarkerText.Encode(line.Substring(0, eq).Trim()) + " "
+                            + T("配置文件里的这个键无法识别，已忽略（可能是手改留下的拼写错误，或旧版本留下的键）",
+                                "this key in the config file is not recognized and was ignored (a typo from manual editing, or a key left by an older version)"));
+                    }
+                    else
+                    {
+                        Console.Error.WriteLine("CONFIGWARN unknown_line "
+                            + T("配置文件里有一行无法识别，已忽略：「" + MarkerText.Encode(line) + "」",
+                                "a line in the config file is not recognized and was ignored: '" + MarkerText.Encode(line) + "'"));
+                    }
+                }
+            }
+            catch { }   // 提示本身失败不影响 config-get 主输出（与 ILogSource.Append 的尽力而为同一纪律）
+        }
         /// <summary>config-get：CONFIGGET_OK + 每行 CONFIG <key> <value>（顺序与 v2.x 一致）。
         /// <para>★ 2026-10-28：多了一个 `CONFIGWARN` 行——**只在**配置原文里的悬边灯样式是非法值时出现：
         /// 那时解析已回落默认（`dot` ✓），这一行把"回落了、为什么"明说出来
@@ -1055,6 +1088,7 @@ namespace Dsht.Cli
         private static int ConfigGet(ServiceRegistry reg)
         {
             Console.WriteLine("CONFIGGET_OK");
+            WarnUnknownConfigLines(reg);
             Console.WriteLine("CONFIG lang " + _cfg.Lang);
             Console.WriteLine("CONFIG host " + _cfg.Host);
             Console.WriteLine("CONFIG ws " + (_cfg.Workspace == null ? "" : _cfg.Workspace));
