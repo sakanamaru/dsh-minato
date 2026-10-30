@@ -473,6 +473,21 @@ Console.WriteLine("  config-get | config-set <key> <value>");
 
 
 
+        /// <summary>结束整棵进程树（超时收尾用）。
+        /// Kill(true) 只存在于 .NET Core；v2 链用 .NET Framework 的 csc 编译同一份源码，
+        /// 那里只有 Kill()。用反射取带 bool 的重载，取不到就退回只结束本进程。</summary>
+        private static void KillProcessTree(System.Diagnostics.Process p)
+        {
+            if (p == null) return;
+            try
+            {
+                System.Reflection.MethodInfo killTree = typeof(System.Diagnostics.Process).GetMethod("Kill", new System.Type[] { typeof(bool) });
+                if (killTree != null) killTree.Invoke(p, new object[] { true });
+                else p.Kill();
+            }
+            catch { try { p.Kill(); } catch { } }
+        }
+
         /// <summary>跑一条命令并丢弃输出（systemctl 之类）。失败不影响主流程。
         /// stdout 与 stderr **并发读取**：顺序读会在子进程写满另一路管道时互锁（双方都在等对方）。
         /// 8 秒超时后结束整棵进程树，并打印 RUNQUIET_TIMEOUT（超时不能当成成功）。
@@ -491,15 +506,7 @@ Console.WriteLine("  config-get | config-set <key> <value>");
                 System.Threading.Tasks.Task<string> errTask = p.StandardError.ReadToEndAsync();
                 if (!p.WaitForExit(8000))
                 {
-                    // Kill(true) 只存在于 .NET Core；v2 链用 .NET Framework 的 csc 编译同一份源码，
-                    // 那里只有 Kill()。用反射取带 bool 的重载，取不到就退回只结束本进程。
-                    try
-                    {
-                        System.Reflection.MethodInfo killTree = typeof(System.Diagnostics.Process).GetMethod("Kill", new System.Type[] { typeof(bool) });
-                        if (killTree != null) killTree.Invoke(p, new object[] { true });
-                        else p.Kill();
-                    }
-                    catch { try { p.Kill(); } catch { } }
+                    KillProcessTree(p);
                     try { p.WaitForExit(3000); } catch { }
                     try { System.Threading.Tasks.Task.WaitAll(new System.Threading.Tasks.Task[] { outTask, errTask }, 3000); } catch { }
                     Console.WriteLine("RUNQUIET_TIMEOUT " + exe);
