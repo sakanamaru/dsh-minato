@@ -866,7 +866,7 @@ namespace Dsht.Cli
                     System.IO.File.WriteAllText(export, string.Join(Environment.NewLine, picked.ToArray()));
                     Console.WriteLine("LOG_EXPORT " + export + " " + picked.Count);
                 }
-                catch (Exception ex) { Console.WriteLine("LOG_FAIL " + ex.Message); }
+                catch (Exception ex) { Console.WriteLine("LOG_FAIL " + ex.Message); return 1; }   // 执行失败：导出写不出（EXIT-02 政策 A）
                 return 0;
             }
             Console.WriteLine("LOG_OK " + picked.Count);
@@ -884,7 +884,7 @@ namespace Dsht.Cli
             string exe = "";
             try { exe = System.Diagnostics.Process.GetCurrentProcess().MainModule.FileName; } catch { }
             if (string.IsNullOrEmpty(exe)) exe = System.IO.Path.Combine(AppContext.BaseDirectory, "dsh-minato");
-            if (string.IsNullOrEmpty(exe)) { Console.WriteLine("SHORTCUT_FAIL " + T("拿不到自身路径", "cannot resolve own path")); return 0; }
+            if (string.IsNullOrEmpty(exe)) { Console.WriteLine("SHORTCUT_FAIL " + T("拿不到自身路径", "cannot resolve own path")); return 1; }
             string dir = System.IO.Path.GetDirectoryName(exe);
             string target = win ? System.IO.Path.Combine(dir, "dsht-minato.exe") : System.IO.Path.Combine(dir, "dsht-minato");
             if (!System.IO.File.Exists(target)) target = exe;   // 还没改名时就用当前可执行文件
@@ -898,7 +898,7 @@ namespace Dsht.Cli
             else
             {
                 string home = Environment.GetEnvironmentVariable("HOME");
-                if (string.IsNullOrEmpty(home)) { Console.WriteLine("SHORTCUT_FAIL " + T("没有 HOME，无法确定位置", "no HOME, cannot decide a location")); return 0; }
+                if (string.IsNullOrEmpty(home)) { Console.WriteLine("SHORTCUT_FAIL " + T("没有 HOME，无法确定位置", "no HOME, cannot decide a location")); return 1; }
                 where = System.IO.Path.Combine(System.IO.Path.Combine(System.IO.Path.Combine(home, ".local"), "share"), "applications");
                 where = System.IO.Path.Combine(where, "dsh-minato.desktop");
             }
@@ -917,7 +917,7 @@ namespace Dsht.Cli
                                 "$s.WorkingDirectory='" + dir.Replace("'", "''") + "';$s.Save()";
                     System.Diagnostics.ProcessStartInfo psi = new System.Diagnostics.ProcessStartInfo("powershell", "-NoProfile -Command \"" + ps.Replace("\"", "\\\"") + "\"");
                     psi.UseShellExecute = false; psi.CreateNoWindow = true;
-                    using (System.Diagnostics.Process pr = System.Diagnostics.Process.Start(psi)) { pr.WaitForExit(30000); if (pr.ExitCode != 0) { Console.WriteLine("SHORTCUT_FAIL powershell 退出码 " + pr.ExitCode); return 0; } }
+                    using (System.Diagnostics.Process pr = System.Diagnostics.Process.Start(psi)) { pr.WaitForExit(30000); if (pr.ExitCode != 0) { Console.WriteLine("SHORTCUT_FAIL powershell 退出码 " + pr.ExitCode); return 1; } }
                 }
                 else
                 {
@@ -925,10 +925,11 @@ namespace Dsht.Cli
                     string body = "[Desktop Entry]\nType=Application\nName=dsh-minato\nComment=" + T("dsh 部署运维套件", "deploy & ops kit for dsh") + "\nExec=" + target + "\nTerminal=true\nCategories=Utility;\n";
                     System.IO.File.WriteAllText(where, body, new System.Text.UTF8Encoding(false));
                 }
-                Console.WriteLine(System.IO.File.Exists(where) ? "SHORTCUT_OK " + where : "SHORTCUT_FAIL " + T("写入后未观测到文件", "file not observed after writing"));
+                bool wrote = System.IO.File.Exists(where);
+                Console.WriteLine(wrote ? "SHORTCUT_OK " + where : "SHORTCUT_FAIL " + T("写入后未观测到文件", "file not observed after writing"));
+                return wrote ? 0 : 1;   // 失败：写入后未观测到文件（EXIT-02 政策 A）
             }
-            catch (Exception ex) { Console.WriteLine("SHORTCUT_FAIL " + ex.Message); }
-            return 0;
+            catch (Exception ex) { Console.WriteLine("SHORTCUT_FAIL " + ex.Message); return 1; }   // 执行失败：创建异常
         }
         /// <summary>开机自启（用户要求："开启自启服务功能还在吗" + "按平台选 + 做成设置项让你选" ✓✓）
         /// · 目标：`auto_start_target` = auto（**按平台** ✓ Win/Mac→官方桌面端 · Linux→dsh web）/ desktop / web
@@ -968,7 +969,7 @@ namespace Dsht.Cli
                     Console.WriteLine("AUTOSTART_OK disable");
                     OpLog(reg, "INFO", "autostart disabled");
                 }
-                catch (Exception ex) { Console.WriteLine("AUTOSTART_FAIL " + ex.Message); }
+                catch (Exception ex) { Console.WriteLine("AUTOSTART_FAIL " + ex.Message); return 1; }   // 执行失败：禁用写盘异常（EXIT-02 政策 A）
                 return 0;
             }
 
@@ -1018,12 +1019,12 @@ namespace Dsht.Cli
                 wrote = System.IO.File.Exists(path);
             }
             catch { }
-            if (!wrote) { Console.WriteLine("AUTOSTART_FAIL " + T("写入后没有找到自启文件，请检查权限", "no autostart file was found after writing")); return 0; }
+            if (!wrote) { Console.WriteLine("AUTOSTART_FAIL " + T("写入后没有找到自启文件，请检查权限", "no autostart file was found after writing")); return 1; }
             Console.WriteLine("AUTOSTART_OK enable");
                 Console.WriteLine("AUTOSTART_PATH " + path);
                 OpLog(reg, "INFO", "autostart enabled target=" + effective);
             }
-            catch (Exception ex) { Console.WriteLine("AUTOSTART_FAIL " + ex.Message); }
+            catch (Exception ex) { Console.WriteLine("AUTOSTART_FAIL " + ex.Message); return 1; }   // 执行失败：启用写盘异常（EXIT-02 政策 A）
             return 0;
         }
         /// <summary>从**配置原文**里取一个键的值（只用于"非法值如实提示" ✓）。

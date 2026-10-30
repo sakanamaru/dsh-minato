@@ -65,7 +65,7 @@ namespace Dsht.Cli
             if (!reg.Get<IFileSystemQuery>().DirectoryExists(src.ProfilesRoot))
             {
                 Console.WriteLine("PROFILES_FAIL " + T("找不到 profiles 目录", "profiles directory not found"));
-                return 0;
+                return 1;   // 执行失败：数据根未初始化，列不出 profile（EXIT-02 政策 A）
             }
             string[] names = src.ListProfiles();
             List<string[]> rows = new List<string[]>();
@@ -150,7 +150,7 @@ namespace Dsht.Cli
                     System.IO.File.WriteAllText(report, text, new System.Text.UTF8Encoding(true));
                     Console.WriteLine("DOCTOR_REPORT " + report);
                 }
-                catch (Exception ex) { Console.WriteLine("DOCTOR_WRITE_FAIL " + ex.Message); }
+                catch (Exception ex) { Console.WriteLine("DOCTOR_WRITE_FAIL " + ex.Message); return 1; }   // 执行失败：报告写不出（EXIT-02 政策 A）
             }
             return 0;
         }
@@ -275,7 +275,7 @@ namespace Dsht.Cli
             if (string.IsNullOrEmpty(profile))
             {
                 Console.WriteLine("PROFILEPATCH_FAIL usage: profilepatch --profile <name> --id <entry> [--enable] [--yes]");
-                return 0;
+                return 2;   // 用法错误：缺 --profile（EXIT-02 政策 A）
             }
             // I4 FIX (CLI audit MINOR): the profile name is joined into a path, so a value like
             // "..\..\x" could rewrite any file named cordis.patch.yml outside the data root (the
@@ -284,14 +284,14 @@ namespace Dsht.Cli
             if (!string.IsNullOrEmpty(profile) && !System.Text.RegularExpressions.Regex.IsMatch(profile, @"^[A-Za-z0-9._-]+$") || profile == "." || profile == "..")   // N7 FIX: dots alone escaped the profiles dir
             {
                 Console.WriteLine("PROFILEPATCH_FAIL " + T("profile 名字不合法（只允许字母数字与 . _ -）：" + profile, "invalid profile name: " + profile));
-                return 0;
+                return 2;   // 用法错误：参数取值不合法（EXIT-02 政策 A）
             }
             string text = src.ReadPatch(profile);
-            if (text == null) { Console.WriteLine("PROFILEPATCH_FAIL file-not-found " + profile); return 0; }
+            if (text == null) { Console.WriteLine("PROFILEPATCH_FAIL file-not-found " + profile); return 1; }
 
             PatchPlan plan = enable ? PatchPlanner.PlanEnable(text, id) : PatchPlanner.PlanDisable(text, id);
             if (plan.Noop) { Console.WriteLine("PROFILEPATCH_NOOP " + plan.Reason); return 0; }
-            if (!plan.Valid) { Console.WriteLine("PROFILEPATCH_FAIL " + plan.Reason); return 0; }
+            if (!plan.Valid) { Console.WriteLine("PROFILEPATCH_FAIL " + plan.Reason); return 1; }
 
             Console.WriteLine("PROFILEPATCH_PLAN " + profile + "/cordis.patch.yml:" + plan.Line + " " + (enable ? "disabled: false" : "disabled: true"));
             if (!yes)
@@ -306,7 +306,7 @@ namespace Dsht.Cli
             {
                 if (err == "verify-failed") Console.WriteLine("PROFILEPATCH_ROLLBACK " + backup);
                 Console.WriteLine("PROFILEPATCH_FAIL " + err);
-                return 0;
+                return 1;   // 执行失败：应用/回滚失败（EXIT-02 政策 A）
             }
             Console.WriteLine("PROFILEPATCH_OK " + profile + "/cordis.patch.yml:" + plan.Line);
             OpLog(reg, "INFO", "profilepatch OK " + profile + " line " + plan.Line);
@@ -316,17 +316,17 @@ namespace Dsht.Cli
         private static int BootDiag(string[] args, ServiceRegistry reg)
         {
             string from = Flag(args, "--from");
-            if (string.IsNullOrEmpty(from)) { Console.WriteLine("BOOTDIAG_FAIL no-input"); return 0; }
+            if (string.IsNullOrEmpty(from)) { Console.WriteLine("BOOTDIAG_FAIL no-input"); return 2; }
             string text = null;
             try { if (System.IO.File.Exists(from)) text = System.IO.File.ReadAllText(from, new System.Text.UTF8Encoding(false)); } catch { }
-            if (text == null) { Console.WriteLine("BOOTDIAG_FAIL cannot-read " + ReportSanitizer.Sanitize(from)); return 0; }
+            if (text == null) { Console.WriteLine("BOOTDIAG_FAIL cannot-read " + ReportSanitizer.Sanitize(from)); return 1; }
             BootDiagResult r = BootDiagParser.Parse(text, LocateEntry(reg), FileExists);
             if (!r.Recognized)
             {
                 Console.WriteLine("BOOTDIAG_FAIL");
                 Console.WriteLine("BOOTDIAG_KIND unknown");
                 Console.WriteLine("BOOTDIAG_FIRST " + TextClipper.Clip(r.FirstError, 200));
-                return 0;
+                return 1;   // 执行失败：启动日志认不出（EXIT-02 政策 A）
             }
             Console.WriteLine("BOOTDIAG_OK");
             Console.WriteLine("BOOTDIAG_KIND " + r.Kind);
