@@ -106,6 +106,9 @@ $bkDir = Join-Path $iso 'bk'
 $bkEmpty = Join-Path $iso 'bk-empty'
 New-Item -ItemType Directory -Path $cliDir, $homeDir, $bkDir, $bkEmpty -Force | Out-Null
 Copy-Item -Path (Join-Path (Split-Path -Parent $Cli) '*') -Destination $cliDir -Recurse -Force
+# ★ EXIT-02 回归修复（2026-10-30）：构建输出目录可能被历史手工拷贝污染（本机 bin 里曾有 plugin/），
+#   那样“隔离副本没有随包插件”用例就变成真的去调 pnpm/dsh 装插件了 ⇒ 显式删掉，保证 BRIDGE_NO_PLUGIN 可复现。
+Remove-Item -LiteralPath (Join-Path $cliDir 'plugin') -Recurse -Force -ErrorAction SilentlyContinue
 $exe = Join-Path $cliDir (Split-Path -Leaf $Cli)
 Remove-Item -LiteralPath (Join-Path $cliDir '.backup-dir'), (Join-Path $cliDir 'launcher.config') -Force -ErrorAction SilentlyContinue
 $cfg = Join-Path $cliDir 'launcher.config'
@@ -123,6 +126,7 @@ try {
     Write-Host ("  备份根   : " + $bkDir)
     Check "状态目录里没有旧的 .backup-dir / launcher.config（用例可重复）" `
         ((-not (Test-Path -LiteralPath (Join-Path $cliDir '.backup-dir'))) -and (-not (Test-Path -LiteralPath $cfg)))
+    Check "隔离副本里没有 plugin/（BRIDGE_NO_PLUGIN 用例可复现）" (-not (Test-Path -LiteralPath (Join-Path $cliDir 'plugin')))
 
     # ------------------------------------------------------------------
     # 1) config-set
