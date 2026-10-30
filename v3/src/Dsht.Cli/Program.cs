@@ -843,7 +843,7 @@ namespace Dsht.Cli
         private static void Banner()
         {
             Console.WriteLine("==============================================");
-            Console.WriteLine("  DeepSeek Harness Toolkit V" + ToolkitVersion);   // 契约比对会忽略这行，但保持原文最省事
+            Console.WriteLine("  DeepSeek Harness Toolkit V" + ToolkitVersion);   // 契约比对会忽略这行，但保持原文最省事；W4：**仅历史/契约基线**（不是 v2 运行时依赖，勿改）
             Console.WriteLine("==============================================");
             Console.WriteLine("  v1 脚本协助 : SOGR-Momono Dango（QwenPaw/DeepseekAPI-V4-Flash-0731）");
             Console.WriteLine("  v2 重构封装 : DeepSeek DSH （DSH/DeepseekAPI-V4-Flash-0731）");

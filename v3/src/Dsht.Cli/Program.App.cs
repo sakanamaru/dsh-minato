@@ -558,7 +558,10 @@ namespace Dsht.Cli
                                 "restore always backs up first and prints where; update and import try to and continue if that fails. wipe only prints the path to delete by hand - it neither deletes nor backs up. Settings, profile and shortcut edits are not backed up."));
             return 0;
         }
-        /// <summary>ui（V3 独有）：启动跨平台 GUI（Avalonia）。找不到就**如实说明**，不静默失败、不假装已启动。</summary>
+        /// <summary>ui（V3 独有）：启动**本包自带的**跨平台 GUI（Avalonia）。
+        /// ★ W4（2026-10-30，v2 已停维护）：回退名单里的 **v2.x 旧界面程序名已全部删除** ——
+        /// 只看本包自带的 `dsht-gui`（或 `DSHT_GUI` 显式指定）；找不到就**如实打印 UI_FAIL 并返回 1**，
+        /// ✗ 不再静默拉起 v2 旧界面、也不再打"这是 v2.x 旧界面"的提示 ✗。</summary>
         private static int UiCmd()
         {
             string gui = Environment.GetEnvironmentVariable("DSHT_GUI");
@@ -566,10 +569,10 @@ namespace Dsht.Cli
             if (string.IsNullOrEmpty(gui))
             {
                 string dir = AppDomain.CurrentDomain.BaseDirectory;
-                // Avalonia 优先；找不到再回退 v2.x 的旧界面（并如实说明那是旧版）
+                // 只认**本包自带**的 Avalonia GUI（W4：v2.x 已停维护，✗ 旧界面程序名不在此列表 ✗）
                 string[] names = PlatformIsWindows()
-                    ? new string[] { "dsht-gui.exe", "Toolkit GUI Standalone.exe", "Toolkit GUI.exe", "DeepSeek Harness Toolkit.exe" }
-                    : new string[] { "dsht-gui", "Toolkit GUI Standalone", "Toolkit GUI" };
+                    ? new string[] { "dsht-gui.exe" }
+                    : new string[] { "dsht-gui" };
                 for (int i = 0; i < names.Length; i++)
                 {
                     string cand = System.IO.Path.Combine(dir, names[i]);
@@ -587,8 +590,7 @@ namespace Dsht.Cli
                 psi.UseShellExecute = false;
                 psi.CreateNoWindow = true;
                 System.Diagnostics.Process p = System.Diagnostics.Process.Start(psi);
-                string legacy = (gui.IndexOf("dsht-gui", StringComparison.OrdinalIgnoreCase) < 0) ? T("（提示：这是 v2.x 的旧界面；跨平台新界面请用 dsht-gui）", " (note: this is the v2.x UI; the cross-platform one is dsht-gui)") : "";
-                Console.WriteLine("UI_OK " + gui + (p != null ? " pid=" + p.Id : "") + legacy);
+                Console.WriteLine("UI_OK " + gui + (p != null ? " pid=" + p.Id : ""));
                 return 0;   // 成功：已发出启动（EXIT-02 政策 A）
             }
             catch (Exception ex) { Console.WriteLine("UI_FAIL " + ex.Message); return 1; }   // 执行失败：启动异常
@@ -1038,7 +1040,7 @@ namespace Dsht.Cli
                 return (qrc == -1 || qrc == -2) ? 1 : 0;
             }
             System.Text.StringBuilder sb = new System.Text.StringBuilder();
-            sb.AppendLine("== DeepSeek Harness Toolkit selftest ==");   // 同上
+            sb.AppendLine("== DeepSeek Harness Toolkit selftest ==");   // 同上；W4：**仅历史/契约基线**（v2↔v3 输出比对用），不是 v2 运行时依赖，勿改
             try
             {
                 System.Reflection.Assembly asm = System.Reflection.Assembly.GetExecutingAssembly();

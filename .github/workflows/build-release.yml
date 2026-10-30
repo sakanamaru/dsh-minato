@@ -18,7 +18,13 @@ on:
 # 最小权限：test 只读；build 才需要写（回推 hashes.txt / 上传 draft release 资产 / 签发 attestation）
 jobs:
   test:
-    name: unit + integration tests
+    name: unit + integration tests (v2.x frozen - v2 tags or manual dispatch only)
+    # ★ W4（2026-10-30）：v2 已停维护 —— 这组测试只在 **v2 tag** 或**手动 dispatch** 时跑；
+    #   日常 main / v3* / PR 不再跑 v2 测试（v2 代码冻结，继续跑只耗 CI，且 runner 环境漂移时会假红）。
+    #   needs 图（先读过）：只有 `build` job needs 它，而 `build` 的触发条件与这里**逐字同集**
+    #   （startsWith refs/tags/v2 || workflow_dispatch）⇒ 这里跳过时 build 也必然不在触发集里，
+    #   不会出现「下游因 needs 跳过而变红」；刻意**不加** always()（那会绕过 v2 测试闸门）。
+    if: startsWith(github.ref, 'refs/tags/v2') || github.event_name == 'workflow_dispatch'
     runs-on: windows-latest
     permissions:
       contents: read
