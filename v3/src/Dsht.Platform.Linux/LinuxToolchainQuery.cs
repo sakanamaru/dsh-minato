@@ -248,43 +248,49 @@ namespace Dsht.Platform.Linux
                 System.IO.Directory.CreateDirectory(dir);
                 for (int vi = 0; vi < versions.Length; vi++)
                 {
-                string ver = versions[vi];
-                string url = "https://nodejs.org/dist/" + ver + "/node-" + ver + "-linux-" + NodeArch() + ".tar.xz";
-                // 三级兜底：curl → wget → python3（真机上 curl 常常没装 ✗）
-                if (RunExit("curl", "-fsSL --max-time 600 " + url + " -o " + tar) != 0
-                    && RunExit("wget", "-q --timeout=60 -O " + tar + " " + url) != 0
-                    && RunExit("python3", "-c \"import urllib.request,sys; urllib.request.urlretrieve(sys.argv[1], sys.argv[2])\" " + url + " " + tar) != 0)
-                {
-                    LastError = "没有可用的下载方式（curl/wget/python3 都失败或不存在）—— 可先 sudo apt install -y curl";
-                    return -1;
-                }
-                if (!System.IO.File.Exists(tar) || new System.IO.FileInfo(tar).Length < 1000000)
-                {
-                    LastError = "下载的文件不完整（" + ver + "）";
-                    continue;   // 换下一个候选版本 ✓
-                // ★★★ 架构审计抓到（安全 MAJOR）：下载的 Node tarball **没有任何校验** ✗✗
-                //   → 解压后**放进 PATH** ✓ 之后每次 node/npm/dsh 都在跑它 ✗ → 被换掉的包就是**任意代码执行** ✗
-                //   → 而项目自己的发布物是**用 SHA-256 校验**的 ✓（install.sh / verify-linux.sh ✓）唯独这里漏了 ✓
-                // ✓ 现在：**必须与官方 SHASUMS256.txt 一致** ✓✓ 否则**拒绝解压** ✓（fail-closed ✓）
-                string tarName = System.IO.Path.GetFileName(tar);
-                string tarDir = System.IO.Path.GetDirectoryName(tar);
-                string wantSha = FetchExpectedSha(ver, tarName, tarDir);
-                string gotSha = Sha256File(tar);
-                if (wantSha == null || gotSha == null || !string.Equals(wantSha, gotSha, StringComparison.OrdinalIgnoreCase))
-                {
-                    LastError = "Node " + ver + " 哈希校验未通过（拿不到官方 SHASUMS256.txt 或对不上）—— 已拒绝解压";
+                    string ver = versions[vi];
+                    string url = "https://nodejs.org/dist/" + ver + "/node-" + ver + "-linux-" + NodeArch() + ".tar.xz";
+                    // 三级兜底：curl → wget → python3（真机上 curl 常常没装 ✗）
+                    if (RunExit("curl", "-fsSL --max-time 600 " + url + " -o " + tar) != 0
+                        && RunExit("wget", "-q --timeout=60 -O " + tar + " " + url) != 0
+                        && RunExit("python3", "-c \"import urllib.request,sys; urllib.request.urlretrieve(sys.argv[1], sys.argv[2])\" " + url + " " + tar) != 0)
+                    {
+                        LastError = "没有可用的下载方式（curl/wget/python3 都失败或不存在）—— 可先 sudo apt install -y curl";
+                        return -1;
+                    }
+                    if (!System.IO.File.Exists(tar) || new System.IO.FileInfo(tar).Length < 1000000)
+                    {
+                        LastError = "下载的文件不完整（" + ver + "）";
+                        continue;   // 换下一个候选版本 ✓
+                    }
+                    // ★★★ 架构审计抓到（安全 MAJOR）：下载的 Node tarball **没有任何校验** ✗✗
+                    //   → 解压后**放进 PATH** ✓ 之后每次 node/npm/dsh 都在跑它 ✗ → 被换掉的包就是**任意代码执行** ✗
+                    //   → 而项目自己的发布物是**用 SHA-256 校验**的 ✓（install.sh / verify-linux.sh ✓）唯独这里漏了 ✓
+                    //   ✓ 现在：**必须与官方 SHASUMS256.txt 一致** ✓✓ 否则**拒绝解压** ✓（fail-closed ✓）
+                    // ⚠ 校验块必须在“文件不完整”的 if **之外**、解压**之前**运行 ✗ —— 它曾被放进 if 内 `continue` 之后，
+                    //   成了不可达代码（CS0162）→ 下载的包从未被校验就解压进 PATH ✗；csproj 现在把 CS0162 当错误守住这点 ✓
+                    string tarName = System.IO.Path.GetFileName(tar);
+                    string tarDir = System.IO.Path.GetDirectoryName(tar);
+                    string wantSha = FetchExpectedSha(ver, tarName, tarDir);
+                    string gotSha = Sha256File(tar);
+                    if (wantSha == null || gotSha == null || !string.Equals(wantSha, gotSha, StringComparison.OrdinalIgnoreCase))
+                    {
+                        LastError = "Node " + ver + " 哈希校验未通过（拿不到官方 SHASUMS256.txt 或对不上）—— 已删除该包并拒绝解压";
+                        try { System.IO.File.Delete(tar); } catch { }
+                        continue;   // 换下一个候选版本 ✓
+                    }
+                    // ⚠ 此处**不能删目标目录** ✗：tar 就下载在 dir 里（dir/node.tar.xz），删目录会把刚校验过的包一起删掉
+                    //   → 下面的 tar -xf 必然失败；“先清空目标目录”已在进入循环前完成 ✓（此刻目录里只有 tar 本身 ✓）
+                    if (RunExit("tar", "-xf " + tar + " --strip-components=1 -C " + dir) != 0)
+                    {
+                        LastError = "Node " + ver + " 解压失败（tar 返回非零）";
+                        return -1;
+                    }
                     try { System.IO.File.Delete(tar); } catch { }
-                    continue;   // 换下一个候选版本 ✓
+                    LastError = "";
+                    return 0;
                 }
-                }
-                try { if (System.IO.Directory.Exists(dir)) System.IO.Directory.Delete(dir, true); } catch (Exception dex) { LastError = "cannot clear " + dir + ": " + dex.Message; return -1; }
-                System.IO.Directory.CreateDirectory(dir);
-                if (RunExit("tar", "-xf " + tar + " --strip-components=1 -C " + dir) != 0) return -1;
-                try { System.IO.File.Delete(tar); } catch { }
-                LastError = "";
-                return 0;
-                }
-                if (string.IsNullOrEmpty(LastError)) LastError = "所有候选版本都下载失败";
+                if (string.IsNullOrEmpty(LastError)) LastError = "所有候选版本都未能下载或通过校验";
                 return -1;
             }
             catch { return -1; }
