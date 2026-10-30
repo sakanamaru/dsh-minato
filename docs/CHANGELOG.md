@@ -6,6 +6,48 @@ All notable changes to **dsh-minato** (unofficial). Full release notes, assets a
 
 ---
 
+## v3.3.0 — 2026-10-30（看板/悬浮窗/视觉 + 退出码契约 / dashboard, overlay, visual language & exit-code contract）
+
+### Added / 新增
+
+- **看板层级重整**：状态胶囊（在动/停驻/无活动/未知，标来源）/ 今日用量进度 / 最近活动流 / 24 小时分布（整会话累计、按最后活动小时归属，**带脚注**）· Top5 默认屏蔽会话标题 · 一屏可读。
+- **悬边状态灯悬浮窗**（默认关闭，设置页开启）：四色一色一信号（灰=无信号）、三款灯样式（`line`/`dot` 默认/`capsule`）、右键两档关闭（本次隐藏 / 永久关闭）、灯外点击穿透、不抢焦点；数据与看板同源（15 秒兜底取数）。
+- **视觉规范落地**：唯一设计 token 表（5 语义色 × 明暗、4px 网格、3 档字号、圆角/边框/阴影各一档）；页题先于页签、单选项死页签不再渲染；顶栏/页脚/Toast 降噪；说明页卡片化；设置页 32 卡改分组行；KPI「未知」改中性色；窗口背景轻微渐变。
+- **退出码契约（政策 A）**：26 族 / 100 个失败打印点逐族裁决（`docs/退出码裁决-2026-10-30.md`）——成功/计划/只读预览 `0`、执行失败/拒绝 `1`、用法错误 `2`、自完整性拒绝 `3`；明确降级/诊断行保持 `0`。`verify_exit_codes` 断言 **46 → 119**（17 条 not-covered 显式登记原因）。
+- **命令注册表**：`CommandTable` + `CommandContext` 取代 39 条 `if (cmd == …)` 与静态 `_cfg`；命令面仍 38 条、标记行零改动；`verify_fixes` 命令面自检改为从注册行解析并加 39 行下限。
+- **GUI 启动首帧不再等 CLI**：构造期两次同步 CLI 调用移出首帧（先画骨架，窗口出现后后台读偏好）；假 CLI 每次 sleep 10s 时窗口 1022ms 出现。
+- **统一 CliRunner**：三份进程运行器合一——stderr 逐行前缀、超时按档（长命令 600s / 流式 120s）并结束进程树、超时/起不来判 `error`（不再假成功）、缓存 key 含 CLI 路径且失败不入缓存（≤128 条）。
+- **平台层去重**：6 对 Windows/Linux 同名实现上移 `Dsht.Platform.Shared`（重复行 410 → 40，−90.2%）。
+- **配置写盘加固**：原子写（tmp + Replace，失败写 `launcher.log`）、Linux 0600、认不出的键打 `CONFIGWARN`。
+- **新门槛**：`verify_ui_visual.ps1`（26 条源码/视觉断言）、`verify_exit_codes.ps1` 扩至 119 条；契约测试 525 → 547。
+
+### Fixed / 修复
+
+- **Linux Node 下载未校验（安全）**：`install --install-node` 的 SHA-256 校验块原是不可达死代码（CS0162）→ 现在是解压前真校验，拿不到官方 `SHASUMS256.txt` 或哈希不符即拒绝（fail-closed）；顺带修掉“解压前删目录会把刚下载的包一起删掉”的相邻缺陷。CS0162 已设为构建错误。
+- **`verify-install` 无法核对时仍返回 0** → 现在 `1`（安全收紧）；`stop`/`start`/`import`/`profilepatch`/`bootdiag`/`ui`/`bridge-install` 等失败路径补非零退出码。
+- **多工作区备份失败被静默吞**：失败不再报 `BACKUP_OK`（改 `BACKUP_INCOMPLETE` + rc=1 + 半截目录清理）；恢复侧缺 `.dshws` 的包默认拒绝（`--force` 可越过）。
+- **GUI 超时/CLI 崩溃被当成功**：超时/起不来现在红色失败，且超时结束整棵进程树；stderr 多行诊断不再被当标记行；流式超时保留已出结果。
+- **标记行缺键被当 0**：数据不可用时显示「未知」而不是 0（本轮先修 GUI 侧读取口径）。
+- **`NpmRepoOf` 串行读死锁形态**：改并发读 + 有界等待 + 超时杀树。
+- **`ui` 找不到 GUI 时悄悄拉起 v2 旧界面**：现在只启动本包自带 GUI，找不到打印 `UI_FAIL` 并返回 1；CI 的 v2 测试改为仅 v2 tag/手动 dispatch 触发。
+- **Linux CI 假红**：白名单路径比较按分隔符归一（`Design\…` vs `Design/…`）。
+
+### Changed / 变更（用户需注意）
+
+- **退出码行为变化**：`sessions`/`cost` 空数据根或参数错由 0 变 1/2；`verify-install` 不一致由 0 变 1；其余族见表。外部脚本请同时检查标记行。
+- **`ui` 不再回退 v2**：Windows/macOS 上“找不到自带 GUI”现在是明确失败。
+- **多工作区备份**：打包失败不再报成功；缺 `.dshws` 的包恢复需 `--force`。
+- **Node 引导（Linux）**：拿不到官方校验清单时拒绝安装（可先手动装 Node）。
+- **GUI 观感**：字号/间距/卡片层级统一，页题在页签上方；背景轻微渐变；设置页分组行。
+
+### Known / 已知
+
+- Linux 真机 0600 权限、`install --install-node` 真实网络下载链路未在真机验证（本版开发机为 Windows）。
+- `verify_exit_codes` 的 17 条 not-covered（真实 dsh 环境/写盘故障/会污染本机的分支）已显式登记，未做端到端断言。
+- `verify_exit_codes` / `verify_overlay_wiring` / `verify_ui_visual` 仍未直接接入 CI（exit codes 仅经本地 switchover gate9 跑到）。
+- 4 种风格 × 5 种外壳未逐一手工截图；配置原子写无 fsync。
+- 与官方 dsh 功能重合的取舍（会话统计/导出/插件市场/余额等）已出重合矩阵，下一步按“修订 1”收敛。
+
 ## v3.2.0 — 2026-10-19（成本面板 / cost panel）
 
 ### Added / 新增
