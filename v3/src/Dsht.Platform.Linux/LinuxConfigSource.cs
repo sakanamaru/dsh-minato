@@ -40,7 +40,7 @@ namespace Dsht.Platform.Linux
         private void RestrictPermissions(string path)
         {
 #if NET8_0_OR_GREATER
-            if (Path.DirectorySeparatorChar == '\\') return;   // 防御：Linux 实现在 Windows 测试里被直接实例化时不要调用（会抛 PlatformNotSupportedException）
+            if (!OperatingSystem.IsLinux()) return;   // 防御：Linux 实现在 Windows 测试里被直接实例化时不要调用（会抛 PlatformNotSupportedException）；用 IsLinux() 让 CA1416 分析器认出这是平台守卫
             try { File.SetUnixFileMode(path, UnixFileMode.UserRead | UnixFileMode.UserWrite); }
             catch (Exception ex) { AtomicConfigFile.TryLog(_stateDir, "WARN", "config-chmod-0600-failed path=" + path + " => " + ex.GetType().Name + ": " + ex.Message); }
 #else
