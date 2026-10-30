@@ -42,14 +42,15 @@ namespace Dsht.Cli
             {
                 Console.Error.WriteLine("COST_ARG " + sc.FailZh);
                 Console.WriteLine("COST_FAIL " + T(sc.FailZh, sc.FailEn));
-                return 0;
+                // EXIT-02 政策 A：参数非法（FailKind=arg）= 用法错误 2；其余（投影读不到等）= 执行失败 1
+                return sc.FailKind == "arg" ? 2 : 1;
             }
             if (sc.Level != "global" && !sc.LineageOk)
             {
                 EmitLineageDegrade("COST_LINEAGE", sc.Level);
                 Console.WriteLine("COST_FAIL " + T("血缘不可用：口径 " + sc.Level + " 需要桥插件血缘段（第三批 · dsh-minato-bridge 直读原始日志首帧 header，正文帧一帧不解）；未检测到 ⇒ 请安装/升级桥插件后重试",
                     "lineage unavailable: scope " + sc.Level + " needs the bridge plugin lineage section (first-frame headers only); install/upgrade dsh-minato-bridge and retry"));
-                return 0;
+                return 1;   // 执行失败：缺桥插件血缘前置（EXIT-02 政策 A 的裁决：sessions/cost 血缘不可用 = 1，不是用法错误）
             }
             ToolkitConfig cfg = _cfg == null ? new ToolkitConfig() : _cfg;
             bool priced = SessionCost.IsPriced(cfg);
