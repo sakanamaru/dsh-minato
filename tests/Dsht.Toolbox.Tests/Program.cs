@@ -202,7 +202,7 @@ namespace Dsht.Toolbox.Tests
         static void SnapshotTests()
         {
             Console.WriteLine("-- LiveSnapshot");
-            const string good = "{\"v\":2,\"generatedAt\":\"2026-11-25T05:00:00Z\",\"seq\":7,\"sessions\":[{\"id\":\"a1\",\"state\":\"active\",\"ctxUsed\":0.5,\"tokensHour\":1200,\"questions\":2},{\"id\":\"b2\",\"state\":\"parked\"}]}";
+            const string good = "{\"v\":2,\"generatedAt\":\"2026-11-25T05:00:00Z\",\"seq\":7,\"sessions\":[{\"id\":\"a1\",\"state\":\"active\",\"ctxUsed\":0.5,\"tokensTotal\":1200,\"questions\":2},{\"id\":\"b2\",\"state\":\"parked\"}]}";
             LiveSnapshot snapshot = LiveSnapshot.Parse(good);
             Check("parses a v2 snapshot", snapshot != null && snapshot.Version == 2);
             Check("keeps the sequence number", snapshot.Seq == 7);
@@ -222,7 +222,9 @@ namespace Dsht.Toolbox.Tests
             Check("drops a session without an id", bare.SessionCount == 0);
 
             Check("an all-unknown snapshot reports unknown tokens",
-                LiveSnapshot.Parse("{\"v\":2,\"sessions\":[{\"id\":\"x\"}]}").TokensThisHour == null);
+                LiveSnapshot.Parse("{\"v\":2,\"sessions\":[{\"id\":\"x\"}]}").TokensTotal == null);
+            Check("a snapshot without states reports active as unknown",
+                LiveSnapshot.Parse("{\"v\":2,\"sessions\":[{\"id\":\"x\"}]}").ActiveCount == null);
         }
 
         static void HudContentTests()
@@ -235,18 +237,23 @@ namespace Dsht.Toolbox.Tests
             Check("no snapshot never shows a zero", RowValue(none, "context") == "unknown");
             Check("no snapshot fills all three rows", none.Rows.Count == 3);
 
-            LiveSnapshot fresh = LiveSnapshot.Parse("{\"v\":2,\"generatedAt\":\"2026-11-25T04:59:50Z\",\"sessions\":[{\"id\":\"a\",\"state\":\"active\",\"ctxUsed\":0.38,\"tokensHour\":12400,\"questions\":1}]}");
+            LiveSnapshot fresh = LiveSnapshot.Parse("{\"v\":2,\"generatedAt\":\"2026-11-25T04:59:50Z\",\"sessions\":[{\"id\":\"a\",\"state\":\"active\",\"ctxUsed\":0.38,\"tokensTotal\":12400,\"questions\":1}]}");
             HudContent content = HudContent.From(fresh, now);
             Check("a fresh snapshot is not stale", !content.Stale);
             Check("headline counts sessions", content.Headline.Contains("1 session"));
             Check("the context row is a percentage", RowValue(content, "context").Contains("38%"));
-            Check("the token row is abbreviated", RowValue(content, "this hour").Contains("12.4k"));
+            Check("the token row is abbreviated", RowValue(content, "tokens").Contains("12.4k"));
             Check("the waiting row counts questions", RowValue(content, "waiting").Contains("1 question"));
             Check("rows are label and value pairs", content.Rows.Count == 3 && content.Rows[0].Label == "context");
             Check("a waiting question sets the waiting state", content.State == HudState.Waiting);
 
             LiveSnapshot parked = LiveSnapshot.Parse("{\"v\":2,\"generatedAt\":\"2026-11-25T04:59:50Z\",\"sessions\":[{\"id\":\"a\",\"state\":\"parked\"}]}");
             Check("a parked session is idle", HudContent.From(parked, now).State == HudState.Idle);
+
+            LiveSnapshot noState = LiveSnapshot.Parse("{\"v\":2,\"generatedAt\":\"2026-11-25T04:59:50Z\",\"sessions\":[{\"id\":\"a\"}]}");
+            HudContent unknownState = HudContent.From(noState, now);
+            Check("without a state the dot is unknown, not idle", unknownState.State == HudState.Unknown);
+            Check("without a state the headline does not claim active", !unknownState.Headline.Contains("active"));
 
             LiveSnapshot old = LiveSnapshot.Parse("{\"v\":2,\"generatedAt\":\"2026-11-25T04:00:00Z\",\"sessions\":[]}");
             Check("an old snapshot is marked stale", HudContent.From(old, now).Stale);

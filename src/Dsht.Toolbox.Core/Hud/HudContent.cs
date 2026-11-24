@@ -38,7 +38,7 @@ namespace Dsht.Toolbox.Core.Hud
                 content.State = HudState.Unknown;
                 content.Headline = "no snapshot";
                 content.Rows.Add(Row("context", "unknown"));
-                content.Rows.Add(Row("this hour", "unknown"));
+                content.Rows.Add(Row("tokens", "unknown"));
                 content.Rows.Add(Row("waiting", "unknown"));
                 content.Stale = true;
                 return content;
@@ -48,17 +48,19 @@ namespace Dsht.Toolbox.Core.Hud
                             (now - snapshot.GeneratedAt.Value) > FreshWindow;
 
             content.State = ResolveState(snapshot);
+            string noun = snapshot.SessionCount == 1 ? " session" : " sessions";
             content.Headline = snapshot.SessionCount == 0
                 ? "no sessions"
-                : snapshot.SessionCount + (snapshot.SessionCount == 1 ? " session" : " sessions") +
-                  " / " + snapshot.ActiveCount + " active";
+                : snapshot.ActiveCount.HasValue
+                    ? snapshot.SessionCount + noun + " / " + snapshot.ActiveCount.Value + " active"
+                    : snapshot.SessionCount + noun;
 
             content.Rows.Add(Row("context", snapshot.PeakContextUsed.HasValue
                 ? Percent(snapshot.PeakContextUsed.Value)
                 : "unknown"));
 
-            content.Rows.Add(Row("this hour", snapshot.TokensThisHour.HasValue
-                ? Tokens(snapshot.TokensThisHour.Value)
+            content.Rows.Add(Row("tokens", snapshot.TokensTotal.HasValue
+                ? Tokens(snapshot.TokensTotal.Value)
                 : "unknown"));
 
             int questions = snapshot.QuestionCount;
@@ -78,7 +80,8 @@ namespace Dsht.Toolbox.Core.Hud
         {
             if (snapshot == null || snapshot.SessionCount == 0) return HudState.Idle;
             if (snapshot.QuestionCount > 0) return HudState.Waiting;
-            return snapshot.ActiveCount > 0 ? HudState.Working : HudState.Idle;
+            if (!snapshot.ActiveCount.HasValue) return HudState.Unknown;
+            return snapshot.ActiveCount.Value > 0 ? HudState.Working : HudState.Idle;
         }
 
         /// <summary>0.38 becomes "38%"; clamped so a bad snapshot cannot draw outside.</summary>

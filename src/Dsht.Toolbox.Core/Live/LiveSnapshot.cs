@@ -21,14 +21,20 @@ namespace Dsht.Toolbox.Core.Live
 
         public int SessionCount { get { return Sessions.Count; } }
 
-        public int ActiveCount
+        /// <summary>Active sessions, or null when no session reports a state at all.</summary>
+        public int? ActiveCount
         {
             get
             {
                 int active = 0;
+                bool known = false;
                 foreach (LiveSession session in Sessions)
+                {
+                    if (string.IsNullOrEmpty(session.State)) continue;
+                    known = true;
                     if (string.Equals(session.State, "active", StringComparison.OrdinalIgnoreCase)) active++;
-                return active;
+                }
+                return known ? active : (int?)null;
             }
         }
 
@@ -58,7 +64,8 @@ namespace Dsht.Toolbox.Core.Live
             }
         }
 
-        public long? TokensThisHour
+        /// <summary>Cumulative tokens the meter recorded for every live session, or null when unknown.</summary>
+        public long? TokensTotal
         {
             get
             {
@@ -66,8 +73,8 @@ namespace Dsht.Toolbox.Core.Live
                 bool any = false;
                 foreach (LiveSession session in Sessions)
                 {
-                    if (!session.TokensHour.HasValue) continue;
-                    total += session.TokensHour.Value;
+                    if (!session.TokensTotal.HasValue) continue;
+                    total += session.TokensTotal.Value;
                     any = true;
                 }
                 return any ? total : (long?)null;
@@ -165,7 +172,7 @@ namespace Dsht.Toolbox.Core.Live
         public string State;
         public double? ContextUsed;
         public long? ContextRemainTokens;
-        public long? TokensHour;
+        public long? TokensTotal;
         public int? Questions;
         public string LastTool;
         public DateTimeOffset? UpdatedAt;
@@ -181,7 +188,7 @@ namespace Dsht.Toolbox.Core.Live
                 State = LiveSnapshot.Text(element, "state"),
                 ContextUsed = LiveSnapshot.Double(element, "ctxUsed"),
                 ContextRemainTokens = LiveSnapshot.Long(element, "ctxRemainTokens"),
-                TokensHour = LiveSnapshot.Long(element, "tokensHour"),
+                TokensTotal = LiveSnapshot.Long(element, "tokensTotal"),
                 Questions = LiveSnapshot.Int(element, "questions"),
                 LastTool = LiveSnapshot.Text(element, "lastTool"),
                 UpdatedAt = LiveSnapshot.Time(element, "updatedAt"),

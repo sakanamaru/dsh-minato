@@ -21,7 +21,7 @@ neither half has to guess.
       "state": "active",
       "ctxUsed": 0.38,
       "ctxRemainTokens": 126900,
-      "tokensHour": 12400,
+      "tokensTotal": 41200,
       "questions": 1,
       "lastTool": "pwsh",
       "updatedAt": "2026-11-25T05:59:10Z"
@@ -36,6 +36,9 @@ neither half has to guess.
 - Any field may be absent. Absent means unknown, and unknown is shown as `unknown`, never as zero.
 - `state` is one of `active`, `parked`, `idle`; an unrecognised value is treated as idle.
 - `ctxUsed` is a fraction of the context window, 0 to 1.
+- `tokensTotal` is the cumulative provider-recorded total for that session, all four buckets summed.
+- `state` may be absent when the bridge cannot observe it; the overlay then shows an unknown dot
+  instead of claiming the session is idle.
 - `questions` counts pending questions for that session.
 - A session without `id` is dropped.
 

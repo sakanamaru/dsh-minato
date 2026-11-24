@@ -9,7 +9,7 @@
       "state": "active",
       "ctxUsed": 0.38,
       "ctxRemainTokens": 126900,
-      "tokensHour": 12400,
+      "tokensTotal": 41200,
       "questions": 1,
       "lastTool": "pwsh",
       "updatedAt": "2026-11-25T05:59:10Z"
@@ -19,7 +19,7 @@
       "project": "dsh-aqua",
       "state": "parked",
       "ctxUsed": 0.12,
-      "tokensHour": 2100,
+      "tokensTotal": 8400,
       "questions": 0,
       "lastTool": "read",
       "updatedAt": "2026-11-25T05:58:02Z"
