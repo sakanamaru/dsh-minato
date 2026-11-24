@@ -1,6 +1,7 @@
 using System;
 using Dsht.Toolbox.Commands;
 using Dsht.Toolbox.Core;
+using Dsht.Toolbox.Windows;
 
 namespace Dsht.Toolbox
 {
@@ -11,6 +12,9 @@ namespace Dsht.Toolbox
 
         internal static int Main(string[] args)
         {
+            // The overlay must be DPI aware before any window or font is created.
+            Dpi.Initialize();
+
             if (args == null || args.Length == 0) return PrintUsage();
 
             string command = args[0].Trim().ToLowerInvariant();

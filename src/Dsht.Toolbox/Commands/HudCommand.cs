@@ -1,5 +1,6 @@
 using System;
 using System.IO;
+using System.Threading;
 using Dsht.Toolbox.Core.Hud;
 using Dsht.Toolbox.Core.Live;
 using Dsht.Toolbox.Windows;
@@ -7,13 +8,18 @@ using Dsht.Toolbox.Windows;
 namespace Dsht.Toolbox.Commands
 {
     /// <summary>
-    /// <c>dsht hud</c>: draw the overlay from the snapshot the plugin writes.
+    /// <c>dsht hud</c>: the always-on-top status overlay.
     ///
-    /// <c>--preview &lt;file.png&gt;</c> renders the same scene to an image and exits, which is how the
-    /// overlay is reviewed and asserted without a window on screen.
+    /// Three ways to run it, all sharing the same rendering path:
+    /// - default: show the overlay and keep it updated from the snapshot file;
+    /// - <c>--preview file.png</c>: render the same scene to an image and exit (no window);
+    /// - <c>--capture file.png</c>: show the window, screenshot the screen region, exit. This is how
+    ///   the window is verified without a human watching it.
     /// </summary>
     internal static class HudCommand
     {
+        static readonly TimeSpan RefreshInterval = TimeSpan.FromSeconds(1);
+
         public static int Run(string[] args)
         {
             if (!TryParse(args, out HudOptions options, out string error))
@@ -22,24 +28,54 @@ namespace Dsht.Toolbox.Commands
                 return ExitCodes.Usage;
             }
 
-            if (!options.HasPreview)
-            {
-                Console.Error.WriteLine("dsht hud: the interactive overlay is not implemented yet; use --preview <file.png> (" + ExitCodes.Unsupported + ")");
-                return ExitCodes.Unsupported;
-            }
-
             string snapshotPath = options.SnapshotPath ?? HudSnapshotPath.Default();
-            LiveSnapshot snapshot = HudSnapshotPath.ReadOrNull(snapshotPath);
-            HudContent content = HudContent.From(snapshot, DateTimeOffset.UtcNow);
 
-            if (!TryRenderPreview(content, options.ScalePercent, options.PreviewPath, out string failure))
+            if (options.SelfTest)
             {
-                Console.Error.WriteLine(failure);
-                return ExitCodes.Failed;
+                return HudSelfTest.Run(options.ScalePercent, options.OriginX, options.OriginY);
             }
 
-            Console.WriteLine("preview written: " + options.PreviewPath);
-            return ExitCodes.Ok;
+            if (!string.IsNullOrEmpty(options.ProbeArea))
+            {
+                string[] area = options.ProbeArea.Split(',');
+                if (area.Length != 4 ||
+                    !int.TryParse(area[0], out int ax) || !int.TryParse(area[1], out int ay) ||
+                    !int.TryParse(area[2], out int aw) || !int.TryParse(area[3], out int ah))
+                {
+                    Console.Error.WriteLine("--probe needs X,Y,W,H");
+                    return ExitCodes.Usage;
+                }
+
+                if (!ScreenCapture.TrySave(ax, ay, aw, ah, options.ProbeAreaPath, out string probeFailure))
+                {
+                    Console.Error.WriteLine(probeFailure);
+                    return ExitCodes.Failed;
+                }
+                Console.WriteLine("probe written: " + options.ProbeAreaPath);
+                return ExitCodes.Ok;
+            }
+
+            if (!string.IsNullOrEmpty(options.PreviewPath))
+            {
+                LiveSnapshot snapshot = HudSnapshotPath.ReadOrNull(snapshotPath);
+                HudContent content = HudContent.From(snapshot, DateTimeOffset.UtcNow);
+                if (!TryRenderPreview(content, options.ScalePercent, options.PreviewPath, out string failure))
+                {
+                    Console.Error.WriteLine(failure);
+                    return ExitCodes.Failed;
+                }
+                Console.WriteLine("preview written: " + options.PreviewPath);
+                return ExitCodes.Ok;
+            }
+
+            return HudRunner.Run(
+                snapshotPath,
+                options.ScalePercent,
+                options.OriginX,
+                options.OriginY,
+                RefreshInterval,
+                string.IsNullOrEmpty(options.CapturePath) ? (TimeSpan?)null : TimeSpan.FromMilliseconds(700),
+                options.CapturePath);
         }
 
         /// <summary>Renders and writes the PNG. A failure is reported, never thrown at the user.</summary>
@@ -78,28 +114,51 @@ namespace Dsht.Toolbox.Commands
         {
             options = new HudOptions();
             error = string.Empty;
-            bool previewSeen = false;
 
             for (int i = 0; i < args.Length; i++)
             {
                 switch (args[i])
                 {
                     case "--preview":
-                        if (!TakeValue(args, ref i, "--preview", out string target)) { error = "--preview needs a file path"; return false; }
-                        options.PreviewPath = target;
-                        previewSeen = true;
+                        if (!TakeValue(args, ref i, out string preview)) { error = "--preview needs a file path"; return false; }
+                        options.PreviewPath = preview;
+                        break;
+
+                    case "--capture":
+                        if (!TakeValue(args, ref i, out string capture)) { error = "--capture needs a file path"; return false; }
+                        options.CapturePath = capture;
+                        break;
+
+                    case "--probe":
+                        if (!TakeValue(args, ref i, out string probe)) { error = "--probe needs X,Y,W,H"; return false; }
+                        options.ProbeArea = probe;
+                        if (!TakeValue(args, ref i, out string probePath)) { error = "--probe needs X,Y,W,H and a file path"; return false; }
+                        options.ProbeAreaPath = probePath;
+                        break;
+
+                    case "--selftest":
+                        options.SelfTest = true;
                         break;
 
                     case "--snapshot":
-                        if (!TakeValue(args, ref i, "--snapshot", out string snapshotPath)) { error = "--snapshot needs a file path"; return false; }
+                        if (!TakeValue(args, ref i, out string snapshotPath)) { error = "--snapshot needs a file path"; return false; }
                         options.SnapshotPath = snapshotPath;
                         break;
 
                     case "--scale":
-                        if (!TakeValue(args, ref i, "--scale", out string scale)) { error = "--scale needs a number"; return false; }
+                        if (!TakeValue(args, ref i, out string scale)) { error = "--scale needs a number"; return false; }
                         if (!int.TryParse(scale, out int scaleValue) || scaleValue < 100 || scaleValue > 300)
                         { error = "--scale must be between 100 and 300"; return false; }
                         options.ScalePercent = scaleValue;
+                        break;
+
+                    case "--position":
+                        if (!TakeValue(args, ref i, out string position)) { error = "--position needs X,Y"; return false; }
+                        string[] parts = position.Split(',');
+                        if (parts.Length != 2 || !int.TryParse(parts[0], out int x) || !int.TryParse(parts[1], out int y))
+                        { error = "--position needs X,Y (for example 24,24)"; return false; }
+                        options.OriginX = x;
+                        options.OriginY = y;
                         break;
 
                     default:
@@ -108,12 +167,10 @@ namespace Dsht.Toolbox.Commands
                 }
             }
 
-            options.HasPreview = previewSeen;
-
             return true;
         }
 
-        static bool TakeValue(string[] args, ref int index, string name, out string value)
+        static bool TakeValue(string[] args, ref int index, out string value)
         {
             value = null;
             int next = index + 1;
@@ -127,8 +184,13 @@ namespace Dsht.Toolbox.Commands
     internal sealed class HudOptions
     {
         public string PreviewPath;
+        public string CapturePath;
         public string SnapshotPath;
         public int ScalePercent = 100;
-        public bool HasPreview;
+        public int OriginX = 24;
+        public int OriginY = 24;
+        public string ProbeArea;
+        public string ProbeAreaPath;
+        public bool SelfTest;
     }
 }

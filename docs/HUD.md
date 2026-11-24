@@ -43,7 +43,26 @@ Four lines, never more:
 the overlay is reviewable as an image and assertable in a test. The PNG encoder is hand written and
 deterministic, which is why the tests can decode the output and check pixels.
 
-## What is not built yet
+## The window
 
-The always-on-top, click-through window. The preview path exists first on purpose: it is the part
-that can be verified, and it is the part a reviewer needs to judge the design.
+A layered Win32 window (WS_EX_LAYERED | WS_EX_TRANSPARENT | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+always topmost). It never takes focus, never appears in the taskbar, and clicks pass through it to
+whatever is underneath. Frames are pushed with UpdateLayeredWindow, so there is no paint loop and
+nothing flickers.
+
+Two properties of that API bite if forgotten, and both were bugs here first:
+
+- the destination point of UpdateLayeredWindow is also the window position, so a frame update
+  moves the window unless the intended origin is passed;
+- coordinates are virtualised unless the process declares DPI awareness, which put the overlay in
+  the wrong place and would have double-scaled the glyphs on a 150 percent display.
+
+Verify the window contract with `dsht hud --selftest`: it checks existence, visibility, layered,
+click-through, no-activate, no-taskbar, placement and size. That is what a screenshot cannot prove.
+
+## What a screenshot cannot prove here
+
+`--capture` writes an image of the overlay, but only from an interactive desktop. When the process
+runs in a session with no visible desktop the screen is a uniform colour, and the command says so
+and exits non-zero instead of writing a meaningless white PNG. Appearance therefore still needs a
+human on a real desktop; `--preview` renders the identical scene without needing one.
