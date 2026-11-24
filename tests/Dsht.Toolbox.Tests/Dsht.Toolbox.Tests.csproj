@@ -1,0 +1,12 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net8.0</TargetFramework>
+    <AssemblyName>dsht-tests</AssemblyName>
+    <RootNamespace>Dsht.Toolbox.Tests</RootNamespace>
+    <InvariantGlobalization>true</InvariantGlobalization>
+  </PropertyGroup>
+  <ItemGroup>
+    <ProjectReference Include="..\..\src\Dsht.Toolbox.Core\Dsht.Toolbox.Core.csproj" />
+  </ItemGroup>
+</Project>

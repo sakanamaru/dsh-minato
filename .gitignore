@@ -1,0 +1,10 @@
+bin/
+obj/
+*.user
+/out/
+/dist/
+# 本地证据/夹具绝不入库
+.local/
+*.log
+*.zstd
+*.jsonl
