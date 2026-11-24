@@ -18,8 +18,10 @@ Four lines, never more:
 | Rule | Value | Why |
 |---|---|---|
 | Lines | exactly 4 | a fifth line turns a glance into a read |
+| Canvas | 176 x 83 at 100%, scaled by the same factor | the overlay is a pill, not a panel |
+| Columns | labels at 28, values at 88 | numbers line up, so the eye can compare them |
 | Font sizes | 12 headline, 11 body | no size invented ad hoc |
-| Spacing | 4-unit grid, 12 padding, 18 row pitch | prevents the drift that made the old UI ragged |
+| Spacing | 4-unit grid: 12 padding, 16 row pitch | prevents the drift that made the old UI ragged |
 | Accent | one colour | the dot is the only thing allowed to shout |
 | Colour roles | accent, muted, text, warning | no per-element colours |
 | Unknown | printed as "unknown" | a missing value is not zero |

@@ -1,23 +1,29 @@
 using System;
+using System.Collections.Generic;
 using System.Globalization;
-using System.Text;
 using Dsht.Toolbox.Core.Live;
 
 namespace Dsht.Toolbox.Core.Hud
 {
     public enum HudState { Unknown, Idle, Working, Waiting }
 
+    /// <summary>One label/value row. Split rather than pre-joined so the layout can align the
+    /// values in a column; concatenating them would leave the column ragged.</summary>
+    public sealed class HudRow
+    {
+        public string Label = string.Empty;
+        public string Value = string.Empty;
+    }
+
     /// <summary>
-    /// The four lines the HUD shows. Computed from a snapshot and a clock, so it can be tested
-    /// without a window; formatting lives here so the painter never decides what a number means.
+    /// What the overlay says, computed from a snapshot and a clock. Pure, so every state and every
+    /// formatting rule is asserted without a window.
     /// </summary>
     public sealed class HudContent
     {
         public HudState State;
         public string Headline = string.Empty;
-        public string ContextLine = string.Empty;
-        public string TokensLine = string.Empty;
-        public string WaitingLine = string.Empty;
+        public List<HudRow> Rows = new List<HudRow>();
         public bool Stale;
 
         /// <summary>A snapshot older than this is shown as stale rather than as current numbers.</summary>
@@ -31,9 +37,9 @@ namespace Dsht.Toolbox.Core.Hud
             {
                 content.State = HudState.Unknown;
                 content.Headline = "no snapshot";
-                content.ContextLine = "context  unknown";
-                content.TokensLine = "this hour  unknown";
-                content.WaitingLine = "waiting  unknown";
+                content.Rows.Add(Row("context", "unknown"));
+                content.Rows.Add(Row("this hour", "unknown"));
+                content.Rows.Add(Row("waiting", "unknown"));
                 content.Stale = true;
                 return content;
             }
@@ -44,21 +50,28 @@ namespace Dsht.Toolbox.Core.Hud
             content.State = ResolveState(snapshot);
             content.Headline = snapshot.SessionCount == 0
                 ? "no sessions"
-                : snapshot.SessionCount + " session" + (snapshot.SessionCount == 1 ? string.Empty : "s") +
+                : snapshot.SessionCount + (snapshot.SessionCount == 1 ? " session" : " sessions") +
                   " / " + snapshot.ActiveCount + " active";
 
-            double? context = snapshot.PeakContextUsed;
-            content.ContextLine = "context  " + (context.HasValue
-                ? Percent(context.Value)
-                : "unknown");
+            content.Rows.Add(Row("context", snapshot.PeakContextUsed.HasValue
+                ? Percent(snapshot.PeakContextUsed.Value)
+                : "unknown"));
 
-            long? tokens = snapshot.TokensThisHour;
-            content.TokensLine = "this hour  " + (tokens.HasValue ? Tokens(tokens.Value) : "unknown");
+            content.Rows.Add(Row("this hour", snapshot.TokensThisHour.HasValue
+                ? Tokens(snapshot.TokensThisHour.Value)
+                : "unknown"));
 
             int questions = snapshot.QuestionCount;
-            content.WaitingLine = "waiting  " + (questions == 0 ? "none" : questions + " question" + (questions == 1 ? string.Empty : "s"));
+            content.Rows.Add(Row("waiting", questions == 0
+                ? "none"
+                : questions + (questions == 1 ? " question" : " questions")));
 
             return content;
+        }
+
+        static HudRow Row(string label, string value)
+        {
+            return new HudRow { Label = label, Value = value };
         }
 
         static HudState ResolveState(LiveSnapshot snapshot)
@@ -68,7 +81,7 @@ namespace Dsht.Toolbox.Core.Hud
             return snapshot.ActiveCount > 0 ? HudState.Working : HudState.Idle;
         }
 
-        /// <summary>0.38 becomes "38%"; values are clamped so a bad snapshot cannot draw outside.</summary>
+        /// <summary>0.38 becomes "38%"; clamped so a bad snapshot cannot draw outside.</summary>
         public static string Percent(double ratio)
         {
             double clamped = ratio < 0 ? 0 : (ratio > 1 ? 1 : ratio);
@@ -82,12 +95,6 @@ namespace Dsht.Toolbox.Core.Hud
             if (count < 1000) return count.ToString(CultureInfo.InvariantCulture);
             if (count < 1000000) return (count / 1000.0).ToString("0.#", CultureInfo.InvariantCulture) + "k";
             return (count / 1000000.0).ToString("0.#", CultureInfo.InvariantCulture) + "M";
-        }
-
-        /// <summary>Every line, in draw order. The painter iterates this and decides nothing.</summary>
-        public string[] Lines()
-        {
-            return new string[] { Headline, ContextLine, TokensLine, WaitingLine };
         }
     }
 }

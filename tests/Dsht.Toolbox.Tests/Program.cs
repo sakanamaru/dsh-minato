@@ -232,15 +232,17 @@ namespace Dsht.Toolbox.Tests
 
             HudContent none = HudContent.From(null, now);
             Check("no snapshot reports unknown everywhere", none.State == HudState.Unknown && none.Stale);
-            Check("no snapshot never shows a zero", none.ContextLine.Contains("unknown"));
+            Check("no snapshot never shows a zero", RowValue(none, "context") == "unknown");
+            Check("no snapshot fills all three rows", none.Rows.Count == 3);
 
             LiveSnapshot fresh = LiveSnapshot.Parse("{\"v\":2,\"generatedAt\":\"2026-11-25T04:59:50Z\",\"sessions\":[{\"id\":\"a\",\"state\":\"active\",\"ctxUsed\":0.38,\"tokensHour\":12400,\"questions\":1}]}");
             HudContent content = HudContent.From(fresh, now);
             Check("a fresh snapshot is not stale", !content.Stale);
             Check("headline counts sessions", content.Headline.Contains("1 session"));
-            Check("context is a percentage", content.ContextLine.Contains("38%"));
-            Check("tokens are abbreviated", content.TokensLine.Contains("12.4k"));
-            Check("a waiting question is announced", content.WaitingLine.Contains("1 question"));
+            Check("the context row is a percentage", RowValue(content, "context").Contains("38%"));
+            Check("the token row is abbreviated", RowValue(content, "this hour").Contains("12.4k"));
+            Check("the waiting row counts questions", RowValue(content, "waiting").Contains("1 question"));
+            Check("rows are label and value pairs", content.Rows.Count == 3 && content.Rows[0].Label == "context");
             Check("a waiting question sets the waiting state", content.State == HudState.Waiting);
 
             LiveSnapshot parked = LiveSnapshot.Parse("{\"v\":2,\"generatedAt\":\"2026-11-25T04:59:50Z\",\"sessions\":[{\"id\":\"a\",\"state\":\"parked\"}]}");
@@ -254,7 +256,7 @@ namespace Dsht.Toolbox.Tests
             Check("tokens under a thousand stay exact", HudContent.Tokens(999) == "999");
             Check("tokens in thousands are abbreviated", HudContent.Tokens(12400) == "12.4k");
             Check("tokens in millions are abbreviated", HudContent.Tokens(3100000) == "3.1M");
-            Check("four lines are produced", content.Lines().Length == 4);
+            Check("three rows plus a headline are produced", content.Rows.Count == 3 && !string.IsNullOrEmpty(content.Headline));
         }
 
         static void HudLayoutTests()
@@ -264,14 +266,23 @@ namespace Dsht.Toolbox.Tests
 
             HudLayout.Measure(100, out int w100, out int h100);
             HudLayout.Measure(150, out int w150, out int h150);
+            Check("the canvas is the size the design contract states", w100 == 176 && h100 == 83);
             Check("the canvas scales with dpi", w150 == (int)Math.Round(w100 * 1.5) && h150 > h100);
 
             var lines = HudLayout.Compute(content, 100);
-            Check("exactly four lines are laid out", lines.Count == 4);
-            Check("lines are ordered top to bottom", lines[0].Y < lines[1].Y && lines[1].Y < lines[2].Y && lines[2].Y < lines[3].Y);
+            Check("headline plus three label/value pairs are laid out", lines.Count == 7);
             Check("only the headline is emphasised", lines[0].Emphasis && !lines[1].Emphasis);
-            Check("all lines share one left edge", lines[0].X == lines[3].X);
-            Check("text starts inside the canvas", lines[0].X > 0 && lines[0].X < w100 && lines[3].Y < h100);
+            Check("labels share one left edge", lines[1].X == lines[3].X && lines[3].X == lines[5].X);
+            Check("values align in a column", lines[2].X == lines[4].X && lines[4].X == lines[6].X);
+            Check("the value column is the declared column", lines[2].X == HudLayout.ValueColumn);
+            Check("row pitch sits on the 4-unit grid", HudLayout.RowGap % HudLayout.Grid == 0);
+            Check("padding sits on the 4-unit grid", HudLayout.Padding % HudLayout.Grid == 0);
+            Check("the value column starts right of the labels", lines[2].X > lines[1].X);
+            Check("labels are muted and values are not", lines[1].Muted && !lines[2].Muted);
+            Check("rows are ordered top to bottom", lines[1].Y < lines[3].Y && lines[3].Y < lines[5].Y);
+            Check("text starts inside the canvas", lines[0].X > 0 && lines[0].X < w100);
+            Check("the last row leaves padding below it", lines[6].Y + HudLayout.BodySize < h100);
+            Check("the canvas is not taller than its content needs", h100 <= HudLayout.Padding * 2 + HudLayout.RowGap * 3 + HudLayout.BodySize + 1);
 
             HudLayout.DotRect(100, out int dx, out int dy, out int diameter);
             Check("the dot sits inside the canvas", dx >= 0 && dy >= 0 && dx + diameter <= w100);
@@ -306,9 +317,40 @@ namespace Dsht.Toolbox.Tests
             Check("pixels round-trip through the deflate stream",
                 decoded[pixel] == 200 && decoded[pixel + 1] == 100 && decoded[pixel + 2] == 50);
 
+            // The empty IEND chunk has a well-known CRC; if this fails, every chunk checksum is wrong.
+            byte[] iendType = new byte[] { (byte)'I', (byte)'E', (byte)'N', (byte)'D' };
+            Check("the crc of IEND matches the published constant",
+                Crc32.Compute(iendType, 0, 4) == 0xAE426082u);
+            Check("crc state can be chained without double inversion",
+                Crc32.Finish(Crc32.Update(Crc32.Update(Crc32.Begin(), iendType, 0, 2), iendType, 2, 2)) == 0xAE426082u);
+
+            Check("every chunk crc in the encoded png verifies",
+                AllChunkCrcsValid(png));
+
             Check("a mismatched buffer is rejected",
                 Throws(() => Png.Encode(2, 2, new byte[4])));
             Check("an empty canvas is rejected", Throws(() => Png.Encode(0, 1, new byte[0])));
+        }
+
+        static bool AllChunkCrcsValid(byte[] png)
+        {
+            int position = 8;
+            while (position + 8 <= png.Length)
+            {
+                int length = (png[position] << 24) | (png[position + 1] << 16) | (png[position + 2] << 8) | png[position + 3];
+
+                uint state = Crc32.Update(Crc32.Begin(), png, position + 4, 4);
+                state = Crc32.Update(state, png, position + 8, length);
+                uint expected = Crc32.Finish(state);
+
+                int crcOffset = position + 8 + length;
+                uint stored = ((uint)png[crcOffset] << 24) | ((uint)png[crcOffset + 1] << 16) |
+                              ((uint)png[crcOffset + 2] << 8) | png[crcOffset + 3];
+
+                if (stored != expected) return false;
+                position = crcOffset + 4;
+            }
+            return true;
         }
 
         static byte[] DecodeIdat(byte[] png)
@@ -338,6 +380,13 @@ namespace Dsht.Toolbox.Tests
         {
             try { action(); return false; }
             catch (ArgumentException) { return true; }
+        }
+
+        static string RowValue(HudContent content, string label)
+        {
+            foreach (HudRow row in content.Rows)
+                if (row.Label == label) return row.Value;
+            return null;
         }
 
         static DiagFacts Healthy()

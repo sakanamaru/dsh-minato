@@ -3,7 +3,7 @@ using System.Collections.Generic;
 
 namespace Dsht.Toolbox.Core.Hud
 {
-    /// <summary>One drawable line of text: what, where, how big, which colour role.</summary>
+    /// <summary>One drawable run of text: what, where, how big, which weight.</summary>
     public sealed class HudText
     {
         public string Text = string.Empty;
@@ -11,59 +11,64 @@ namespace Dsht.Toolbox.Core.Hud
         public int Y;
         public int Size;
         public bool Emphasis;
+        public bool Muted;
     }
 
     /// <summary>
-    /// Layout only: no drawing, no fonts, no window. Being pure is what lets the four lines be
-    /// asserted (positions, sizes, canvas) instead of judged by eye - the mistake that made the
+    /// Layout only: no drawing, no fonts, no window. Being pure is what lets the overlay be
+    /// asserted (positions, sizes, canvas) instead of judged by eye - the failure that made the
     /// previous UI unfixable.
     ///
-    /// Rules the layout enforces: one accent, three sizes (11 headline, 13 body scaled by DPI,
-    /// and 1 dot), spacing on a 4-unit grid, four rows, no decoration.
+    /// Rules enforced here: a 4-unit grid, two font sizes, one value column so numbers line up,
+    /// and a canvas that is exactly as tall as the content.
     /// </summary>
     public static class HudLayout
     {
         public const int Grid = 4;
         public const int Padding = 12;
         public const int DotDiameter = 8;
-        public const int RowGap = 18;
-
+        public const int RowGap = 16;
         public const int HeadlineSize = 12;
         public const int BodySize = 11;
 
-        /// <summary>Canvas size in device pixels for the given DPI scale (1.0 = 96 dpi).</summary>
+        /// <summary>Canvas width. Wide enough for the longest headline and value, nothing more.</summary>
+        public const int Width = 176;
+
+        /// <summary>Left column of the values, so they align regardless of label length.</summary>
+        public const int ValueColumn = 88;
+
+        /// <summary>Canvas size in device pixels for the given DPI scale (100 = 96 dpi).</summary>
         public static void Measure(int scalePercent, out int width, out int height)
         {
             int scale = Math.Max(100, scalePercent);
-            width = Scale(232, scale);
-            height = Scale(Padding * 2 + RowGap * 3 + HeadlineSize + BodySize * 3, scale);
+            width = Scale(Width, scale);
+
+            // Headline, three body rows, and padding above and below. The previous version added a
+            // whole extra body line, which left a dead band at the bottom of the bitmap.
+            int content = Padding + RowGap * 3 + BodySize + Padding;
+            height = Scale(content, scale);
         }
 
         public static List<HudText> Compute(HudContent content, int scalePercent)
         {
             int scale = Math.Max(100, scalePercent);
-            var lines = new List<HudText>();
+            var runs = new List<HudText>();
 
-            int x = Scale(Padding + DotDiameter + Grid * 2, scale);
+            int labelX = Scale(Padding + DotDiameter + Grid * 2, scale);
+            int valueX = Scale(ValueColumn, scale);
             int y = Scale(Padding, scale);
 
-            lines.Add(new HudText
-            {
-                Text = content.Headline,
-                X = x,
-                Y = y,
-                Size = Scale(HeadlineSize, scale),
-                Emphasis = true,
-            });
-
+            runs.Add(new HudText { Text = content.Headline, X = labelX, Y = y, Size = Scale(HeadlineSize, scale), Emphasis = true });
             y += Scale(RowGap, scale);
-            foreach (string line in new string[] { content.ContextLine, content.TokensLine, content.WaitingLine })
+
+            foreach (HudRow row in content.Rows)
             {
-                lines.Add(new HudText { Text = line, X = x, Y = y, Size = Scale(BodySize, scale), Emphasis = false });
+                runs.Add(new HudText { Text = row.Label, X = labelX, Y = y, Size = Scale(BodySize, scale), Muted = true });
+                runs.Add(new HudText { Text = row.Value, X = valueX, Y = y, Size = Scale(BodySize, scale) });
                 y += Scale(RowGap, scale);
             }
 
-            return lines;
+            return runs;
         }
 
         /// <summary>Where the status dot goes, relative to the canvas.</summary>
@@ -71,7 +76,7 @@ namespace Dsht.Toolbox.Core.Hud
         {
             int scale = Math.Max(100, scalePercent);
             x = Scale(Padding, scale);
-            y = Scale(Padding + 3, scale);
+            y = Scale(Padding + 2, scale);
             diameter = Scale(DotDiameter, scale);
         }
 

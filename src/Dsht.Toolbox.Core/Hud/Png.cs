@@ -72,8 +72,9 @@ namespace Dsht.Toolbox.Core.Hud
             stream.Write(typeBytes, 0, 4);
             stream.Write(data, 0, data.Length);
 
-            uint crc = Crc32.Compute(typeBytes, 0, typeBytes.Length);
-            crc = Crc32.Compute(data, 0, data.Length, crc);
+            uint state = Crc32.Update(Crc32.Begin(), typeBytes, 0, typeBytes.Length);
+            state = Crc32.Update(state, data, 0, data.Length);
+            uint crc = Crc32.Finish(state);
             byte[] crcBytes = new byte[4];
             WriteBigEndian(crcBytes, 0, unchecked((int)crc));
             stream.Write(crcBytes, 0, 4);
@@ -88,17 +89,39 @@ namespace Dsht.Toolbox.Core.Hud
         }
     }
 
-    /// <summary>CRC-32 as PNG defines it (polynomial 0xEDB88320, reflected).</summary>
+    /// <summary>
+    /// CRC-32 as PNG defines it (polynomial 0xEDB88320, reflected).
+    ///
+    /// The state is exposed in three steps because a chunk CRC covers the type and the data in
+    /// one pass; combining two finished CRCs by seeding the second with the first is wrong, and
+    /// that mistake makes every chunk checksum fail while a lenient decoder still renders.
+    /// </summary>
     public static class Crc32
     {
         static readonly uint[] Table = BuildTable();
 
-        public static uint Compute(byte[] data, int offset, int count, uint seed = 0xFFFFFFFFu)
+        public static uint Begin()
         {
-            uint crc = seed;
+            return 0xFFFFFFFFu;
+        }
+
+        public static uint Update(uint state, byte[] data, int offset, int count)
+        {
+            uint crc = state;
             for (int i = 0; i < count; i++)
                 crc = Table[(crc ^ data[offset + i]) & 0xFF] ^ (crc >> 8);
-            return crc ^ 0xFFFFFFFFu;
+            return crc;
+        }
+
+        public static uint Finish(uint state)
+        {
+            return state ^ 0xFFFFFFFFu;
+        }
+
+        /// <summary>Convenience wrapper for a single buffer.</summary>
+        public static uint Compute(byte[] data, int offset, int count)
+        {
+            return Finish(Update(Begin(), data, offset, count));
         }
 
         static uint[] BuildTable()
