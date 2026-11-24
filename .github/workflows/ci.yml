@@ -1,0 +1,52 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build-and-test:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, ubuntu-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '8.0.x'
+
+      # Core is platform-neutral and is where the logic lives, so it is built and
+      # tested on both platforms. Only the Windows host layer must be Windows-specific.
+      - name: Build core
+        run: dotnet build src/Dsht.Toolbox.Core/Dsht.Toolbox.Core.csproj -c Release --nologo
+
+      - name: Run tests
+        run: dotnet run --project tests/Dsht.Toolbox.Tests -c Release
+
+      - name: Build app (Windows only)
+        if: runner.os == 'Windows'
+        run: dotnet build src/Dsht.Toolbox/Dsht.Toolbox.csproj -c Release --nologo
+
+      - name: Publish single file (Windows only)
+        if: runner.os == 'Windows'
+        run: >
+          dotnet publish src/Dsht.Toolbox/Dsht.Toolbox.csproj -c Release -r win-x64
+          --self-contained true -p:PublishSingleFile=true
+          -p:EnableCompressionInSingleFile=true -o out
+
+      # A published binary that cannot answer --version is not a build artefact.
+      - name: Smoke test the published binary
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          ./out/dsht.exe --version
+          if ($LASTEXITCODE -ne 0) { throw 'dsht --version failed' }
+          ./out/dsht.exe diag --json > diag.json
+          if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne 1) { throw 'diag exited with an unexpected code' }
+          Get-Content diag.json -Raw | ConvertFrom-Json | Out-Null
+

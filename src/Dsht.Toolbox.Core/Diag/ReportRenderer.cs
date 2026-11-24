@@ -1,87 +1,104 @@
-using System;
-using System.Collections.Generic;
 using System.Text;
 
 namespace Dsht.Toolbox.Core.Diag
 {
-    /// <summary>把事实与计划渲染成人类文本 / JSON（纯函数）。</summary>
+    /// <summary>
+    /// Renders facts and a plan as text or JSON. Pure, and deliberately the only place that
+    /// decides what a user sees: the command layer never formats strings of its own.
+    /// </summary>
     public static class ReportRenderer
     {
-        public static string Human(DiagFacts f, DiagPlan p)
+        public static string Human(DiagFacts facts, DiagPlan plan)
         {
-            var sb = new StringBuilder();
-            sb.AppendLine("dsht diag");
-            sb.AppendLine("  install : " + Show(f.InstallDir));
-            sb.AppendLine("  version : " + Show(f.ProductVersion) + "   (electron " + Show(f.ElectronVersion) + ")");
-            sb.AppendLine("  updater : " + f.Updater + (string.IsNullOrEmpty(f.PendingVersion) ? "" : "  pending=" + f.PendingVersion));
-            sb.AppendLine();
-            foreach (var x in p.Findings)
+            var text = new StringBuilder();
+            text.AppendLine("dsht diag");
+            text.AppendLine("  install : " + Value(facts.InstallDir));
+            text.AppendLine("  version : " + Value(facts.ProductVersion) + "  (electron " + Value(facts.ElectronVersion) + ")");
+            text.AppendLine("  updater : " + facts.Updater +
+                            (string.IsNullOrEmpty(facts.PendingVersion) ? string.Empty : "  pending=" + facts.PendingVersion));
+            text.AppendLine();
+
+            foreach (Finding finding in plan.Findings)
             {
-                sb.AppendLine("  [" + Tag(x.Level) + "] " + x.Code + "  " + x.Title);
-                if (!string.IsNullOrEmpty(x.Detail)) sb.AppendLine("           " + x.Detail);
+                text.AppendLine("  [" + Tag(finding.Level) + "] " + finding.Code + "  " + finding.Title);
+                if (!string.IsNullOrEmpty(finding.Detail)) text.AppendLine("           " + finding.Detail);
             }
-            sb.AppendLine();
-            if (p.Actions.Count == 0) sb.AppendLine("  计划：无动作");
+
+            text.AppendLine();
+            if (plan.Actions.Count == 0)
+            {
+                text.AppendLine("  plan: no action");
+            }
             else
             {
-                sb.AppendLine("  计划：");
-                for (int i = 0; i < p.Actions.Count; i++)
+                text.AppendLine("  plan:");
+                for (int i = 0; i < plan.Actions.Count; i++)
                 {
-                    var a = p.Actions[i];
-                    sb.AppendLine("    " + (i + 1) + ". " + a.Kind + (a.Dangerous ? "  [需要 --yes]" : "") + "  — " + a.Why);
+                    RemedyAction action = plan.Actions[i];
+                    text.AppendLine("    " + (i + 1) + ". " + Remedy.Names.Describe(action.Kind) +
+                                    (action.Dangerous ? "  [needs --yes]" : string.Empty) +
+                                    "  - " + action.Why);
                 }
             }
-            sb.AppendLine();
-            int blocks = 0, warns = 0;
-            foreach (var x in p.Findings) { if (x.Level == FindingLevel.Block) blocks++; else if (x.Level == FindingLevel.Warn) warns++; }
-            string verdict;
-            if (blocks > 0) verdict = "结论：有阻塞项（见 [XX]）";
-            else if (warns > 0) verdict = "结论：有 " + warns + " 项待修（加 --fix 执行计划）";
-            else verdict = "结论：干净";
-            sb.AppendLine("  " + verdict);
-            return sb.ToString();
+
+            int blocks = 0, warnings = 0;
+            foreach (Finding finding in plan.Findings)
+            {
+                if (finding.Level == FindingLevel.Block) blocks++;
+                else if (finding.Level == FindingLevel.Warn) warnings++;
+            }
+
+            text.AppendLine();
+            if (blocks > 0) text.AppendLine("  verdict: blocked (see [XX])");
+            else if (warnings > 0) text.AppendLine("  verdict: " + warnings + " item(s) to repair (run with --fix)");
+            else text.AppendLine("  verdict: clean");
+
+            return text.ToString();
         }
 
-        public static string Json(DiagFacts f, DiagPlan p)
+        public static string Json(DiagFacts facts, DiagPlan plan)
         {
-            var sb = new StringBuilder();
-            sb.Append("{");
-            sb.Append("\"installDir\":").Append(Q(f.InstallDir));
-            sb.Append(",\"installDirExists\":").Append(f.InstallDirExists ? "true" : "false");
-            sb.Append(",\"productVersion\":").Append(Q(f.ProductVersion));
-            sb.Append(",\"electronVersion\":").Append(Q(f.ElectronVersion));
-            sb.Append(",\"updater\":").Append(Q(f.Updater.ToString()));
-            sb.Append(",\"pendingVersion\":").Append(Q(f.PendingVersion));
-            sb.Append(",\"pendingExe\":").Append(Q(f.PendingExeName));
-            sb.Append(",\"holders\":").Append(f.Holders.Count);
-            sb.Append(",\"unreadableProcesses\":").Append(f.UnreadableProcesses);
-            sb.Append(",\"healthy\":").Append(p.Healthy ? "true" : "false");
-            sb.Append(",\"findings\":[");
-            for (int i = 0; i < p.Findings.Count; i++)
+            var json = new StringBuilder();
+            json.Append('{');
+            json.Append("\"installDir\":").Append(Quote(facts.InstallDir));
+            json.Append(",\"installDirExists\":").Append(Bool(facts.InstallDirExists));
+            json.Append(",\"productVersion\":").Append(Quote(facts.ProductVersion));
+            json.Append(",\"electronVersion\":").Append(Quote(facts.ElectronVersion));
+            json.Append(",\"updater\":").Append(Quote(facts.Updater.ToString()));
+            json.Append(",\"pendingVersion\":").Append(Quote(facts.PendingVersion));
+            json.Append(",\"pendingExe\":").Append(Quote(facts.PendingExeName));
+            json.Append(",\"holders\":").Append(facts.Holders.Count);
+            json.Append(",\"unreadableProcesses\":").Append(facts.UnreadableProcesses);
+            json.Append(",\"healthy\":").Append(Bool(plan.Healthy));
+
+            json.Append(",\"findings\":[");
+            for (int i = 0; i < plan.Findings.Count; i++)
             {
-                if (i > 0) sb.Append(',');
-                var x = p.Findings[i];
-                sb.Append("{\"level\":").Append(Q(x.Level.ToString()))
-                  .Append(",\"code\":").Append(Q(x.Code))
-                  .Append(",\"title\":").Append(Q(x.Title))
-                  .Append(",\"detail\":").Append(Q(x.Detail)).Append('}');
+                if (i > 0) json.Append(',');
+                Finding finding = plan.Findings[i];
+                json.Append("{\"level\":").Append(Quote(finding.Level.ToString()))
+                    .Append(",\"code\":").Append(Quote(finding.Code))
+                    .Append(",\"title\":").Append(Quote(finding.Title))
+                    .Append(",\"detail\":").Append(Quote(finding.Detail)).Append('}');
             }
-            sb.Append("],\"actions\":[");
-            for (int i = 0; i < p.Actions.Count; i++)
+
+            json.Append("],\"actions\":[");
+            for (int i = 0; i < plan.Actions.Count; i++)
             {
-                if (i > 0) sb.Append(',');
-                var a = p.Actions[i];
-                sb.Append("{\"kind\":").Append(Q(a.Kind.ToString()))
-                  .Append(",\"dangerous\":").Append(a.Dangerous ? "true" : "false")
-                  .Append(",\"why\":").Append(Q(a.Why)).Append('}');
+                if (i > 0) json.Append(',');
+                RemedyAction action = plan.Actions[i];
+                json.Append("{\"kind\":").Append(Quote(Remedy.Names.Describe(action.Kind)))
+                    .Append(",\"dangerous\":").Append(Bool(action.Dangerous))
+                    .Append(",\"why\":").Append(Quote(action.Why)).Append('}');
             }
-            sb.Append("]}");
-            return sb.ToString();
+
+            json.Append("]}");
+            return json.ToString();
         }
 
-        static string Tag(FindingLevel l)
+        static string Tag(FindingLevel level)
         {
-            switch (l)
+            switch (level)
             {
                 case FindingLevel.Ok: return "ok";
                 case FindingLevel.Info: return "..";
@@ -90,28 +107,30 @@ namespace Dsht.Toolbox.Core.Diag
             }
         }
 
-        static string Show(string s) { return string.IsNullOrEmpty(s) ? "(未知)" : s; }
+        static string Bool(bool value) { return value ? "true" : "false"; }
 
-        static string Q(string s)
+        static string Value(string text) { return string.IsNullOrEmpty(text) ? "(unknown)" : text; }
+
+        static string Quote(string text)
         {
-            if (s == null) return "null";
-            var sb = new StringBuilder("\"");
-            foreach (char c in s)
+            if (text == null) return "null";
+            var quoted = new StringBuilder("\"");
+            foreach (char c in text)
             {
                 switch (c)
                 {
-                    case '\\': sb.Append("\\\\"); break;
-                    case '"': sb.Append("\\\""); break;
-                    case '\n': sb.Append("\\n"); break;
-                    case '\r': sb.Append("\\r"); break;
-                    case '\t': sb.Append("\\t"); break;
+                    case '\\': quoted.Append("\\\\"); break;
+                    case '"': quoted.Append("\\\""); break;
+                    case '\n': quoted.Append("\\n"); break;
+                    case '\r': quoted.Append("\\r"); break;
+                    case '\t': quoted.Append("\\t"); break;
                     default:
-                        if (c < 32) sb.Append("\\u").Append(((int)c).ToString("x4"));
-                        else sb.Append(c);
+                        if (c < 32) quoted.Append("\\u").Append(((int)c).ToString("x4"));
+                        else quoted.Append(c);
                         break;
                 }
             }
-            return sb.Append('"').ToString();
+            return quoted.Append('"').ToString();
         }
     }
 }

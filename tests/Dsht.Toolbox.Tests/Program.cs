@@ -1,145 +1,216 @@
 using System;
 using System.Collections.Generic;
+using System.IO;
+using Dsht.Toolbox.Core;
 using Dsht.Toolbox.Core.Diag;
+using Dsht.Toolbox.Core.Remedy;
 
 namespace Dsht.Toolbox.Tests
 {
-    /// <summary>零依赖断言运行器：每条断言都能失败（实现改坏即红）。</summary>
+    /// <summary>
+    /// Dependency-free assertion runner. Each check fails if the corresponding behaviour is
+    /// removed, and the names say what breaks when they do.
+    /// </summary>
     internal static class Program
     {
-        static int pass, fail;
+        static int passed;
+        static int failed;
 
         static void Check(string name, bool ok)
         {
-            if (ok) { pass++; Console.WriteLine("  [PASS] " + name); }
-            else { fail++; Console.WriteLine("  [FAIL] " + name); }
+            if (ok) { passed++; Console.WriteLine("  [PASS] " + name); }
+            else { failed++; Console.WriteLine("  [FAIL] " + name); }
         }
 
         static int Main()
         {
             Console.WriteLine("== dsht tests ==");
 
-            Console.WriteLine("-- VersionFacts");
-            Check("解析 rc 版本", VersionFacts.Parse("deepseek-harness-0.2.2-rc.5-win-x64.exe") == "0.2.2-rc.5");
-            Check("解析纯版本", VersionFacts.Parse("0.2.2") == "0.2.2");
-            Check("无版本返回 null", VersionFacts.Parse("no-version-here") == null);
-            Check("单段数字不算版本", VersionFacts.Parse("v5") == null);
-            Check("比较：rc.5 > rc.4", VersionFacts.Compare("0.2.2-rc.5", "0.2.2-rc.4") == 1);
-            Check("比较：0.2.2 > 0.2.2-rc.5", VersionFacts.Compare("0.2.2", "0.2.2-rc.5") == 1);
-            Check("比较：相等", VersionFacts.Compare("0.2.1-rc.3", "0.2.1-rc.3") == 0);
-            Check("比较：不可解析返回 null", VersionFacts.Compare("x", "0.2.2") == null);
-            Check("规范化：0.2.2.0 == 0.2.2", VersionFacts.Compare("0.2.2.0", "0.2.2") == 0);
-            Check("规范化：0.2.2.0-rc.5 解析", VersionFacts.Parse("0.2.2.0-rc.5") == "0.2.2-rc.5");
-            Check("预发行数值比较：rc.10 > rc.9", VersionFacts.Compare("0.2.2-rc.10", "0.2.2-rc.9") == 1);
-            Check("SameCore：0.2.2-rc.5 与 0.2.2.0", VersionFacts.SameCore("0.2.2-rc.5", "0.2.2.0"));
-            Check("SameCore：0.2.1 与 0.2.2 为 false", !VersionFacts.SameCore("0.2.1", "0.2.2"));
-
-            Console.WriteLine("-- RemedyPlanner: 安装缺失");
-            var f1 = new DiagFacts { InstallDirExists = false };
-            var p1 = RemedyPlanner.Plan(f1);
-            Check("缺安装 ⇒ block", HasFinding(p1, "install-missing", FindingLevel.Block));
-            Check("缺安装 ⇒ 健康=false", p1.Healthy == false);
-            Check("缺安装 ⇒ 建议重装", HasAction(p1, ActionKind.Reinstall));
-
-            Console.WriteLine("-- RemedyPlanner: 进程占用");
-            var f2 = Healthy();
-            f2.Holders.Add(new HolderFact { Pid = 1, Name = "DeepSeek Harness", Path = f2.InstallDir + "\\DeepSeek Harness.exe", InsideInstallDir = true });
-            f2.Holders.Add(new HolderFact { Pid = 2, Name = "node", Path = f2.InstallDir + "\\resources\\runtime\\node.exe", InsideInstallDir = true, IsBackend = true });
-            var p2 = RemedyPlanner.Plan(f2);
-            Check("占用 ⇒ holders 发现", HasFinding(p2, "holders", FindingLevel.Warn));
-            Check("占用 ⇒ 计划结束进程且标记危险", HasAction(p2, ActionKind.StopHolders) && DangerOf(p2, ActionKind.StopHolders));
-            Check("占用 ⇒ 收集到 2 个 pid", PidsOf(p2, ActionKind.StopHolders).Count == 2);
-
-            Console.WriteLine("-- RemedyPlanner: pending");
-            var f3 = Healthy();
-            f3.Updater = UpdaterState.PendingKnown;
-            f3.PendingVersion = "0.2.2-rc.5";
-            f3.ProductVersion = "0.2.1-rc.3";
-            f3.PendingExeName = "deepseek-harness-0.2.2-rc.5-win-x64.exe";
-            var p3 = RemedyPlanner.Plan(f3);
-            Check("pending 新于已装 ⇒ 发现", HasFinding(p3, "updater-pending", FindingLevel.Warn));
-            Check("pending ⇒ 计划清理缓存", HasAction(p3, ActionKind.ClearUpdaterPending));
-
-            var f4 = Healthy();
-            f4.Updater = UpdaterState.PendingKnown;
-            f4.PendingVersion = "0.2.2-rc.5";
-            f4.ProductVersion = "0.2.2-rc.5";
-            Check("pending 等于已装 ⇒ 判为重复", HasFinding(RemedyPlanner.Plan(f4), "version-equal", FindingLevel.Info));
-
-            var f4b = Healthy();
-            f4b.Updater = UpdaterState.PendingKnown;
-            f4b.PendingVersion = "0.2.1-rc.3";
-            f4b.ProductVersion = "0.2.2";
-            Check("pending 旧于已装 ⇒ version-older", HasFinding(RemedyPlanner.Plan(f4b), "version-older", FindingLevel.Info));
-
-            var f4c = Healthy();
-            f4c.Updater = UpdaterState.PendingKnown;
-            f4c.PendingVersion = "0.2.2-rc.5";
-            f4c.ProductVersion = "0.2.2.0";
-            var p4c = RemedyPlanner.Plan(f4c);
-            Check("同核心 ⇒ 不断言新旧，报 same-core", HasFinding(p4c, "version-same-core", FindingLevel.Info));
-            Check("同核心 ⇒ 不得出现 version-older", !HasFinding(p4c, "version-older", FindingLevel.Info));
-
-            var f5 = Healthy();
-            f5.Updater = UpdaterState.Suspicious;
-            Check("可疑残留 ⇒ 计划清理", HasAction(RemedyPlanner.Plan(f5), ActionKind.ClearUpdaterPending));
-
-            Console.WriteLine("-- RemedyPlanner: 健康");
-            var p6 = RemedyPlanner.Plan(Healthy());
-            Check("健康 ⇒ healthy=true", p6.Healthy);
-            Check("有告警 ⇒ healthy=false（不能把“该修”报成健康）", RemedyPlanner.Plan(f2).Healthy == false);
-            Check("健康 ⇒ 无动作（Nothing）", p6.Actions.Count == 1 && p6.Actions[0].Kind == ActionKind.Nothing);
-
-            Console.WriteLine("-- ReportRenderer");
-            string human = ReportRenderer.Human(f2, p2);
-            Check("人类文本含 holders", human.Contains("holders"));
-            Check("人类文本含危险标记", human.Contains("--yes"));
-            Check("有告警时结论为“待修”而不是“阻塞”", human.Contains("待修") && !human.Contains("阻塞"));
-            Check("干净时结论为“干净”", ReportRenderer.Human(Healthy(), RemedyPlanner.Plan(Healthy())).Contains("结论：干净"));
-            string json = ReportRenderer.Json(f2, p2);
-            Check("JSON 可闭合", json.StartsWith("{") && json.EndsWith("}"));
-            Check("JSON 含 healthy 字段", json.Contains("\"healthy\":"));
-            Check("JSON 转义引号", ReportRenderer.Json(new DiagFacts { InstallDir = "a\"b" }, RemedyPlanner.Plan(new DiagFacts { InstallDir = "a\"b" })).Contains("\\\""));
+            VersionTests();
+            PlannerTests();
+            RendererTests();
+            RemedySessionTests();
+            SurfaceTests();
 
             Console.WriteLine();
-            Console.WriteLine("== " + pass + " passed, " + fail + " failed ==");
-            return fail == 0 ? 0 : 1;
+            Console.WriteLine("== " + passed + " passed, " + failed + " failed ==");
+            return failed == 0 ? 0 : 1;
+        }
+
+        static void VersionTests()
+        {
+            Console.WriteLine("-- VersionFacts");
+            Check("version parsed out of an installer file name", VersionFacts.Parse("deepseek-harness-0.2.2-rc.5-win-x64.exe") == "0.2.2-rc.5");
+            Check("plain version", VersionFacts.Parse("0.2.2") == "0.2.2");
+            Check("text without a version yields null", VersionFacts.Parse("no-version-here") == null);
+            Check("a bare integer is not a version", VersionFacts.Parse("v5") == null);
+            Check("rc.5 outranks rc.4", VersionFacts.Compare("0.2.2-rc.5", "0.2.2-rc.4") == 1);
+            Check("rc.10 outranks rc.9 (numeric, not lexical)", VersionFacts.Compare("0.2.2-rc.10", "0.2.2-rc.9") == 1);
+            Check("a release outranks its pre-release", VersionFacts.Compare("0.2.2", "0.2.2-rc.5") == 1);
+            Check("identical versions compare equal", VersionFacts.Compare("0.2.1-rc.3", "0.2.1-rc.3") == 0);
+            Check("unparsable input yields null instead of a guess", VersionFacts.Compare("x", "0.2.2") == null);
+            Check("assembly normalisation: 0.2.2.0 equals 0.2.2", VersionFacts.Compare("0.2.2.0", "0.2.2") == 0);
+            Check("SameCore ignores the pre-release tag", VersionFacts.SameCore("0.2.2-rc.5", "0.2.2.0"));
+            Check("SameCore rejects different cores", !VersionFacts.SameCore("0.2.1", "0.2.2"));
+        }
+
+        static void PlannerTests()
+        {
+            Console.WriteLine("-- RemedyPlanner");
+
+            var missing = new DiagFacts { InstallDirExists = false };
+            DiagPlan missingPlan = RemedyPlanner.Plan(missing);
+            Check("missing install blocks", HasFinding(missingPlan, "install-missing", FindingLevel.Block));
+            Check("missing install is not healthy", !missingPlan.Healthy);
+            Check("missing install recommends reinstall", HasAction(missingPlan, ActionKind.Reinstall));
+
+            DiagFacts held = Healthy();
+            held.Holders.Add(new HolderFact { Pid = 11, Name = "DeepSeek Harness", Path = held.InstallDir + "\\DeepSeek Harness.exe", InsideInstallDir = true });
+            held.Holders.Add(new HolderFact { Pid = 12, Name = "node", Path = held.InstallDir + "\\resources\\runtime\\node.exe", InsideInstallDir = true, IsBackend = true });
+            DiagPlan heldPlan = RemedyPlanner.Plan(held);
+            Check("holders are reported as a warning", HasFinding(heldPlan, "holders", FindingLevel.Warn));
+            Check("closing holders is marked dangerous", HasAction(heldPlan, ActionKind.StopHolders) && IsDangerous(heldPlan, ActionKind.StopHolders));
+            Check("every install-dir holder is targeted", PidsOf(heldPlan, ActionKind.StopHolders).Count == 2);
+            Check("a warning never counts as healthy", !heldPlan.Healthy);
+
+            DiagFacts sameVersion = Healthy();
+            sameVersion.Updater = UpdaterState.PendingKnown;
+            sameVersion.PendingVersion = "0.2.2-rc.5";
+            sameVersion.ProductVersion = "0.2.2-rc.5";
+            Check("a duplicate staging is reported as equal", HasFinding(RemedyPlanner.Plan(sameVersion), "version-equal", FindingLevel.Info));
+
+            DiagFacts newer = Healthy();
+            newer.Updater = UpdaterState.PendingKnown;
+            newer.PendingVersion = "0.2.3";
+            newer.ProductVersion = "0.2.2";
+            DiagPlan newerPlan = RemedyPlanner.Plan(newer);
+            Check("a newer staging is reported", HasFinding(newerPlan, "updater-pending", FindingLevel.Warn));
+            Check("a staged update is cleared before anything else", HasAction(newerPlan, ActionKind.ClearUpdaterPending));
+
+            DiagFacts ambiguous = Healthy();
+            ambiguous.Updater = UpdaterState.PendingKnown;
+            ambiguous.PendingVersion = "0.2.2-rc.5";
+            ambiguous.ProductVersion = "0.2.2.0";
+            DiagPlan ambiguousPlan = RemedyPlanner.Plan(ambiguous);
+            Check("same core but unprovable ordering is reported as such", HasFinding(ambiguousPlan, "version-same-core", FindingLevel.Info));
+            Check("no ordering is invented for an ambiguous version", !HasFinding(ambiguousPlan, "version-older", FindingLevel.Info));
+
+            DiagFacts suspicious = Healthy();
+            suspicious.Updater = UpdaterState.Suspicious;
+            Check("leftover updater artefacts are cleared", HasAction(RemedyPlanner.Plan(suspicious), ActionKind.ClearUpdaterPending));
+
+            DiagPlan clean = RemedyPlanner.Plan(Healthy());
+            Check("a clean install is healthy", clean.Healthy);
+            Check("a clean install plans nothing", clean.Actions.Count == 1 && clean.Actions[0].Kind == ActionKind.Nothing);
+
+            DiagPlan nullFacts = RemedyPlanner.Plan(null);
+            Check("null facts produce a blocker instead of a crash", HasFinding(nullFacts, "no-facts", FindingLevel.Block));
+        }
+
+        static void RendererTests()
+        {
+            Console.WriteLine("-- ReportRenderer");
+            DiagFacts held = Healthy();
+            held.Holders.Add(new HolderFact { Pid = 11, InsideInstallDir = true });
+            DiagPlan plan = RemedyPlanner.Plan(held);
+
+            string human = ReportRenderer.Human(held, plan);
+            Check("text names the holder finding", human.Contains("holders"));
+            Check("text marks the consent requirement", human.Contains("--yes"));
+            Check("a warning renders as 'to repair', not as 'blocked'", human.Contains("to repair") && !human.Contains("blocked"));
+            Check("a clean install renders as clean", ReportRenderer.Human(Healthy(), RemedyPlanner.Plan(Healthy())).Contains("verdict: clean"));
+
+            string json = ReportRenderer.Json(held, plan);
+            Check("json is a single object", json.StartsWith("{") && json.EndsWith("}"));
+            Check("json carries healthy", json.Contains("\"healthy\":"));
+            Check("json carries stable finding codes", json.Contains("\"code\":\"holders\""));
+
+            var quotes = new DiagFacts { InstallDir = "a\"b\\c" };
+            Check("json escapes quotes and backslashes", ReportRenderer.Json(quotes, RemedyPlanner.Plan(quotes)).Contains("\\\"") );
+        }
+
+        static void RemedySessionTests()
+        {
+            Console.WriteLine("-- RemedySession");
+
+            DiagFacts before = Healthy();
+            before.Holders.Add(new HolderFact { Pid = 1, InsideInstallDir = true });
+            before.Updater = UpdaterState.Suspicious;
+            DiagPlan plan = RemedyPlanner.Plan(before);
+
+            var recorder = new FakeRecorder();
+            RemedyReport report = RemedySession.Run(before, plan, recorder, delegate { return Healthy(); }, TextWriter.Null);
+
+            Check("steps run in planner order: holders before staging",
+                recorder.Calls.Count >= 2 && recorder.Calls[0].StartsWith("stop-holders") && recorder.Calls[1] == "clear-updater-pending");
+            Check("a clean re-check reports done", report.Outcome == RemedyOutcome.Done);
+            Check("executed steps are counted", report.StepsExecuted == recorder.Calls.Count);
+
+            var failing = new FakeRecorder();
+            failing.Failing.Add("stop-holders");
+            RemedyReport failedReport = RemedySession.Run(before, plan, failing, delegate { return Healthy(); }, TextWriter.Null);
+            Check("first failure stops the run", failedReport.Outcome == RemedyOutcome.Failed);
+            Check("failure is attributed to the step", failedReport.FailedStep == "stop-holders");
+            Check("no step runs after a failure", failing.Calls.Count == 1);
+
+            var optimistic = new FakeRecorder();
+            RemedyReport unverified = RemedySession.Run(before, plan, optimistic, delegate { return before; }, TextWriter.Null);
+            Check("outcome follows the re-check, not optimism", unverified.Outcome == RemedyOutcome.Failed);
+
+            var idle = new FakeRecorder();
+            RemedyReport nothing = RemedySession.Run(Healthy(), RemedyPlanner.Plan(Healthy()), idle, delegate { return Healthy(); }, TextWriter.Null);
+            Check("nothing-to-do executes no steps", idle.Calls.Count == 0 && nothing.Outcome == RemedyOutcome.Done);
+        }
+
+        static void SurfaceTests()
+        {
+            Console.WriteLine("-- command surface");
+            string[] commands = CommandSurface.Commands;
+            Check("the command surface stays within the cap", commands.Length <= CommandSurface.MaxCommands);
+            Check("command names are unique", new HashSet<string>(commands).Count == commands.Length);
+            Check("diag is present", Array.IndexOf(commands, "diag") >= 0);
+            Check("port is present", Array.IndexOf(commands, "port") >= 0);
         }
 
         static DiagFacts Healthy()
         {
-            var f = new DiagFacts();
-            f.InstallDir = "C:\\Apps\\DeepSeek Harness";
-            f.UpdaterDir = "C:\\Updater";
-            f.InstallDirExists = true;
-            f.MainExeExists = true;
-            f.UninstallerExists = true;
-            f.ProductVersion = "0.2.2-rc.5";
-            f.Updater = UpdaterState.Clean;
-            return f;
+            return new DiagFacts
+            {
+                InstallDir = "C:\\Apps\\DeepSeek Harness",
+                UpdaterDir = "C:\\Updater",
+                InstallDirExists = true,
+                MainExeExists = true,
+                UninstallerExists = true,
+                ProductVersion = "0.2.2-rc.5",
+                Updater = UpdaterState.Clean,
+            };
         }
 
-        static bool HasFinding(DiagPlan p, string code, FindingLevel lvl)
+        static bool HasFinding(DiagPlan plan, string code, FindingLevel level)
         {
-            foreach (var x in p.Findings) if (x.Code == code && x.Level == lvl) return true;
+            foreach (Finding finding in plan.Findings)
+                if (finding.Code == code && finding.Level == level) return true;
             return false;
         }
 
-        static bool HasAction(DiagPlan p, ActionKind k)
+        static bool HasAction(DiagPlan plan, ActionKind kind)
         {
-            foreach (var a in p.Actions) if (a.Kind == k) return true;
+            foreach (RemedyAction action in plan.Actions)
+                if (action.Kind == kind) return true;
             return false;
         }
 
-        static bool DangerOf(DiagPlan p, ActionKind k)
+        static bool IsDangerous(DiagPlan plan, ActionKind kind)
         {
-            foreach (var a in p.Actions) if (a.Kind == k) return a.Dangerous;
+            foreach (RemedyAction action in plan.Actions)
+                if (action.Kind == kind) return action.Dangerous;
             return false;
         }
 
-        static List<int> PidsOf(DiagPlan p, ActionKind k)
+        static List<int> PidsOf(DiagPlan plan, ActionKind kind)
         {
-            foreach (var a in p.Actions) if (a.Kind == k) return a.Pids;
+            foreach (RemedyAction action in plan.Actions)
+                if (action.Kind == kind) return action.Pids;
             return new List<int>();
         }
     }

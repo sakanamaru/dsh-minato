@@ -1,54 +1,71 @@
-using System;
 using System.Collections.Generic;
 
 namespace Dsht.Toolbox.Core.Diag
 {
-    /// <summary>一条占用事实（纯数据，不读进程）。</summary>
+    /// <summary>One process that may be holding the install directory open.</summary>
     public sealed class HolderFact
     {
         public int Pid;
-        public string Name = "";
-        public string Path = "";
-        /// <summary>true = 路径在安装目录内（真正的占用嫌疑）；false = 仅同名进程。</summary>
+        public string Name = string.Empty;
+        public string Path = string.Empty;
+
+        /// <summary>Path lives under the install directory: a real suspect for a locked file.</summary>
         public bool InsideInstallDir;
-        /// <summary>true = 是 dsh 的后端 node（resources\runtime 下）。</summary>
+
+        /// <summary>Bundled backend runtime (resources/runtime): its node.exe is the usual lock.</summary>
         public bool IsBackend;
     }
 
-    /// <summary>updater 缓存目录的状态（纯数据）。</summary>
+    /// <summary>Shape of the desktop updater cache directory.</summary>
     public enum UpdaterState
     {
-        /// <summary>目录不存在：从未检查过更新。</summary>
+        /// <summary>The cache does not exist: no update was ever staged.</summary>
         None = 0,
-        /// <summary>只有空壳/无待装包：干净。</summary>
+
+        /// <summary>The cache exists with nothing staged.</summary>
         Clean = 1,
-        /// <summary>有 pending 安装包但版本未知。</summary>
+
+        /// <summary>An installer is staged but its version is unknown.</summary>
         PendingUnknown = 2,
-        /// <summary>有 pending 安装包且知道版本（可用于和已装版本比较）。</summary>
+
+        /// <summary>An installer is staged and its version is known.</summary>
         PendingKnown = 3,
-        /// <summary>有可疑残留（installer.exe 在根、pending 半截、blockmap 残）。</summary>
+
+        /// <summary>Partial or leftover artefacts that make the next update fail repeatedly.</summary>
         Suspicious = 4,
     }
 
-    /// <summary>诊断输入的全部事实（由 IO 层填充，Core 只做推理）。</summary>
+    /// <summary>
+    /// Everything the planner needs, filled by an IO layer. Deliberately dumb data:
+    /// no behaviour here, so the planner stays a pure function.
+    /// </summary>
     public sealed class DiagFacts
     {
-        public string InstallDir = "";
-        public string UpdaterDir = "";
+        public string InstallDir = string.Empty;
+        public string UpdaterDir = string.Empty;
+
         public bool InstallDirExists;
         public bool MainExeExists;
         public bool UninstallerExists;
-        /// <summary>安装目录里 version 文件的内容（Electron 版本），读不到为 null。</summary>
+
+        /// <summary>Contents of the Electron <c>version</c> file, when present.</summary>
         public string ElectronVersion;
-        /// <summary>主 exe 的 ProductVersion（dsh 版本），读不到为 null。</summary>
+
+        /// <summary>ProductVersion of the main executable; may be normalised to four parts.</summary>
         public string ProductVersion;
+
         public UpdaterState Updater;
         public string PendingExeName;
         public string PendingVersion;
         public long PendingBytes;
         public bool InstallerInRoot;
+
         public List<HolderFact> Holders = new List<HolderFact>();
-        /// <summary>无法读取路径的进程数（权限不足），不等于“没占用”。</summary>
+
+        /// <summary>
+        /// Processes whose path could not be read (access denied). Not evidence of absence:
+        /// reported so an unelevated run does not look more certain than it is.
+        /// </summary>
         public int UnreadableProcesses;
     }
 }

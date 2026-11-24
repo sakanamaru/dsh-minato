@@ -7,132 +7,195 @@ using Dsht.Toolbox.Core.Diag;
 
 namespace Dsht.Toolbox.Windows
 {
-    /// <summary>IO 层：只负责读事实，不做推理。所有异常都转成事实（不抛）。</summary>
+    /// <summary>
+    /// Reads facts from the machine. The only place that touches the filesystem and the
+    /// process table for <c>diag</c>; every failure is recorded as a fact rather than thrown,
+    /// because half a diagnosis is still useful when permissions are partial.
+    /// </summary>
     internal static class DesktopProbe
     {
+        const string MainExecutable = "DeepSeek Harness.exe";
+        const string UninstallerExecutable = "Uninstall DeepSeek Harness.exe";
+        const string VersionFile = "version";
+        const string BackendRuntimeFragment = "\\resources\\runtime\\";
+
         public static string DefaultInstallDir()
         {
-            string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            return Path.Combine(local, "Programs", "DeepSeek Harness");
+            string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            return Path.Combine(localAppData, "Programs", "DeepSeek Harness");
         }
 
         public static string DefaultUpdaterDir()
         {
-            string local = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            return Path.Combine(local, "@deepseek-aidsh-desktop-updater");
+            string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
+            return Path.Combine(localAppData, "@deepseek-aidsh-desktop-updater");
         }
 
         public static DiagFacts Collect(string installDir, string updaterDir)
         {
-            var f = new DiagFacts();
-            f.InstallDir = installDir;
-            f.UpdaterDir = updaterDir;
-            f.InstallDirExists = SafeDirExists(installDir);
-            string mainExe = Path.Combine(installDir, "DeepSeek Harness.exe");
-            f.MainExeExists = SafeFileExists(mainExe);
-            f.UninstallerExists = SafeFileExists(Path.Combine(installDir, "Uninstall DeepSeek Harness.exe"));
-            f.ElectronVersion = ReadAllTextOrNull(Path.Combine(installDir, "version"));
-            f.ProductVersion = FileVersionOrNull(mainExe);
-
-            // updater
-            string pending = Path.Combine(updaterDir, "pending");
-            f.InstallerInRoot = SafeFileExists(Path.Combine(updaterDir, "installer.exe"));
-            if (!SafeDirExists(updaterDir)) f.Updater = UpdaterState.None;
-            else
+            var facts = new DiagFacts
             {
-                f.Updater = UpdaterState.Clean;
-                string pendingExe = null;
-                if (SafeDirExists(pending))
-                {
-                    try
-                    {
-                        var cands = Directory.GetFiles(pending, "*.exe");
-                        if (cands.Length > 0) { pendingExe = cands[0]; f.PendingBytes = new FileInfo(pendingExe).Length; }
-                        if (cands.Length > 1) f.Updater = UpdaterState.Suspicious;
-                    }
-                    catch { f.Updater = UpdaterState.Suspicious; }
-                    string info = Path.Combine(pending, "update-info.json");
-                    string infoText = ReadAllTextOrNull(info);
-                    if (pendingExe != null)
-                    {
-                        f.PendingExeName = Path.GetFileName(pendingExe);
-                        f.PendingVersion = VersionFacts.Parse(f.PendingExeName);
-                        if (f.PendingVersion == null) f.PendingVersion = VersionFromInfo(infoText);
-                        f.Updater = f.PendingVersion == null ? UpdaterState.PendingUnknown : UpdaterState.PendingKnown;
-                    }
-                    else if (infoText != null) f.Updater = UpdaterState.Suspicious;
-                }
-                else if (f.InstallerInRoot) f.Updater = UpdaterState.Suspicious;
-            }
+                InstallDir = installDir,
+                UpdaterDir = updaterDir,
+                InstallDirExists = DirectoryExists(installDir),
+            };
 
-            // 进程
-            CollectHolders(installDir, f);
-            return f;
+            string mainExe = Path.Combine(installDir, MainExecutable);
+            facts.MainExeExists = FileExists(mainExe);
+            facts.UninstallerExists = FileExists(Path.Combine(installDir, UninstallerExecutable));
+            facts.ElectronVersion = ReadTextOrNull(Path.Combine(installDir, VersionFile));
+            facts.ProductVersion = FileVersionOf(mainExe);
+
+            CollectUpdater(facts, updaterDir);
+            CollectHolders(facts, installDir);
+            return facts;
         }
 
-        static void CollectHolders(string installDir, DiagFacts f)
+        static void CollectUpdater(DiagFacts facts, string updaterDir)
         {
-            string full = Normalize(installDir);
-            Process[] all;
-            try { all = Process.GetProcesses(); } catch { return; }
-            foreach (var p in all)
+            facts.InstallerInRoot = FileExists(Path.Combine(updaterDir, "installer.exe"));
+
+            if (!DirectoryExists(updaterDir))
+            {
+                facts.Updater = UpdaterState.None;
+                return;
+            }
+
+            facts.Updater = UpdaterState.Clean;
+            string pending = Path.Combine(updaterDir, "pending");
+            if (!DirectoryExists(pending))
+            {
+                if (facts.InstallerInRoot) facts.Updater = UpdaterState.Suspicious;
+                return;
+            }
+
+            string[] staged;
+            try
+            {
+                staged = Directory.GetFiles(pending, "*.exe");
+            }
+            catch
+            {
+                facts.Updater = UpdaterState.Suspicious;
+                return;
+            }
+
+            if (staged.Length == 0)
+            {
+                // A staging area with no installer is only suspicious when it still carries
+                // metadata; an empty directory is normal between updates.
+                facts.Updater = FileExists(Path.Combine(pending, "update-info.json"))
+                    ? UpdaterState.Suspicious
+                    : UpdaterState.Clean;
+                return;
+            }
+
+            if (staged.Length > 1)
+            {
+                facts.Updater = UpdaterState.Suspicious;
+                return;
+            }
+
+            facts.PendingExeName = Path.GetFileName(staged[0]);
+            try { facts.PendingBytes = new FileInfo(staged[0]).Length; } catch { facts.PendingBytes = 0; }
+            facts.PendingVersion = VersionFacts.Parse(facts.PendingExeName)
+                ?? VersionFromInfo(ReadTextOrNull(Path.Combine(pending, "update-info.json")));
+            facts.Updater = facts.PendingVersion == null ? UpdaterState.PendingUnknown : UpdaterState.PendingKnown;
+        }
+
+        static void CollectHolders(DiagFacts facts, string installDir)
+        {
+            string root = NormalizePath(installDir);
+
+            Process[] processes;
+            try { processes = Process.GetProcesses(); }
+            catch { return; }
+
+            foreach (Process process in processes)
             {
                 try
                 {
-                    string path = null;
-                    try { path = p.MainModule != null ? p.MainModule.FileName : null; } catch { path = null; }
-                    if (path == null) { f.UnreadableProcesses++; continue; }
-                    string norm = Normalize(path);
-                    bool inside = norm.StartsWith(full, StringComparison.OrdinalIgnoreCase);
-                    bool sameName = string.Equals(p.ProcessName, "DeepSeek Harness", StringComparison.OrdinalIgnoreCase);
-                    if (!inside && !sameName) continue;
-                    f.Holders.Add(new HolderFact
+                    string path = TryGetPath(process);
+                    if (path == null)
                     {
-                        Pid = p.Id,
-                        Name = p.ProcessName,
+                        facts.UnreadableProcesses++;
+                        continue;
+                    }
+
+                    string normalized = NormalizePath(path);
+                    bool insideInstall = normalized.StartsWith(root, StringComparison.OrdinalIgnoreCase);
+                    bool sameName = string.Equals(process.ProcessName, "DeepSeek Harness", StringComparison.OrdinalIgnoreCase);
+                    if (!insideInstall && !sameName) continue;
+
+                    facts.Holders.Add(new HolderFact
+                    {
+                        Pid = process.Id,
+                        Name = process.ProcessName,
                         Path = path,
-                        InsideInstallDir = inside,
-                        IsBackend = inside && norm.IndexOf("\\resources\\runtime\\", StringComparison.OrdinalIgnoreCase) >= 0,
+                        InsideInstallDir = insideInstall,
+                        IsBackend = insideInstall &&
+                            normalized.IndexOf(BackendRuntimeFragment, StringComparison.OrdinalIgnoreCase) >= 0,
                     });
                 }
-                catch { f.UnreadableProcesses++; }
-                finally { try { p.Dispose(); } catch { } }
+                catch
+                {
+                    facts.UnreadableProcesses++;
+                }
+                finally
+                {
+                    process.Dispose();
+                }
             }
         }
 
-        static string Normalize(string p)
+        static string TryGetPath(Process process)
         {
-            if (string.IsNullOrEmpty(p)) return "";
-            try { return Path.GetFullPath(p).TrimEnd('\\', '/'); } catch { return p.TrimEnd('\\', '/'); }
+            try { return process.MainModule != null ? process.MainModule.FileName : null; }
+            catch { return null; }
         }
 
-        static bool SafeDirExists(string p) { try { return !string.IsNullOrEmpty(p) && Directory.Exists(p); } catch { return false; } }
-        static bool SafeFileExists(string p) { try { return !string.IsNullOrEmpty(p) && File.Exists(p); } catch { return false; } }
-
-        static string ReadAllTextOrNull(string p)
+        static string NormalizePath(string path)
         {
-            try { return File.Exists(p) ? File.ReadAllText(p).Trim() : null; } catch { return null; }
+            if (string.IsNullOrEmpty(path)) return string.Empty;
+            try { return Path.GetFullPath(path).TrimEnd('\\', '/'); }
+            catch { return path.TrimEnd('\\', '/'); }
         }
 
-        static string FileVersionOrNull(string p)
+        static bool DirectoryExists(string path)
+        {
+            try { return !string.IsNullOrEmpty(path) && Directory.Exists(path); } catch { return false; }
+        }
+
+        static bool FileExists(string path)
+        {
+            try { return !string.IsNullOrEmpty(path) && File.Exists(path); } catch { return false; }
+        }
+
+        static string ReadTextOrNull(string path)
+        {
+            try { return File.Exists(path) ? File.ReadAllText(path).Trim() : null; } catch { return null; }
+        }
+
+        static string FileVersionOf(string path)
         {
             try
             {
-                if (!File.Exists(p)) return null;
-                var v = FileVersionInfo.GetVersionInfo(p);
-                return string.IsNullOrEmpty(v.ProductVersion) ? v.FileVersion : v.ProductVersion;
+                if (!File.Exists(path)) return null;
+                FileVersionInfo info = FileVersionInfo.GetVersionInfo(path);
+                return string.IsNullOrEmpty(info.ProductVersion) ? info.FileVersion : info.ProductVersion;
             }
             catch { return null; }
         }
 
-        static readonly Regex InfoVer = new Regex("\"(?:version|tag|name)\"\\s*:\\s*\"([^\"]+)\"", RegexOptions.Compiled);
+        static readonly Regex InfoVersionPattern = new Regex(
+            "\"(?:version|tag|name)\"\\s*:\\s*\"([^\"]+)\"",
+            RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
         static string VersionFromInfo(string json)
         {
             if (string.IsNullOrEmpty(json)) return null;
-            var m = InfoVer.Match(json);
-            if (!m.Success) return null;
-            return VersionFacts.Parse(m.Groups[1].Value);
+            Match match = InfoVersionPattern.Match(json);
+            return match.Success ? VersionFacts.Parse(match.Groups[1].Value) : null;
         }
     }
 }

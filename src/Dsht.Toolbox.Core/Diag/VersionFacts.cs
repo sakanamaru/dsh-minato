@@ -4,101 +4,131 @@ using System.Text.RegularExpressions;
 
 namespace Dsht.Toolbox.Core.Diag
 {
-    /// <summary>版本解析与比较（纯函数，可测）。
-    /// 支持 `0.2.2`、`0.2.2-rc.5`、以及从文件名里取版本（`deepseek-harness-0.2.2-rc.5-win-x64.exe`）。
-    /// 预发行后缀只接受字母/数字/点：遇到连字符即止（否则会把 `-win-x64.exe` 当成后缀）。</summary>
+    /// <summary>
+    /// Parses and compares dsh versions such as <c>0.2.2</c> and <c>0.2.2-rc.5</c>.
+    ///
+    /// Two behaviours matter for correctness:
+    /// <list type="bullet">
+    /// <item>a file name like <c>deepseek-harness-0.2.2-rc.5-win-x64.exe</c> must not treat
+    /// <c>-win-x64</c> as a pre-release tag, so the tag stops at the first hyphen;</item>
+    /// <item>.NET normalises assembly versions to four parts (<c>0.2.2.0</c>), which loses
+    /// <c>-rc.5</c>. Trailing zeros are stripped so the numeric core still compares, and
+    /// callers use <see cref="SameCore"/> instead of inventing an ordering they cannot prove.</item>
+    /// </list>
+    /// </summary>
     public static class VersionFacts
     {
-        static readonly Regex Rx = new Regex(
-            @"(?<![0-9.])(?<num>\d+(?:\.\d+){1,3})(?:-(?<pre>[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*))?",
+        static readonly Regex VersionPattern = new Regex(
+            @"(?<![0-9.])(?<core>\d+(?:\.\d+){1,3})(?:-(?<pre>[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*))?",
             RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
-        /// <summary>取版本核心（如 0.2.2-rc.5）。取不到返回 null（不猜）。</summary>
+        /// <summary>Extracts a version from arbitrary text. Returns null when nothing parses.</summary>
         public static string Parse(string text)
         {
             if (string.IsNullOrEmpty(text)) return null;
-            Match m = Rx.Match(text);
-            if (!m.Success) return null;
-            string num = TrimZeros(m.Groups["num"].Value);
-            string pre = m.Groups["pre"].Success ? m.Groups["pre"].Value : null;
-            return pre == null ? num : num + "-" + pre;
+            Match match = VersionPattern.Match(text);
+            if (!match.Success) return null;
+
+            string core = TrimTrailingZeros(match.Groups["core"].Value);
+            string pre = match.Groups["pre"].Success ? match.Groups["pre"].Value : null;
+            return pre == null ? core : core + "-" + pre;
         }
 
-        /// <summary>比较：-1 / 0 / 1；任一不可解析返回 null（不猜）。注意 rc.10 &gt; rc.9。</summary>
-        public static int? Compare(string a, string b)
+        /// <summary>
+        /// Orders two versions: -1, 0 or 1. Returns null when either side cannot be parsed,
+        /// because an unparsable version is unknown, not older.
+        /// </summary>
+        public static int? Compare(string left, string right)
         {
-            string pa = Parse(a), pb = Parse(b);
-            if (pa == null || pb == null) return null;
+            string a = Parse(left);
+            string b = Parse(right);
+            if (a == null || b == null) return null;
 
-            string coreA = Core(pa), coreB = Core(pb);
-            string[] na = coreA.Split('.'), nb = coreB.Split('.');
-            int len = Math.Max(na.Length, nb.Length);
-            for (int i = 0; i < len; i++)
-            {
-                int x = i < na.Length ? Int(na[i]) : 0;
-                int y = i < nb.Length ? Int(nb[i]) : 0;
-                if (x != y) return x < y ? -1 : 1;
-            }
+            int coreOrder = CompareCore(Core(a), Core(b));
+            if (coreOrder != 0) return coreOrder;
 
-            string preA = Pre(pa), preB = Pre(pb);
+            string preA = Pre(a);
+            string preB = Pre(b);
             if (preA == null && preB == null) return 0;
-            if (preA == null) return 1;   // 正式版 > 预发行版
+            if (preA == null) return 1;   // a release outranks its pre-release
             if (preB == null) return -1;
             return ComparePre(preA, preB);
         }
 
-        /// <summary>两个版本的核心数字是否相同（忽略预发行后缀）。任一不可解析返回 false。</summary>
-        public static bool SameCore(string a, string b)
+        /// <summary>
+        /// True when both sides share the same numeric core, ignoring any pre-release tag.
+        /// Used where the installed side can only expose an assembly version and an ordering
+        /// claim would therefore be unprovable.
+        /// </summary>
+        public static bool SameCore(string left, string right)
         {
-            string pa = Parse(a), pb = Parse(b);
-            if (pa == null || pb == null) return false;
-            return string.Equals(Core(pa), Core(pb), StringComparison.Ordinal);
+            string a = Parse(left);
+            string b = Parse(right);
+            if (a == null || b == null) return false;
+            return string.Equals(Core(a), Core(b), StringComparison.Ordinal);
         }
 
-        static int ComparePre(string a, string b)
+        static int CompareCore(string a, string b)
         {
-            string[] pa = a.Split('.'), pb = b.Split('.');
-            int len = Math.Max(pa.Length, pb.Length);
-            for (int i = 0; i < len; i++)
+            string[] left = a.Split('.');
+            string[] right = b.Split('.');
+            int length = Math.Max(left.Length, right.Length);
+            for (int i = 0; i < length; i++)
             {
-                string x = i < pa.Length ? pa[i] : null;
-                string y = i < pb.Length ? pb[i] : null;
-                if (x == null) return -1;
-                if (y == null) return 1;
-                int nx, ny;
-                bool ix = int.TryParse(x, NumberStyles.Integer, CultureInfo.InvariantCulture, out nx);
-                bool iy = int.TryParse(y, NumberStyles.Integer, CultureInfo.InvariantCulture, out ny);
-                if (ix && iy) { if (nx != ny) return nx < ny ? -1 : 1; continue; }
-                int c = string.Compare(x, y, StringComparison.Ordinal);
-                if (c != 0) return c < 0 ? -1 : 1;
+                int x = i < left.Length ? ToInt(left[i]) : 0;
+                int y = i < right.Length ? ToInt(right[i]) : 0;
+                if (x != y) return x < y ? -1 : 1;
             }
             return 0;
         }
 
-        /// <summary>去掉尾部 .0（.NET 会把 ProductVersion 规范成 4 段：0.2.2 → 0.2.2.0）。</summary>
-        static string TrimZeros(string num)
+        /// <summary>Numeric segments compare as numbers (rc.10 &gt; rc.9); others ordinal.</summary>
+        static int ComparePre(string a, string b)
         {
-            if (string.IsNullOrEmpty(num)) return num;
-            while (num.EndsWith(".0", StringComparison.Ordinal)) num = num.Substring(0, num.Length - 2);
-            return num;
+            string[] left = a.Split('.');
+            string[] right = b.Split('.');
+            int length = Math.Max(left.Length, right.Length);
+            for (int i = 0; i < length; i++)
+            {
+                if (i >= left.Length) return -1;
+                if (i >= right.Length) return 1;
+
+                int x, y;
+                bool numericX = int.TryParse(left[i], NumberStyles.Integer, CultureInfo.InvariantCulture, out x);
+                bool numericY = int.TryParse(right[i], NumberStyles.Integer, CultureInfo.InvariantCulture, out y);
+                if (numericX && numericY)
+                {
+                    if (x != y) return x < y ? -1 : 1;
+                    continue;
+                }
+                int order = string.Compare(left[i], right[i], StringComparison.Ordinal);
+                if (order != 0) return order < 0 ? -1 : 1;
+            }
+            return 0;
         }
 
-        static string Core(string v)
+        static string Core(string version)
         {
-            int i = v.IndexOf('-');
-            return i >= 0 ? v.Substring(0, i) : v;
+            int dash = version.IndexOf('-');
+            return dash >= 0 ? version.Substring(0, dash) : version;
         }
 
-        static string Pre(string v)
+        static string Pre(string version)
         {
-            int i = v.IndexOf('-');
-            return i >= 0 ? v.Substring(i + 1) : null;
+            int dash = version.IndexOf('-');
+            return dash >= 0 ? version.Substring(dash + 1) : null;
         }
 
-        static int Int(string s)
+        static string TrimTrailingZeros(string core)
         {
-            int n;
-            return int.TryParse(s, NumberStyles.Integer, CultureInfo.InvariantCulture, out n) ? n : 0;
+            while (core.EndsWith(".0", StringComparison.Ordinal)) core = core.Substring(0, core.Length - 2);
+            return core;
+        }
+
+        static int ToInt(string value)
+        {
+            int parsed;
+            return int.TryParse(value, NumberStyles.Integer, CultureInfo.InvariantCulture, out parsed) ? parsed : 0;
         }
     }
 }

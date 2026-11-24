@@ -1,156 +1,223 @@
-using System;
 using System.Collections.Generic;
 
 namespace Dsht.Toolbox.Core.Diag
 {
     public enum FindingLevel { Ok, Info, Warn, Block }
 
-    /// <summary>一条发现（纯数据）。</summary>
+    /// <summary>One observation about the install. <see cref="Code"/> is stable and asserted by tests.</summary>
     public sealed class Finding
     {
         public FindingLevel Level;
-        public string Code = "";     // 稳定机器码，用于测试与文档
-        public string Title = "";
-        public string Detail = "";
+        public string Code = string.Empty;
+        public string Title = string.Empty;
+        public string Detail = string.Empty;
     }
 
     public enum ActionKind
     {
+        /// <summary>Close every process holding the install directory.</summary>
         StopHolders = 0,
+
+        /// <summary>Delete staged updater artefacts so the next update starts clean.</summary>
         ClearUpdaterPending = 1,
+
+        /// <summary>Re-run the staged installer with %TEMP% as its working directory.</summary>
         RunInstallerFromTemp = 2,
+
+        /// <summary>Nothing can be repaired in place; a reinstall is required.</summary>
         Reinstall = 3,
+
+        /// <summary>No action needed.</summary>
         Nothing = 4,
     }
 
-    /// <summary>一条修复动作（有序；纯数据，由 --fix 执行）。</summary>
+    /// <summary>A step the planner recommends. Ordered; <see cref="Dangerous"/> needs explicit consent.</summary>
     public sealed class RemedyAction
     {
         public ActionKind Kind;
-        public string Why = "";
-        public bool Dangerous;   // true ⇒ 必须额外确认
+        public string Why = string.Empty;
+        public bool Dangerous;
         public List<int> Pids = new List<int>();
-        public string Argument = "";
+        public string ExeName = string.Empty;
     }
 
     public sealed class DiagPlan
     {
         public List<Finding> Findings = new List<Finding>();
         public List<RemedyAction> Actions = new List<RemedyAction>();
+
+        /// <summary>True when nothing needs doing: no <see cref="FindingLevel.Block"/> and no
+        /// <see cref="FindingLevel.Warn"/>. Warnings must not be reported as healthy.</summary>
         public bool Healthy;
     }
 
-    /// <summary>事实 → 发现 + 修复计划。纯函数：同输入同输出，无 IO 无时钟。</summary>
+    /// <summary>
+    /// Turns facts into findings and an ordered remedy plan. Pure: same input, same output,
+    /// no IO and no clock, so every branch below is directly testable.
+    /// </summary>
     public static class RemedyPlanner
     {
-        public static DiagPlan Plan(DiagFacts f)
+        public static DiagPlan Plan(DiagFacts facts)
         {
             var plan = new DiagPlan();
-            if (f == null) { plan.Healthy = false; Add(plan, FindingLevel.Block, "no-facts", "没有读到任何事实", "请以管理员身份重试"); return plan; }
-
-            // 1) 安装目录
-            if (!f.InstallDirExists)
+            if (facts == null)
             {
-                Add(plan, FindingLevel.Block, "install-missing", "安装目录不存在", f.InstallDir);
-                plan.Actions.Add(new RemedyAction { Kind = ActionKind.Reinstall, Why = "没有安装可修，只能重装" });
-                plan.Healthy = false;
+                Add(plan, FindingLevel.Block, "no-facts", "No facts were collected", "Re-run the command; if it persists, run it elevated.");
                 return plan;
             }
-            if (!f.MainExeExists) Add(plan, FindingLevel.Block, "main-exe-missing", "主程序缺失", "DeepSeek Harness.exe 不在安装目录");
-            else Add(plan, FindingLevel.Ok, "main-exe", "主程序存在", null);
 
-            if (!f.UninstallerExists) Add(plan, FindingLevel.Warn, "uninstaller-missing", "卸载器缺失", "可能被部分覆盖安装破坏");
-
-            // 2) 进程占用（error 32/5 的直接原因）
-            int inside = 0, backend = 0;
-            var pids = new List<int>();
-            foreach (var h in f.Holders)
+            if (!facts.InstallDirExists)
             {
-                if (!h.InsideInstallDir) continue;
-                inside++;
-                pids.Add(h.Pid);
-                if (h.IsBackend) backend++;
-            }
-            if (inside > 0)
-            {
-                Add(plan, FindingLevel.Warn, "holders", "有 " + inside + " 个进程占用安装目录",
-                    "这是更新/覆盖安装失败（Windows error 32/5）的直接原因；其中后端 node 进程 " + backend + " 个");
-                plan.Actions.Add(new RemedyAction { Kind = ActionKind.StopHolders, Why = "释放安装目录上的文件句柄", Dangerous = true, Pids = pids });
-            }
-            else Add(plan, FindingLevel.Ok, "no-holders", "没有进程占用安装目录", null);
-
-            if (f.UnreadableProcesses > 0)
-                Add(plan, FindingLevel.Info, "unreadable-procs", "有 " + f.UnreadableProcesses + " 个进程路径读不到", "权限不足；不代表没占用，管理员身份更准");
-
-            // 3) updater 状态
-            switch (f.Updater)
-            {
-                case UpdaterState.None:
-                    Add(plan, FindingLevel.Info, "updater-none", "没有 updater 缓存（从未检查更新）", null);
-                    break;
-                case UpdaterState.Clean:
-                    Add(plan, FindingLevel.Ok, "updater-clean", "updater 缓存干净", null);
-                    break;
-                case UpdaterState.PendingKnown:
-                case UpdaterState.PendingUnknown:
-                    {
-                        string detail = "待装: " + (string.IsNullOrEmpty(f.PendingExeName) ? "(未知)" : f.PendingExeName);
-                        int? cmp = VersionFacts.Compare(f.PendingVersion, f.ProductVersion);
-                        if (cmp.HasValue && cmp.Value > 0)
-                            detail += "；比已装版本新（已装 " + (f.ProductVersion ?? "未知") + "，待装 " + f.PendingVersion + "）";
-                        else if (VersionFacts.SameCore(f.PendingVersion, f.ProductVersion))
-                            detail += "；与已装版本同核心（已装读数为 " + (f.ProductVersion ?? "未知") + "），属重复/残留";
-                        else if (cmp.HasValue && cmp.Value == 0)
-                            detail += "；与已装版本相同（已装 " + (f.ProductVersion ?? "未知") + "），属重复/残留";
-                        else if (!cmp.HasValue)
-                            detail += "；版本无法比较（已装 " + (f.ProductVersion ?? "未知") + "）";
-                        else
-                            detail += "；不新于已装版本，属残留";
-                        Add(plan, FindingLevel.Warn, "updater-pending", "updater 里有待装安装包", detail);
-                        plan.Actions.Add(new RemedyAction { Kind = ActionKind.ClearUpdaterPending, Why = "残留 pending 会让下次更新反复失败", Dangerous = false });
-                        if (f.InstallerInRoot)
-                            plan.Actions.Add(new RemedyAction { Kind = ActionKind.RunInstallerFromTemp, Why = "用 %TEMP% 作为工作目录静默重跑已下载的安装器（社区验证的绕法）", Dangerous = true, Argument = f.PendingExeName ?? "" });
-                        break;
-                    }
-                case UpdaterState.Suspicious:
-                    Add(plan, FindingLevel.Warn, "updater-suspicious", "updater 缓存有可疑残留", "pending 不完整或根目录残留 installer.exe");
-                    plan.Actions.Add(new RemedyAction { Kind = ActionKind.ClearUpdaterPending, Why = "清掉不完整缓存，避免更新反复卡住", Dangerous = false });
-                    break;
+                Add(plan, FindingLevel.Block, "install-missing", "Install directory does not exist", facts.InstallDir);
+                plan.Actions.Add(new RemedyAction { Kind = ActionKind.Reinstall, Why = "nothing to repair in place" });
+                return plan;
             }
 
-            // 4) 版本一致性
-            if (!string.IsNullOrEmpty(f.ProductVersion) && !string.IsNullOrEmpty(f.PendingVersion))
-            {
-                int? cmp2 = VersionFacts.Compare(f.PendingVersion, f.ProductVersion);
-                if (cmp2.HasValue && cmp2.Value == 0)
-                    Add(plan, FindingLevel.Info, "version-equal", "待装版本等于已装版本", "这次更新是重复的，可直接清 pending");
-                else if (VersionFacts.SameCore(f.PendingVersion, f.ProductVersion))
-                {
-                    Add(plan, FindingLevel.Info, "version-same-core", "待装与已装是同一版本核心",
-                        "已装版本只能读到数字部分（" + f.ProductVersion + "），预发行后缀不可知 ⇒ 不做新旧断言；pending 可安全清理");
-                }
-                else if (false)
-                    Add(plan, FindingLevel.Info, "version-equal", "待装版本等于已装版本", "这次更新是重复的，可直接清 pending");
-                else if (cmp2.HasValue && cmp2.Value < 0)
-                    Add(plan, FindingLevel.Info, "version-older", "待装版本旧于已装版本", "pending 是旧残留，清理后不会再触发它");
-            }
+            Add(plan, facts.MainExeExists ? FindingLevel.Ok : FindingLevel.Block,
+                facts.MainExeExists ? "main-exe" : "main-exe-missing",
+                facts.MainExeExists ? "Main executable present" : "Main executable missing",
+                facts.MainExeExists ? string.Empty : "DeepSeek Harness.exe is not in the install directory");
 
-            plan.Healthy = noProblems(plan);
-            if (plan.Healthy && plan.Actions.Count == 0) plan.Actions.Add(new RemedyAction { Kind = ActionKind.Nothing, Why = "没有需要修的东西" });
+            if (!facts.UninstallerExists)
+                Add(plan, FindingLevel.Warn, "uninstaller-missing", "Uninstaller missing", "Usually a sign of a partially applied overwrite install.");
+
+            PlanHolders(plan, facts);
+            PlanUpdater(plan, facts);
+            PlanVersionSkew(plan, facts);
+
+            plan.Healthy = HasNoProblems(plan);
+            if (plan.Healthy && plan.Actions.Count == 0)
+                plan.Actions.Add(new RemedyAction { Kind = ActionKind.Nothing, Why = "nothing to repair" });
+
             return plan;
         }
 
-        /// <summary>“健康” = 没有 Block 也没有 Warn（即：没有需要动手的东西）。</summary>
-        static bool noProblems(DiagPlan p)
+        static void PlanHolders(DiagPlan plan, DiagFacts facts)
         {
-            foreach (var x in p.Findings)
-                if (x.Level == FindingLevel.Block || x.Level == FindingLevel.Warn) return false;
+            var pids = new List<int>();
+            int backend = 0;
+            foreach (HolderFact holder in facts.Holders)
+            {
+                if (!holder.InsideInstallDir) continue;
+                pids.Add(holder.Pid);
+                if (holder.IsBackend) backend++;
+            }
+
+            if (pids.Count > 0)
+            {
+                string detail = "This is the direct cause of the Windows error 32/5 seen when updating.";
+                if (backend > 0) detail += " " + backend + " of them is the bundled backend runtime, which holds node.exe open.";
+                Add(plan, FindingLevel.Warn, "holders", pids.Count + " process(es) hold the install directory", detail);
+                plan.Actions.Add(new RemedyAction
+                {
+                    Kind = ActionKind.StopHolders,
+                    Why = "release file handles on the install directory",
+                    Dangerous = true,
+                    Pids = pids,
+                });
+            }
+            else
+            {
+                Add(plan, FindingLevel.Ok, "no-holders", "No process holds the install directory", string.Empty);
+            }
+
+            if (facts.UnreadableProcesses > 0)
+                Add(plan, FindingLevel.Info, "unreadable-procs",
+                    facts.UnreadableProcesses + " process path(s) could not be read",
+                    "Access denied. Absence of evidence, not evidence of absence; an elevated run sees more.");
+        }
+
+        static void PlanUpdater(DiagPlan plan, DiagFacts facts)
+        {
+            switch (facts.Updater)
+            {
+                case UpdaterState.None:
+                    Add(plan, FindingLevel.Info, "updater-none", "No updater cache", "No update was ever staged on this machine.");
+                    return;
+
+                case UpdaterState.Clean:
+                    Add(plan, FindingLevel.Ok, "updater-clean", "Updater cache is clean", string.Empty);
+                    return;
+
+                case UpdaterState.Suspicious:
+                    Add(plan, FindingLevel.Warn, "updater-suspicious", "Updater cache holds leftover artefacts",
+                        "An incomplete staging area or a stray installer in the cache root makes the next update fail repeatedly.");
+                    plan.Actions.Add(new RemedyAction { Kind = ActionKind.ClearUpdaterPending, Why = "remove the incomplete staging area" });
+                    return;
+            }
+
+            // PendingKnown / PendingUnknown
+            string detail = "Staged: " + (string.IsNullOrEmpty(facts.PendingExeName) ? "(unknown)" : facts.PendingExeName);
+            int? order = VersionFacts.Compare(facts.PendingVersion, facts.ProductVersion);
+            bool sameCore = VersionFacts.SameCore(facts.PendingVersion, facts.ProductVersion);
+
+            if (order.HasValue && order.Value > 0)
+                detail += "; newer than installed (installed " + Describe(facts.ProductVersion) + ", staged " + facts.PendingVersion + ")";
+            else if (order.HasValue && order.Value == 0)
+                detail += "; same version as installed (" + Describe(facts.ProductVersion) + ") - a duplicate";
+            else if (sameCore)
+                detail += "; same version core as installed (" + Describe(facts.ProductVersion) + ") - the installed side exposes only a numeric version, so no ordering is claimed";
+            else if (!order.HasValue)
+                detail += "; version not comparable (installed " + Describe(facts.ProductVersion) + ")";
+            else
+                detail += "; older than installed - leftover";
+
+            Add(plan, FindingLevel.Warn, "updater-pending", "Updater has a staged installer", detail);
+            plan.Actions.Add(new RemedyAction { Kind = ActionKind.ClearUpdaterPending, Why = "a stale staging area makes every following update fail" });
+
+            if (facts.InstallerInRoot)
+            {
+                plan.Actions.Add(new RemedyAction
+                {
+                    Kind = ActionKind.RunInstallerFromTemp,
+                    Why = "run the staged installer with %TEMP% as working directory; the installer renames its own working directory otherwise",
+                    Dangerous = true,
+                    ExeName = facts.PendingExeName ?? string.Empty,
+                });
+            }
+        }
+
+        static void PlanVersionSkew(DiagPlan plan, DiagFacts facts)
+        {
+            if (string.IsNullOrEmpty(facts.ProductVersion) || string.IsNullOrEmpty(facts.PendingVersion)) return;
+
+            int? order = VersionFacts.Compare(facts.PendingVersion, facts.ProductVersion);
+            if (order.HasValue && order.Value == 0)
+            {
+                Add(plan, FindingLevel.Info, "version-equal", "Staged version equals installed version",
+                    "The staged update is a duplicate; clearing it is safe.");
+                return;
+            }
+
+            if (VersionFacts.SameCore(facts.PendingVersion, facts.ProductVersion))
+            {
+                Add(plan, FindingLevel.Info, "version-same-core", "Staged and installed share a version core",
+                    "The installed side only exposes " + facts.ProductVersion + ", so its pre-release tag is unknown; no ordering is claimed and clearing is safe.");
+                return;
+            }
+
+            if (order.HasValue && order.Value < 0)
+            {
+                Add(plan, FindingLevel.Info, "version-older", "Staged version is older than installed",
+                    "A stale leftover; clearing it prevents it from being retried.");
+            }
+        }
+
+        static bool HasNoProblems(DiagPlan plan)
+        {
+            foreach (Finding finding in plan.Findings)
+                if (finding.Level == FindingLevel.Block || finding.Level == FindingLevel.Warn) return false;
             return true;
         }
 
-        static void Add(DiagPlan p, FindingLevel lvl, string code, string title, string detail)
+        static string Describe(string version)
         {
-            p.Findings.Add(new Finding { Level = lvl, Code = code, Title = title, Detail = detail ?? "" });
+            return string.IsNullOrEmpty(version) ? "(unknown)" : version;
+        }
+
+        static void Add(DiagPlan plan, FindingLevel level, string code, string title, string detail)
+        {
+            plan.Findings.Add(new Finding { Level = level, Code = code, Title = title, Detail = detail ?? string.Empty });
         }
     }
 }
