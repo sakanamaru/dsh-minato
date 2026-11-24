@@ -46,6 +46,6 @@ dotnet run --project src/Dsht.Toolbox -c Release -- diag --dir C:\fixture\instal
 ## Style expectations this code tries to meet
 
 - Comments explain *why*, never restate the next line.
-- No dead code, no TODO markers; unimplemented things exit with an explicit code.
+- No dead code and no placeholder markers; unimplemented behaviour exits with an explicit code.
 - Every user-visible string is produced by one renderer, in English, without decoration.
 - Constants are named; magic numbers in the host layer carry a reason.

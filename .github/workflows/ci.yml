@@ -28,6 +28,11 @@ jobs:
       - name: Run tests
         run: dotnet run --project tests/Dsht.Toolbox.Tests -c Release
 
+      # Repository style guard: the rules are the v3 lessons, made executable.
+      - name: Style guard
+        shell: pwsh
+        run: ./scripts/check-style.ps1
+
       - name: Build app (Windows only)
         if: runner.os == 'Windows'
         run: dotnet build src/Dsht.Toolbox/Dsht.Toolbox.csproj -c Release --nologo
@@ -49,4 +54,3 @@ jobs:
           ./out/dsht.exe diag --json > diag.json
           if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne 1) { throw 'diag exited with an unexpected code' }
           Get-Content diag.json -Raw | ConvertFrom-Json | Out-Null
-
