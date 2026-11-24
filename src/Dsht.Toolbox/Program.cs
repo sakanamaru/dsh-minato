@@ -35,6 +35,9 @@ namespace Dsht.Toolbox
                 case "port":
                     return PortCommand.Run(rest);
 
+                case "hud":
+                    return HudCommand.Run(rest);
+
                 default:
                     if (!CommandSurface.IsKnown(command))
                     {
@@ -56,8 +59,10 @@ namespace Dsht.Toolbox
             Console.WriteLine("            Read-only diagnosis of a DeepSeek Harness desktop install.");
             Console.WriteLine("  dsht port [--port <n>]");
             Console.WriteLine("            Is the web port listening, and which dsh processes are running.");
+            Console.WriteLine("  dsht hud --preview <file.png> [--snapshot <path>] [--scale <100-300>]");
+            Console.WriteLine("            Render the status overlay to an image (the window comes later).");
             Console.WriteLine();
-            Console.WriteLine("  dsht hud|scan|repair|backup|profile|log   reserved (exit " + ExitCodes.Unsupported + ")");
+            Console.WriteLine("  dsht scan|repair|backup|profile|log   reserved (exit " + ExitCodes.Unsupported + ")");
             Console.WriteLine();
             Console.WriteLine("Exit codes: 0 ok / 1 problems found / 2 usage / 3 unsupported");
             Console.WriteLine("This build never modifies the machine. Repair is not implemented.");

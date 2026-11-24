@@ -43,20 +43,68 @@ function Count-Matches([string]$pattern) {
     return $count
 }
 
+# Rules about prose must look at comments only: a date inside a test fixture is data, not a
+# changelog entry, and a check mark inside a string literal is a thing the program prints.
+function Get-CommentText([string]$text) {
+    $comments = New-Object System.Text.StringBuilder
+    $i = 0
+    $state = "code"
+    while ($i -lt $text.Length) {
+        $ch = $text[$i]
+        $next = if ($i + 1 -lt $text.Length) { $text[$i + 1] } else { [char]0 }
+
+        if ($state -eq "code") {
+            if ($ch -eq '/' -and $next -eq '/') { $state = "line"; $i += 2; continue }
+            if ($ch -eq '/' -and $next -eq '*') { $state = "block"; $i += 2; continue }
+            if ($ch -eq '"') { $state = "string"; $i++; continue }
+            if ($ch -eq "'") { $state = "char"; $i++; continue }
+            $i++; continue
+        }
+        if ($state -eq "line") {
+            if ($ch -eq [char]10) { $state = "code"; [void]$comments.Append([char]10); $i++; continue }
+            [void]$comments.Append($ch); $i++; continue
+        }
+        if ($state -eq "block") {
+            if ($ch -eq '*' -and $next -eq '/') { $state = "code"; $i += 2; continue }
+            [void]$comments.Append($ch); $i++; continue
+        }
+        if ($state -eq "string") {
+            if ($ch -eq [char]92) { $i += 2; continue }
+            if ($ch -eq '"') { $state = "code" }
+            $i++; continue
+        }
+        if ($state -eq "char") {
+            if ($ch -eq [char]92) { $i += 2; continue }
+            if ($ch -eq "'") { $state = "code" }
+            $i++; continue
+        }
+    }
+    return $comments.ToString()
+}
+
+function Count-InComments([string]$pattern) {
+    $count = 0
+    foreach ($file in $files) {
+        $comments = Get-CommentText ([System.IO.File]::ReadAllText($file.FullName))
+        $count += ([regex]::Matches($comments, $pattern)).Count
+    }
+    return $count
+}
+
 # 1. Decorative marks in comments. Prose does not need check marks; they read as process noise.
-Add-Max 'no-decorative-marks' (Count-Matches '[\u2713\u2717\u2605\u2606\u26A0]') 0 'check marks and stars belong in a review, not in source'
+Add-Max 'no-decorative-marks' (Count-InComments '[\u2713\u2717\u2605\u2606\u26A0]') 0 'check marks and stars belong in a review, not in source'
 
 # 2. Arrows used as prose glue.
-Add-Max 'no-arrow-prose' (Count-Matches '\u2192') 0 'rewrite the sentence instead of drawing an arrow'
+Add-Max 'no-arrow-prose' (Count-InComments '\u2192') 0 'rewrite the sentence instead of drawing an arrow'
 
 # 3. Date stamps. git blame already answers when and why.
-Add-Max 'no-date-stamps' (Count-Matches '20[0-9]{2}-[0-1][0-9]-[0-3][0-9]') 0 'a date in a comment is a changelog entry in the wrong place'
+Add-Max 'no-date-stamps' (Count-InComments '20[0-9]{2}-[0-1][0-9]-[0-3][0-9]') 0 'a date in a comment is a changelog entry in the wrong place'
 
 # 4. Section references to documents a reader of the code cannot resolve.
-Add-Max 'no-doc-crossrefs' (Count-Matches '\u00A7') 0 'cite the file, not a section number from a conversation'
+Add-Max 'no-doc-crossrefs' (Count-InComments '\u00A7') 0 'cite the file, not a section number from a conversation'
 
 # 5. Placeholder markers. Unimplemented behaviour returns exit code 3 instead.
-Add-Max 'no-placeholders' (Count-Matches 'TODO|FIXME|XXX|HACK') 0 'open an issue; the code stays clean'
+Add-Max 'no-placeholders' (Count-InComments 'TODO|FIXME|XXX|HACK') 0 'open an issue; the code stays clean'
 
 # 6. Swallowed exceptions. `catch { }` hides the reason a repair failed.
 Add-Max 'no-swallowed-exceptions' (Count-Matches 'catch\s*\{\s*\}') 0 'log it or convert it to a fact; silence is not handling'

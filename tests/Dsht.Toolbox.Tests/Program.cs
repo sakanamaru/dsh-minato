@@ -3,6 +3,10 @@ using System.Collections.Generic;
 using System.Text.Json;
 using Dsht.Toolbox.Core;
 using Dsht.Toolbox.Core.Diag;
+using Dsht.Toolbox.Core.Hud;
+using Dsht.Toolbox.Core.Live;
+using System.IO;
+using System.IO.Compression;
 
 namespace Dsht.Toolbox.Tests
 {
@@ -29,6 +33,10 @@ namespace Dsht.Toolbox.Tests
             PlannerTests();
             RendererTests();
             SurfaceTests();
+            SnapshotTests();
+            HudContentTests();
+            HudLayoutTests();
+            PngTests();
 
             Console.WriteLine();
             Console.WriteLine("== " + passed + " passed, " + failed + " failed ==");
@@ -189,6 +197,147 @@ namespace Dsht.Toolbox.Tests
             Check("port is known", CommandSurface.IsKnown("port"));
             Check("an invented command is rejected", !CommandSurface.IsKnown("deploy"));
             Check("repair is reserved, not implemented", CommandSurface.IsKnown("repair"));
+        }
+
+        static void SnapshotTests()
+        {
+            Console.WriteLine("-- LiveSnapshot");
+            const string good = "{\"v\":2,\"generatedAt\":\"2026-11-25T05:00:00Z\",\"seq\":7,\"sessions\":[{\"id\":\"a1\",\"state\":\"active\",\"ctxUsed\":0.5,\"tokensHour\":1200,\"questions\":2},{\"id\":\"b2\",\"state\":\"parked\"}]}";
+            LiveSnapshot snapshot = LiveSnapshot.Parse(good);
+            Check("parses a v2 snapshot", snapshot != null && snapshot.Version == 2);
+            Check("keeps the sequence number", snapshot.Seq == 7);
+            Check("counts sessions", snapshot.SessionCount == 2);
+            Check("counts active sessions", snapshot.ActiveCount == 1);
+            Check("sums questions", snapshot.QuestionCount == 2);
+            Check("reports peak context", snapshot.PeakContextUsed.HasValue && snapshot.PeakContextUsed.Value == 0.5);
+            Check("missing per-session fields stay null", snapshot.Sessions[1].ContextUsed == null);
+
+            Check("rejects a snapshot from another schema version",
+                LiveSnapshot.Parse("{\"v\":1,\"sessions\":[]}") == null);
+            Check("rejects malformed json", LiveSnapshot.Parse("{not json") == null);
+            Check("rejects an empty document", LiveSnapshot.Parse("") == null);
+            Check("rejects an array root", LiveSnapshot.Parse("[]") == null);
+
+            LiveSnapshot bare = LiveSnapshot.Parse("{\"v\":2,\"sessions\":[{\"state\":\"active\"}]}");
+            Check("drops a session without an id", bare.SessionCount == 0);
+
+            Check("an all-unknown snapshot reports unknown tokens",
+                LiveSnapshot.Parse("{\"v\":2,\"sessions\":[{\"id\":\"x\"}]}").TokensThisHour == null);
+        }
+
+        static void HudContentTests()
+        {
+            Console.WriteLine("-- HudContent");
+            DateTimeOffset now = new DateTimeOffset(2026, 11, 25, 5, 0, 0, TimeSpan.Zero);
+
+            HudContent none = HudContent.From(null, now);
+            Check("no snapshot reports unknown everywhere", none.State == HudState.Unknown && none.Stale);
+            Check("no snapshot never shows a zero", none.ContextLine.Contains("unknown"));
+
+            LiveSnapshot fresh = LiveSnapshot.Parse("{\"v\":2,\"generatedAt\":\"2026-11-25T04:59:50Z\",\"sessions\":[{\"id\":\"a\",\"state\":\"active\",\"ctxUsed\":0.38,\"tokensHour\":12400,\"questions\":1}]}");
+            HudContent content = HudContent.From(fresh, now);
+            Check("a fresh snapshot is not stale", !content.Stale);
+            Check("headline counts sessions", content.Headline.Contains("1 session"));
+            Check("context is a percentage", content.ContextLine.Contains("38%"));
+            Check("tokens are abbreviated", content.TokensLine.Contains("12.4k"));
+            Check("a waiting question is announced", content.WaitingLine.Contains("1 question"));
+            Check("a waiting question sets the waiting state", content.State == HudState.Waiting);
+
+            LiveSnapshot parked = LiveSnapshot.Parse("{\"v\":2,\"generatedAt\":\"2026-11-25T04:59:50Z\",\"sessions\":[{\"id\":\"a\",\"state\":\"parked\"}]}");
+            Check("a parked session is idle", HudContent.From(parked, now).State == HudState.Idle);
+
+            LiveSnapshot old = LiveSnapshot.Parse("{\"v\":2,\"generatedAt\":\"2026-11-25T04:00:00Z\",\"sessions\":[]}");
+            Check("an old snapshot is marked stale", HudContent.From(old, now).Stale);
+
+            Check("percent clamps above one", HudContent.Percent(1.7) == "100%");
+            Check("percent clamps below zero", HudContent.Percent(-2) == "0%");
+            Check("tokens under a thousand stay exact", HudContent.Tokens(999) == "999");
+            Check("tokens in thousands are abbreviated", HudContent.Tokens(12400) == "12.4k");
+            Check("tokens in millions are abbreviated", HudContent.Tokens(3100000) == "3.1M");
+            Check("four lines are produced", content.Lines().Length == 4);
+        }
+
+        static void HudLayoutTests()
+        {
+            Console.WriteLine("-- HudLayout");
+            HudContent content = HudContent.From(null, DateTimeOffset.UtcNow);
+
+            HudLayout.Measure(100, out int w100, out int h100);
+            HudLayout.Measure(150, out int w150, out int h150);
+            Check("the canvas scales with dpi", w150 == (int)Math.Round(w100 * 1.5) && h150 > h100);
+
+            var lines = HudLayout.Compute(content, 100);
+            Check("exactly four lines are laid out", lines.Count == 4);
+            Check("lines are ordered top to bottom", lines[0].Y < lines[1].Y && lines[1].Y < lines[2].Y && lines[2].Y < lines[3].Y);
+            Check("only the headline is emphasised", lines[0].Emphasis && !lines[1].Emphasis);
+            Check("all lines share one left edge", lines[0].X == lines[3].X);
+            Check("text starts inside the canvas", lines[0].X > 0 && lines[0].X < w100 && lines[3].Y < h100);
+
+            HudLayout.DotRect(100, out int dx, out int dy, out int diameter);
+            Check("the dot sits inside the canvas", dx >= 0 && dy >= 0 && dx + diameter <= w100);
+
+            var scaled = HudLayout.Compute(content, 200);
+            Check("a higher scale produces larger fonts", scaled[0].Size > lines[0].Size);
+        }
+
+        static void PngTests()
+        {
+            Console.WriteLine("-- Png");
+            var canvas = new Canvas(3, 2);
+            canvas.Clear(10, 20, 30, 255);
+            canvas.FillRect(1, 1, 1, 1, 200, 100, 50, 255);
+            byte[] png = canvas.ToPng();
+
+            Check("starts with the png signature", png[0] == 137 && png[1] == 80 && png[2] == 78 && png[3] == 71);
+            Check("declares an IHDR chunk", png[12] == (byte)'I' && png[13] == (byte)'H' && png[14] == (byte)'D' && png[15] == (byte)'R');
+
+            int width = (png[16] << 24) | (png[17] << 16) | (png[18] << 8) | png[19];
+            int height = (png[20] << 24) | (png[21] << 16) | (png[22] << 8) | png[23];
+            Check("encodes the requested width", width == 3);
+            Check("encodes the requested height", height == 2);
+
+            Check("ends with an IEND marker", png[png.Length - 8] == (byte)'I' && png[png.Length - 7] == (byte)'E');
+
+            byte[] decoded = DecodeIdat(png);
+            Check("the payload decodes to (stride+1)*height", decoded.Length == (3 * 4 + 1) * 2);
+            Check("every scanline uses filter 0", decoded[0] == 0 && decoded[13] == 0);
+
+            int pixel = 1 + (1 * (3 * 4 + 1)) + 1 * 4;
+            Check("pixels round-trip through the deflate stream",
+                decoded[pixel] == 200 && decoded[pixel + 1] == 100 && decoded[pixel + 2] == 50);
+
+            Check("a mismatched buffer is rejected",
+                Throws(() => Png.Encode(2, 2, new byte[4])));
+            Check("an empty canvas is rejected", Throws(() => Png.Encode(0, 1, new byte[0])));
+        }
+
+        static byte[] DecodeIdat(byte[] png)
+        {
+            using (var idat = new MemoryStream())
+            {
+                int position = 8;
+                while (position < png.Length)
+                {
+                    int length = (png[position] << 24) | (png[position + 1] << 16) | (png[position + 2] << 8) | png[position + 3];
+                    string type = System.Text.Encoding.ASCII.GetString(png, position + 4, 4);
+                    if (type == "IDAT") idat.Write(png, position + 8, length);
+                    position += 8 + length + 4;
+                }
+
+                idat.Position = 0;
+                using (var zlib = new ZLibStream(idat, System.IO.Compression.CompressionMode.Decompress))
+                using (var output = new MemoryStream())
+                {
+                    zlib.CopyTo(output);
+                    return output.ToArray();
+                }
+            }
+        }
+
+        static bool Throws(Action action)
+        {
+            try { action(); return false; }
+            catch (ArgumentException) { return true; }
         }
 
         static DiagFacts Healthy()
