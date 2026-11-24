@@ -22,40 +22,33 @@ The upstream reports this tool targets: [discussion #3959](https://github.com/de
 
 ```
 dsht diag [--json] [--dir <path>] [--updater <path>]
-    Diagnose the install. Read-only.
-
-dsht diag --fix [--yes]
-    Close holders, clear the updater staging area, re-run the staged installer.
-    Destructive steps require --yes. The run re-checks afterwards.
+    Read-only diagnosis of a desktop install.
 
 dsht port [--port <n>]
-    Is the web port listening, and which dsh processes exist.
+    Is the web port listening, and which dsh processes are running.
 
 dsht hud|scan|repair|backup|profile|log
     Reserved. They exit with code 3 today.
 ```
 
-Exit codes: `0` ok, `1` failed, `2` usage, `3` unsupported.
+Exit codes: `0` no problems found, `1` problems found, `2` usage, `3` unsupported.
 
 ## What a diagnosis looks like
 
 ```
 dsht diag
   install : C:\Users\<user>\AppData\Local\Programs\DeepSeek Harness
-  version : 0.2.2.0  (electron 44.7.0)
-  updater : PendingKnown  pending=0.2.2-rc.5
+  version : 0.2.2-rc.5  (electron 44.7.0)
+  updater : Pending  staged=0.2.2-rc.5
 
-  [ok] main-exe  Main executable present
-  [!!] holders  10 process(es) hold the install directory
-           This is the direct cause of the Windows error 32/5 seen when updating; ...
-  [!!] updater-pending  Updater has a staged installer
-           Staged: deepseek-harness-0.2.2-rc.5-win-x64.exe; same version core as installed ...
+  [ok] main-exe       Main executable present
+  [..] app-running    The app is running (10 process(es))
+                      Normal. If an update fails with a file-in-use error, quit the app first,
+                      including its tray icon.
+                      -> Quit DeepSeek Harness from the tray icon, then retry the update.
+  [ok] updater-staged A staged installer is present and not newer than the installed build
 
-  plan:
-    1. stop-holders  [needs --yes]  - release file handles on the install directory
-    2. clear-updater-pending  - a stale staging area makes every following update fail
-
-  verdict: 2 item(s) to repair (run with --fix)
+  verdict: no problems detected (diagnosis only; start the app to confirm it works)
 ```
 
 ## Build and test
@@ -81,9 +74,12 @@ against a fixture instead of a live install.
 
 ## Status
 
-Early v4. `diag` and `port` work; the rest are reserved. The diagnosis path has been run against
-a real installation; the repair path is covered by tests but has not yet been applied to a live,
-broken install.
+Diagnosis only. `diag` and `port` work; the six other commands are reserved and exit 3.
+
+The repair path was designed, implemented, reviewed, and **withdrawn**: four independent reviews
+found that it could delete its own installer, target a sibling installation, and report success
+without proving repair. The design and the requirements for a future attempt live in
+[docs/REPAIR-DESIGN.md](docs/REPAIR-DESIGN.md). Nothing in this build changes the machine.
 
 ## License
 

@@ -6,21 +6,24 @@ using System.Net.NetworkInformation;
 namespace Dsht.Toolbox.Commands
 {
     /// <summary>
-    /// <c>dsht port</c>: is the dsh web port taken, and by what. Read-only.
-    /// Exists because "port 3080 already in use" is the most common start failure and the
-    /// answer is rarely in dsh's own logs.
+    /// <c>dsht port</c>: whether the web port is listening, and which processes run from a
+    /// DeepSeek Harness install.
+    ///
+    /// This deliberately does not claim to name the owner of the port: resolving a listener to a
+    /// process needs the TCP owner table, and presenting a list of dsh processes as "the owner"
+    /// would be a guess. The two facts are reported separately and the report says which is which.
     /// </summary>
     internal static class PortCommand
     {
         const int DefaultPort = 3080;
+        const int MinPort = 1;
+        const int MaxPort = 65535;
 
         public static int Run(string[] args)
         {
-            int port = DefaultPort;
-            string explicitPort = Flags.Value(args, "--port");
-            if (!string.IsNullOrEmpty(explicitPort) && !int.TryParse(explicitPort, out port))
+            if (!TryParse(args, out int port, out string error))
             {
-                Console.Error.WriteLine("--port needs a number");
+                Console.Error.WriteLine(error);
                 return ExitCodes.Usage;
             }
 
@@ -36,10 +39,24 @@ namespace Dsht.Toolbox.Commands
             }
 
             Console.WriteLine("port " + port + ": " + (listening ? "LISTENING" : "not listening"));
-            if (!listening) return ExitCodes.Ok;
 
+            int dsh = ReportHarnessProcesses();
             Console.WriteLine();
-            Console.WriteLine("dsh processes (holders are matched by executable path):");
+            Console.WriteLine("owner of port " + port + " : not resolved (this build does not read the TCP owner table)");
+            Console.WriteLine("processes running from a dsh install : " + dsh);
+
+            if (!listening && dsh == 0) return ExitCodes.Ok;
+            if (listening && dsh == 0)
+            {
+                Console.WriteLine("verdict: the port is held by something outside a dsh install");
+                return ExitCodes.Failed;
+            }
+
+            return ExitCodes.Ok;
+        }
+
+        static int ReportHarnessProcesses()
+        {
             int found = 0;
             foreach (Process process in Process.GetProcesses())
             {
@@ -51,23 +68,48 @@ namespace Dsht.Toolbox.Commands
                     Console.WriteLine("  pid " + process.Id + "  " + process.ProcessName + "  " + path);
                     found++;
                 }
-                catch
+                catch (InvalidOperationException)
                 {
-                    // A process that exits mid-enumeration is not an error.
+                    // The process exited while being inspected; it cannot be listed, which is not
+                    // an error in a read-only inventory.
                 }
                 finally
                 {
                     process.Dispose();
                 }
             }
+            return found;
+        }
 
-            if (found == 0)
+        static bool TryParse(string[] args, out int port, out string error)
+        {
+            port = DefaultPort;
+            error = string.Empty;
+
+            for (int i = 0; i < args.Length; i++)
             {
-                Console.WriteLine("  (no dsh process found; something else holds the port)");
-                return ExitCodes.Failed;
+                if (args[i] != "--port")
+                {
+                    error = "unknown option: " + args[i];
+                    return false;
+                }
+
+                if (i + 1 >= args.Length || args[i + 1].StartsWith("--", StringComparison.Ordinal))
+                {
+                    error = "--port needs a value";
+                    return false;
+                }
+
+                if (!int.TryParse(args[i + 1], out port) || port < MinPort || port > MaxPort)
+                {
+                    error = "--port must be a number between " + MinPort + " and " + MaxPort;
+                    return false;
+                }
+
+                i++;
             }
 
-            return ExitCodes.Ok;
+            return true;
         }
 
         static bool IsListening(int port)

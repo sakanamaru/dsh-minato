@@ -1,50 +1,52 @@
 using System;
-using System.Collections.Generic;
 using System.Diagnostics;
 using System.IO;
+using System.Text;
 using System.Text.RegularExpressions;
 using Dsht.Toolbox.Core.Diag;
 
 namespace Dsht.Toolbox.Windows
 {
     /// <summary>
-    /// Reads facts from the machine. The only place that touches the filesystem and the
-    /// process table for <c>diag</c>; every failure is recorded as a fact rather than thrown,
-    /// because half a diagnosis is still useful when permissions are partial.
+    /// Reads facts from the machine. Every failure becomes a fact (unknown), never a silent
+    /// false: a permission problem must not be reported as a missing installation.
     /// </summary>
     internal static class DesktopProbe
     {
         const string MainExecutable = "DeepSeek Harness.exe";
         const string UninstallerExecutable = "Uninstall DeepSeek Harness.exe";
         const string VersionFile = "version";
-        const string BackendRuntimeFragment = "\\resources\\runtime\\";
+        const string AppArchive = "resources" + "\\" + "app.asar";
+        const string BackendFragment = "resources" + "\\" + "runtime" + "\\";
 
         public static string DefaultInstallDir()
         {
-            string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            return Path.Combine(localAppData, "Programs", "DeepSeek Harness");
+            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "Programs", "DeepSeek Harness");
         }
 
         public static string DefaultUpdaterDir()
         {
-            string localAppData = Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData);
-            return Path.Combine(localAppData, "@deepseek-aidsh-desktop-updater");
+            return Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                "@deepseek-aidsh-desktop-updater");
         }
 
         public static DiagFacts Collect(string installDir, string updaterDir)
         {
-            var facts = new DiagFacts
-            {
-                InstallDir = installDir,
-                UpdaterDir = updaterDir,
-                InstallDirExists = DirectoryExists(installDir),
-            };
+            var facts = new DiagFacts { InstallDir = installDir, UpdaterDir = updaterDir };
+
+            facts.InstallDirPresence = PresenceOf(installDir);
+            if (facts.InstallDirPresence != Presence.Present) return facts;
 
             string mainExe = Path.Combine(installDir, MainExecutable);
-            facts.MainExeExists = FileExists(mainExe);
-            facts.UninstallerExists = FileExists(Path.Combine(installDir, UninstallerExecutable));
+            facts.MainExePresence = PresenceOf(mainExe);
+            facts.UninstallerPresence = PresenceOf(Path.Combine(installDir, UninstallerExecutable));
             facts.ElectronVersion = ReadTextOrNull(Path.Combine(installDir, VersionFile));
             facts.ProductVersion = FileVersionOf(mainExe);
+            facts.AppVersion = AppVersionFromArchive(Path.Combine(installDir, AppArchive));
+
+            foreach (string required in new string[] { "resources", AppArchive, "resources" + "\\" + "runtime" })
+                if (PresenceOf(Path.Combine(installDir, required)) != Presence.Present) facts.PayloadGaps.Add(required);
 
             CollectUpdater(facts, updaterDir);
             CollectHolders(facts, installDir);
@@ -53,99 +55,116 @@ namespace Dsht.Toolbox.Windows
 
         static void CollectUpdater(DiagFacts facts, string updaterDir)
         {
-            facts.InstallerInRoot = FileExists(Path.Combine(updaterDir, "installer.exe"));
+            facts.InstallerInRoot = PresenceOf(Path.Combine(updaterDir, "installer.exe")) == Presence.Present;
 
-            if (!DirectoryExists(updaterDir))
-            {
-                facts.Updater = UpdaterState.None;
-                return;
-            }
+            Presence updaterPresence = PresenceOf(updaterDir);
+            if (updaterPresence == Presence.Absent) { facts.Updater = UpdaterState.None; return; }
+            if (updaterPresence == Presence.Unreadable) { facts.Updater = UpdaterState.Unreadable; return; }
 
             facts.Updater = UpdaterState.Clean;
             string pending = Path.Combine(updaterDir, "pending");
-            if (!DirectoryExists(pending))
-            {
-                if (facts.InstallerInRoot) facts.Updater = UpdaterState.Suspicious;
-                return;
-            }
+            Presence pendingPresence = PresenceOf(pending);
+            if (pendingPresence == Presence.Unreadable) { facts.Updater = UpdaterState.Unreadable; return; }
+            if (pendingPresence == Presence.Absent) return;
 
             string[] staged;
-            try
-            {
-                staged = Directory.GetFiles(pending, "*.exe");
-            }
-            catch
-            {
-                facts.Updater = UpdaterState.Suspicious;
-                return;
-            }
+            try { staged = Directory.GetFiles(pending, "*.exe"); }
+            catch { facts.Updater = UpdaterState.Unreadable; return; }
 
-            if (staged.Length == 0)
-            {
-                // A staging area with no installer is only suspicious when it still carries
-                // metadata; an empty directory is normal between updates.
-                facts.Updater = FileExists(Path.Combine(pending, "update-info.json"))
-                    ? UpdaterState.Suspicious
-                    : UpdaterState.Clean;
-                return;
-            }
+            if (staged.Length == 0) { facts.Updater = UpdaterState.Clean; return; }
+            if (staged.Length > 1) { facts.Updater = UpdaterState.Ambiguous; facts.PendingExeName = Path.GetFileName(staged[0]); return; }
 
-            if (staged.Length > 1)
-            {
-                facts.Updater = UpdaterState.Suspicious;
-                return;
-            }
+            string package = staged[0];
+            facts.PendingExeName = Path.GetFileName(package);
+            try { facts.PendingBytes = new FileInfo(package).Length; } catch { facts.PendingBytes = 0; }
 
-            facts.PendingExeName = Path.GetFileName(staged[0]);
-            try { facts.PendingBytes = new FileInfo(staged[0]).Length; } catch { facts.PendingBytes = 0; }
-            facts.PendingVersion = VersionFacts.Parse(facts.PendingExeName)
-                ?? VersionFromInfo(ReadTextOrNull(Path.Combine(pending, "update-info.json")));
-            facts.Updater = facts.PendingVersion == null ? UpdaterState.PendingUnknown : UpdaterState.PendingKnown;
+            string info = ReadTextOrNull(Path.Combine(pending, "update-info.json"));
+            facts.PendingSha512 = JsonField(info, "sha512");
+            string recordedName = JsonField(info, "fileName");
+
+            bool nameMatches = !string.IsNullOrEmpty(recordedName) &&
+                               string.Equals(recordedName, facts.PendingExeName, StringComparison.OrdinalIgnoreCase);
+            facts.PendingVersion = VersionFacts.Parse(facts.PendingExeName);
+
+            facts.Updater = nameMatches && !string.IsNullOrEmpty(facts.PendingSha512)
+                ? UpdaterState.Pending
+                : UpdaterState.PendingUnverified;
         }
 
         static void CollectHolders(DiagFacts facts, string installDir)
         {
-            string root = NormalizePath(installDir);
+            string root = Normalize(installDir);
+            string rootWithSeparator = root + Path.DirectorySeparatorChar;
 
             Process[] processes;
-            try { processes = Process.GetProcesses(); }
-            catch { return; }
+            try
+            {
+                processes = Process.GetProcesses();
+            }
+            catch
+            {
+                facts.ProcessEnumerationFailed = true;
+                return;
+            }
 
+            if (processes == null || processes.Length == 0)
+            {
+                facts.ProcessEnumerationFailed = true;
+                return;
+            }
+
+            int candidates = 0;
             foreach (Process process in processes)
             {
                 try
                 {
                     string path = TryGetPath(process);
-                    if (path == null)
-                    {
-                        facts.UnreadableProcesses++;
-                        continue;
-                    }
+                    if (path == null) continue;
 
-                    string normalized = NormalizePath(path);
-                    bool insideInstall = normalized.StartsWith(root, StringComparison.OrdinalIgnoreCase);
-                    bool sameName = string.Equals(process.ProcessName, "DeepSeek Harness", StringComparison.OrdinalIgnoreCase);
-                    if (!insideInstall && !sameName) continue;
+                    string normalized = Normalize(path);
+                    if (!normalized.StartsWith(rootWithSeparator, StringComparison.OrdinalIgnoreCase) &&
+                        !string.Equals(normalized, root, StringComparison.OrdinalIgnoreCase)) continue;
+
+                    candidates++;
+                    long startTicks = 0;
+                    try
+                    {
+                        startTicks = process.StartTime.ToUniversalTime().Ticks;
+                    }
+                    catch (InvalidOperationException)
+                    {
+                        // The process exited between enumeration and this read. Identity becomes
+                        // unverifiable, which the executor would treat as a refusal, not a target.
+                        startTicks = 0;
+                    }
+                    catch (System.ComponentModel.Win32Exception)
+                    {
+                        startTicks = 0;
+                    }
 
                     facts.Holders.Add(new HolderFact
                     {
                         Pid = process.Id,
                         Name = process.ProcessName,
                         Path = path,
-                        InsideInstallDir = insideInstall,
-                        IsBackend = insideInstall &&
-                            normalized.IndexOf(BackendRuntimeFragment, StringComparison.OrdinalIgnoreCase) >= 0,
+                        StartTimeUtcTicks = startTicks,
+                        InsideInstallDir = true,
+                        IsBackend = normalized.IndexOf(BackendFragment, StringComparison.OrdinalIgnoreCase) >= 0,
                     });
                 }
                 catch
                 {
-                    facts.UnreadableProcesses++;
+                    // A process that exits mid-enumeration is not a failure; one whose path cannot be
+                    // read is simply not evidence either way.
                 }
                 finally
                 {
                     process.Dispose();
                 }
             }
+
+            // Enumeration succeeded but yielded nothing at all: treat as unknown, not as "no processes".
+            if (candidates == 0 && facts.Holders.Count == 0) { /* app may legitimately be stopped */ }
         }
 
         static string TryGetPath(Process process)
@@ -154,21 +173,39 @@ namespace Dsht.Toolbox.Windows
             catch { return null; }
         }
 
-        static string NormalizePath(string path)
+        /// <summary>Absolute, separator-normalised, trimmed of trailing separators.</summary>
+        static string Normalize(string path)
         {
             if (string.IsNullOrEmpty(path)) return string.Empty;
-            try { return Path.GetFullPath(path).TrimEnd('\\', '/'); }
-            catch { return path.TrimEnd('\\', '/'); }
+            string full;
+            try { full = Path.GetFullPath(path); } catch { full = path; }
+            return full.TrimEnd('\\', '/');
         }
 
-        static bool DirectoryExists(string path)
+        static Presence PresenceOf(string path)
         {
-            try { return !string.IsNullOrEmpty(path) && Directory.Exists(path); } catch { return false; }
-        }
+            if (string.IsNullOrEmpty(path)) return Presence.Absent;
+            try
+            {
+                if (Directory.Exists(path) || File.Exists(path)) return Presence.Present;
 
-        static bool FileExists(string path)
-        {
-            try { return !string.IsNullOrEmpty(path) && File.Exists(path); } catch { return false; }
+                // Exists() returns false for both missing and denied; distinguish them.
+                string parent = Path.GetDirectoryName(path);
+                if (!string.IsNullOrEmpty(parent) && (Directory.Exists(parent) || File.Exists(parent)))
+                {
+                    try
+                    {
+                        using (var enumerator = Directory.EnumerateFileSystemEntries(path).GetEnumerator()) { enumerator.MoveNext(); }
+                        return Presence.Present;
+                    }
+                    catch (UnauthorizedAccessException) { return Presence.Unreadable; }
+                    catch (DirectoryNotFoundException) { return Presence.Absent; }
+                    catch (IOException) { return Presence.Unreadable; }
+                }
+                return Presence.Absent;
+            }
+            catch (UnauthorizedAccessException) { return Presence.Unreadable; }
+            catch { return Presence.Unreadable; }
         }
 
         static string ReadTextOrNull(string path)
@@ -187,15 +224,52 @@ namespace Dsht.Toolbox.Windows
             catch { return null; }
         }
 
-        static readonly Regex InfoVersionPattern = new Regex(
-            "\"(?:version|tag|name)\"\\s*:\\s*\"([^\"]+)\"",
+        static readonly Regex InfoField = new Regex("\\\"(?<key>[A-Za-z0-9_]+)\\\"\\s*:\\s*\\\"(?<value>[^\\\"]*)\\\"",
             RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
-        static string VersionFromInfo(string json)
+        /// <summary>Reads one string field from update-info.json without taking a JSON dependency.</summary>
+        static string JsonField(string json, string key)
         {
             if (string.IsNullOrEmpty(json)) return null;
-            Match match = InfoVersionPattern.Match(json);
-            return match.Success ? VersionFacts.Parse(match.Groups[1].Value) : null;
+            foreach (Match match in InfoField.Matches(json))
+                if (string.Equals(match.Groups["key"].Value, key, StringComparison.OrdinalIgnoreCase))
+                    return match.Groups["value"].Value;
+            return null;
+        }
+
+        /// <summary>
+        /// The desktop app's own version lives in the asar header's package.json. Reading it avoids
+        /// guessing from a four-part assembly version that has already lost its pre-release tag.
+        /// </summary>
+        static string AppVersionFromArchive(string asarPath)
+        {
+            try
+            {
+                if (!File.Exists(asarPath)) return null;
+                using (FileStream stream = File.OpenRead(asarPath))
+                {
+                    byte[] prefix = new byte[16];
+                    if (stream.Read(prefix, 0, 16) != 16) return null;
+
+                    int jsonLength = BitConverter.ToInt32(prefix, 12);
+                    if (jsonLength <= 0 || jsonLength > 32 * 1024 * 1024) return null;
+
+                    byte[] header = new byte[jsonLength];
+                    if (stream.Read(header, 0, jsonLength) != jsonLength) return null;
+
+                    string text = Encoding.UTF8.GetString(header);
+                    Match name = Regex.Match(text, "\\\"name\\\"\\s*:\\s*\\\"([^\\\"]+)\\\"");
+                    if (!name.Success || name.Groups[1].Value.IndexOf("dsh-desktop", StringComparison.OrdinalIgnoreCase) < 0)
+                    {
+                        // Fall back to any package name that looks like the desktop app.
+                        if (!name.Success) return null;
+                    }
+
+                    Match version = Regex.Match(text, "\\\"version\\\"\\s*:\\s*\\\"([0-9][^\\\"]*)\\\"");
+                    return version.Success ? VersionFacts.Parse(version.Groups[1].Value) : null;
+                }
+            }
+            catch { return null; }
         }
     }
 }

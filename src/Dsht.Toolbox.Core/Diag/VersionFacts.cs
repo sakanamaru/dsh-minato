@@ -5,28 +5,33 @@ using System.Text.RegularExpressions;
 namespace Dsht.Toolbox.Core.Diag
 {
     /// <summary>
-    /// Parses and compares dsh versions such as <c>0.2.2</c> and <c>0.2.2-rc.5</c>.
+    /// Parses and compares versions such as <c>0.2.2</c> and <c>0.2.2-rc.5</c>, including versions
+    /// embedded in installer file names.
     ///
-    /// Two behaviours matter for correctness:
-    /// <list type="bullet">
-    /// <item>a file name like <c>deepseek-harness-0.2.2-rc.5-win-x64.exe</c> must not treat
-    /// <c>-win-x64</c> as a pre-release tag, so the tag stops at the first hyphen;</item>
-    /// <item>.NET normalises assembly versions to four parts (<c>0.2.2.0</c>), which loses
-    /// <c>-rc.5</c>. Trailing zeros are stripped so the numeric core still compares, and
-    /// callers use <see cref="SameCore"/> instead of inventing an ordering they cannot prove.</item>
-    /// </list>
+    /// Two details decide correctness:
+    /// - a platform/architecture suffix must be removed before parsing, otherwise a stable release
+    ///   named <c>deepseek-harness-0.2.2-win-x64.exe</c> reads as the pre-release <c>0.2.2-win</c>;
+    /// - .NET normalises assembly versions to four parts and drops the pre-release tag, so callers
+    ///   use <see cref="SameCore"/> instead of inventing an ordering they cannot prove.
     /// </summary>
     public static class VersionFacts
     {
+        static readonly Regex SuffixPattern = new Regex(
+            @"-(?:win|windows|linux|mac|macos|darwin|osx)(?:32|64)?(?:-x64|-arm64|-armv7l|-ia32)?$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
         static readonly Regex VersionPattern = new Regex(
             @"(?<![0-9.])(?<core>\d+(?:\.\d+){1,3})(?:-(?<pre>[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*))?",
             RegexOptions.Compiled | RegexOptions.CultureInvariant);
 
-        /// <summary>Extracts a version from arbitrary text. Returns null when nothing parses.</summary>
+        /// <summary>Extracts a version from text or an installer file name. Null when nothing parses.</summary>
         public static string Parse(string text)
         {
             if (string.IsNullOrEmpty(text)) return null;
-            Match match = VersionPattern.Match(text);
+            string candidate = StripExtension(text);
+            candidate = StripPlatformSuffix(candidate);
+
+            Match match = VersionPattern.Match(candidate);
             if (!match.Success) return null;
 
             string core = TrimTrailingZeros(match.Groups["core"].Value);
@@ -34,38 +39,43 @@ namespace Dsht.Toolbox.Core.Diag
             return pre == null ? core : core + "-" + pre;
         }
 
-        /// <summary>
-        /// Orders two versions: -1, 0 or 1. Returns null when either side cannot be parsed,
-        /// because an unparsable version is unknown, not older.
-        /// </summary>
+        /// <summary>-1, 0 or 1. Null when either side cannot be parsed: unknown is not older.</summary>
         public static int? Compare(string left, string right)
         {
-            string a = Parse(left);
-            string b = Parse(right);
+            string a = Parse(left), b = Parse(right);
             if (a == null || b == null) return null;
 
             int coreOrder = CompareCore(Core(a), Core(b));
             if (coreOrder != 0) return coreOrder;
 
-            string preA = Pre(a);
-            string preB = Pre(b);
+            string preA = Pre(a), preB = Pre(b);
             if (preA == null && preB == null) return 0;
-            if (preA == null) return 1;   // a release outranks its pre-release
+            if (preA == null) return 1;
             if (preB == null) return -1;
             return ComparePre(preA, preB);
         }
 
-        /// <summary>
-        /// True when both sides share the same numeric core, ignoring any pre-release tag.
-        /// Used where the installed side can only expose an assembly version and an ordering
-        /// claim would therefore be unprovable.
-        /// </summary>
+        /// <summary>True when both share a numeric core, ignoring any pre-release tag.</summary>
         public static bool SameCore(string left, string right)
         {
-            string a = Parse(left);
-            string b = Parse(right);
+            string a = Parse(left), b = Parse(right);
             if (a == null || b == null) return false;
             return string.Equals(Core(a), Core(b), StringComparison.Ordinal);
+        }
+
+        static readonly Regex InstallerExtension = new Regex(
+            @"\.(exe|msi|msix|zip|7z|dmg|pkg|appimage|tar\.gz|tar\.xz)$",
+            RegexOptions.Compiled | RegexOptions.IgnoreCase | RegexOptions.CultureInvariant);
+
+        /// <summary>Removes only a known installer extension; a bare version keeps its dots.</summary>
+        static string StripExtension(string name)
+        {
+            return InstallerExtension.Replace(name, string.Empty);
+        }
+
+        static string StripPlatformSuffix(string name)
+        {
+            return SuffixPattern.Replace(name, string.Empty);
         }
 
         static int CompareCore(string a, string b)
@@ -82,7 +92,6 @@ namespace Dsht.Toolbox.Core.Diag
             return 0;
         }
 
-        /// <summary>Numeric segments compare as numbers (rc.10 &gt; rc.9); others ordinal.</summary>
         static int ComparePre(string a, string b)
         {
             string[] left = a.Split('.');

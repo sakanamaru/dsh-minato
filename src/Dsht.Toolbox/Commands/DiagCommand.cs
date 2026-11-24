@@ -1,80 +1,97 @@
 using System;
-using System.IO;
 using Dsht.Toolbox.Core.Diag;
-using Dsht.Toolbox.Core.Remedy;
 using Dsht.Toolbox.Windows;
 
 namespace Dsht.Toolbox.Commands
 {
     /// <summary>
-    /// <c>dsht diag</c>: diagnose a desktop install, optionally repair it.
-    /// Read-only unless <c>--fix</c> is passed, and destructive steps additionally need
-    /// <c>--yes</c>, so an accidental run cannot close a user's session.
+    /// <c>dsht diag</c>: diagnose a desktop install. Read-only by construction - there is no repair
+    /// flag, because a repair this tool cannot verify is a repair it should not perform.
     /// </summary>
     internal static class DiagCommand
     {
         public static int Run(string[] args)
         {
-            bool json = Flags.Has(args, "--json");
-            bool fix = Flags.Has(args, "--fix");
-            bool yes = Flags.Has(args, "--yes");
+            var options = new DiagOptions();
+            if (!options.Parse(args))
+            {
+                Console.Error.WriteLine(options.Error);
+                return ExitCodes.Usage;
+            }
 
-            string installDir = Flags.Value(args, "--dir") ?? DesktopProbe.DefaultInstallDir();
-            string updaterDir = Flags.Value(args, "--updater") ?? DesktopProbe.DefaultUpdaterDir();
+            string installDir = options.InstallDir ?? DesktopProbe.DefaultInstallDir();
+            string updaterDir = options.UpdaterDir ?? DesktopProbe.DefaultUpdaterDir();
 
             DiagFacts facts = DesktopProbe.Collect(installDir, updaterDir);
             DiagPlan plan = RemedyPlanner.Plan(facts);
 
-            Console.Write(json ? ReportRenderer.Json(facts, plan) + Environment.NewLine : ReportRenderer.Human(facts, plan));
+            Console.Write(options.Json
+                ? ReportRenderer.Json(facts, plan) + Environment.NewLine
+                : ReportRenderer.Human(facts, plan));
 
-            if (!fix) return plan.Healthy ? ExitCodes.Ok : ExitCodes.Failed;
-
-            if (NeedsConsent(plan) && !yes)
-            {
-                Console.Error.WriteLine();
-                Console.Error.WriteLine("This plan closes processes and/or runs the installer. Re-run with --fix --yes to apply it.");
-                return ExitCodes.Usage;
-            }
-
-            Console.WriteLine();
-            RemedyReport report = RemedySession.Run(
-                facts, plan, new WindowsRemedyExecutor(),
-                delegate { return DesktopProbe.Collect(installDir, updaterDir); },
-                Console.Out);
-
-            if (report.Outcome == RemedyOutcome.Failed)
-            {
-                Console.Error.WriteLine("Repair did not complete" +
-                    (string.IsNullOrEmpty(report.FailedStep) ? "." : " at step '" + report.FailedStep + "'."));
-                return ExitCodes.Failed;
-            }
-
-            return ExitCodes.Ok;
-        }
-
-        static bool NeedsConsent(DiagPlan plan)
-        {
-            foreach (RemedyAction action in plan.Actions)
-                if (action.Dangerous) return true;
-            return false;
+            return plan.Healthy ? ExitCodes.Ok : ExitCodes.Failed;
         }
     }
 
-    /// <summary>Tiny argument reader; every command shares it so flag behaviour cannot drift.</summary>
-    internal static class Flags
+    /// <summary>
+    /// Parsed options. Strict on purpose: a typo must not silently fall back to the live
+    /// installation, so any unknown option or missing value is a usage error.
+    /// </summary>
+    internal sealed class DiagOptions
     {
-        public static bool Has(string[] args, string name)
+        public bool Json;
+        public string InstallDir;
+        public string UpdaterDir;
+        public string Error = string.Empty;
+
+        public bool Parse(string[] args)
         {
-            foreach (string arg in args)
-                if (string.Equals(arg, name, StringComparison.OrdinalIgnoreCase)) return true;
-            return false;
+            for (int i = 0; i < args.Length; i++)
+            {
+                string arg = args[i];
+                switch (arg)
+                {
+                    case "--json":
+                        Json = true;
+                        break;
+
+                    case "--dir":
+                        if (!TryTakeValue(args, ref i, arg, out InstallDir)) return false;
+                        break;
+
+                    case "--updater":
+                        if (!TryTakeValue(args, ref i, arg, out UpdaterDir)) return false;
+                        break;
+
+                    default:
+                        Error = "unknown option: " + arg;
+                        return false;
+                }
+            }
+
+            return true;
         }
 
-        public static string Value(string[] args, string name)
+        bool TryTakeValue(string[] args, ref int index, string name, out string value)
         {
-            for (int i = 0; i < args.Length - 1; i++)
-                if (string.Equals(args[i], name, StringComparison.OrdinalIgnoreCase)) return args[i + 1];
-            return null;
+            value = null;
+            int next = index + 1;
+            if (next >= args.Length)
+            {
+                Error = name + " needs a value";
+                return false;
+            }
+
+            string candidate = args[next];
+            if (candidate.StartsWith("--", StringComparison.Ordinal))
+            {
+                Error = name + " needs a value, got the option " + candidate;
+                return false;
+            }
+
+            value = candidate;
+            index = next;
+            return true;
         }
     }
 }

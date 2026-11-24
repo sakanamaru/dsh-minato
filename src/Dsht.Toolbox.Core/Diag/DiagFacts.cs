@@ -2,70 +2,77 @@ using System.Collections.Generic;
 
 namespace Dsht.Toolbox.Core.Diag
 {
-    /// <summary>One process that may be holding the install directory open.</summary>
+    /// <summary>
+    /// Three states, because unreadable is not the same as absent. The default is Absent on
+    /// purpose: an unset fact must not read as "something is there".
+    /// </summary>
+    public enum Presence { Absent = 0, Present = 1, Unreadable = 2 }
+
     public sealed class HolderFact
     {
         public int Pid;
         public string Name = string.Empty;
         public string Path = string.Empty;
+        public long StartTimeUtcTicks;
 
-        /// <summary>Path lives under the install directory: a real suspect for a locked file.</summary>
+        /// <summary>Path lies inside the install directory, compared on directory boundaries.</summary>
         public bool InsideInstallDir;
 
-        /// <summary>Bundled backend runtime (resources/runtime): its node.exe is the usual lock.</summary>
+        /// <summary>Looks like the bundled backend runtime rather than the shell.</summary>
         public bool IsBackend;
     }
 
-    /// <summary>Shape of the desktop updater cache directory.</summary>
     public enum UpdaterState
     {
-        /// <summary>The cache does not exist: no update was ever staged.</summary>
         None = 0,
-
-        /// <summary>The cache exists with nothing staged.</summary>
         Clean = 1,
 
-        /// <summary>An installer is staged but its version is unknown.</summary>
-        PendingUnknown = 2,
+        /// <summary>A staged package exists and metadata identifies it.</summary>
+        Pending = 2,
 
-        /// <summary>An installer is staged and its version is known.</summary>
-        PendingKnown = 3,
+        /// <summary>A staged package exists but metadata is missing or unparsable.</summary>
+        PendingUnverified = 3,
 
-        /// <summary>Partial or leftover artefacts that make the next update fail repeatedly.</summary>
-        Suspicious = 4,
+        /// <summary>Several staged executables, or a staging area that is not a directory.</summary>
+        Ambiguous = 4,
+
+        Unreadable = 5,
     }
 
     /// <summary>
-    /// Everything the planner needs, filled by an IO layer. Deliberately dumb data:
-    /// no behaviour here, so the planner stays a pure function.
+    /// Facts collected from the machine. Dumb data only; anything unreadable is reported as such.
     /// </summary>
     public sealed class DiagFacts
     {
         public string InstallDir = string.Empty;
         public string UpdaterDir = string.Empty;
 
-        public bool InstallDirExists;
-        public bool MainExeExists;
-        public bool UninstallerExists;
+        public Presence InstallDirPresence;
+        public Presence MainExePresence;
+        public Presence UninstallerPresence;
 
-        /// <summary>Contents of the Electron <c>version</c> file, when present.</summary>
+        /// <summary>Version reported by the desktop application itself, when readable.</summary>
+        public string AppVersion;
+
+        /// <summary>Version from the executable's version resource; four-part and tag-less.</summary>
+        public string ProductVersion;
+
+        /// <summary>Electron's own version, from the install directory.</summary>
         public string ElectronVersion;
 
-        /// <summary>ProductVersion of the main executable; may be normalised to four parts.</summary>
-        public string ProductVersion;
+        /// <summary>Payload components that are missing or unreadable, by relative path.</summary>
+        public List<string> PayloadGaps = new List<string>();
 
         public UpdaterState Updater;
         public string PendingExeName;
         public string PendingVersion;
+        public string PendingSha512;
         public long PendingBytes;
         public bool InstallerInRoot;
 
         public List<HolderFact> Holders = new List<HolderFact>();
 
-        /// <summary>
-        /// Processes whose path could not be read (access denied). Not evidence of absence:
-        /// reported so an unelevated run does not look more certain than it is.
-        /// </summary>
-        public int UnreadableProcesses;
+        /// <summary>True when the process table could not be enumerated at all.</summary>
+        public bool ProcessEnumerationFailed;
     }
 }

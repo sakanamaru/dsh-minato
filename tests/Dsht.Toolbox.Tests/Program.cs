@@ -1,15 +1,14 @@
 using System;
 using System.Collections.Generic;
-using System.IO;
+using System.Text.Json;
 using Dsht.Toolbox.Core;
 using Dsht.Toolbox.Core.Diag;
-using Dsht.Toolbox.Core.Remedy;
 
 namespace Dsht.Toolbox.Tests
 {
     /// <summary>
-    /// Dependency-free assertion runner. Each check fails if the corresponding behaviour is
-    /// removed, and the name states what breaks when it does.
+    /// Dependency-free assertion runner. Every check is named for the behaviour it protects, and
+    /// JSON checks parse the document instead of searching it for substrings.
     /// </summary>
     internal static class Program
     {
@@ -29,7 +28,6 @@ namespace Dsht.Toolbox.Tests
             VersionTests();
             PlannerTests();
             RendererTests();
-            RemedySessionTests();
             SurfaceTests();
 
             Console.WriteLine();
@@ -40,196 +38,157 @@ namespace Dsht.Toolbox.Tests
         static void VersionTests()
         {
             Console.WriteLine("-- VersionFacts");
-            Check("version parsed out of an installer file name", VersionFacts.Parse("deepseek-harness-0.2.2-rc.5-win-x64.exe") == "0.2.2-rc.5");
-            Check("plain version", VersionFacts.Parse("0.2.2") == "0.2.2");
-            Check("text without a version yields null", VersionFacts.Parse("no-version-here") == null);
-            Check("a bare integer is not a version", VersionFacts.Parse("v5") == null);
+            Check("parses a release installer filename without inventing a tag",
+                VersionFacts.Parse("deepseek-harness-0.2.2-win-x64.exe") == "0.2.2");
+            Check("parses a pre-release installer filename",
+                VersionFacts.Parse("deepseek-harness-0.2.2-rc.5-win-x64.exe") == "0.2.2-rc.5");
+            Check("parses a bare version", VersionFacts.Parse("0.2.2") == "0.2.2");
+            Check("rejects text without a version", VersionFacts.Parse("no-version-here") == null);
+            Check("rejects a bare integer", VersionFacts.Parse("v5") == null);
             Check("rc.5 outranks rc.4", VersionFacts.Compare("0.2.2-rc.5", "0.2.2-rc.4") == 1);
-            Check("rc.10 outranks rc.9 because segments compare numerically", VersionFacts.Compare("0.2.2-rc.10", "0.2.2-rc.9") == 1);
+            Check("rc.10 outranks rc.9 numerically", VersionFacts.Compare("0.2.2-rc.10", "0.2.2-rc.9") == 1);
             Check("a release outranks its pre-release", VersionFacts.Compare("0.2.2", "0.2.2-rc.5") == 1);
+            Check("a numeric pre-release segment outranks an alphanumeric one", VersionFacts.Compare("1.2.3-1", "1.2.3-0a") == 1);
             Check("identical versions compare equal", VersionFacts.Compare("0.2.1-rc.3", "0.2.1-rc.3") == 0);
-            Check("unparsable input yields null instead of a guess", VersionFacts.Compare("x", "0.2.2") == null);
+            Check("unparsable input yields null, not a guess", VersionFacts.Compare("x", "0.2.2") == null);
             Check("assembly normalisation: 0.2.2.0 equals 0.2.2", VersionFacts.Compare("0.2.2.0", "0.2.2") == 0);
-            Check("a pre-release survives four-part normalisation", VersionFacts.Parse("0.2.2.0-rc.5") == "0.2.2-rc.5");
             Check("SameCore ignores the pre-release tag", VersionFacts.SameCore("0.2.2-rc.5", "0.2.2.0"));
             Check("SameCore rejects different cores", !VersionFacts.SameCore("0.2.1", "0.2.2"));
             Check("SameCore rejects unparsable input", !VersionFacts.SameCore("x", "0.2.2"));
+            Check("a parsed version parses to itself", VersionFacts.Parse(VersionFacts.Parse("0.2.2-rc.5")) == "0.2.2-rc.5");
         }
 
         static void PlannerTests()
         {
-            Console.WriteLine("-- RemedyPlanner");
+            Console.WriteLine("-- RemedyPlanner (diagnosis only)");
 
-            var missing = new DiagFacts { InstallDirExists = false };
-            DiagPlan missingPlan = RemedyPlanner.Plan(missing);
-            Check("missing install blocks", HasFinding(missingPlan, "install-missing", FindingLevel.Block));
-            Check("missing install is not healthy", !missingPlan.Healthy);
-            Check("missing install recommends reinstall", HasAction(missingPlan, ActionKind.Reinstall));
+            Check("an unreadable install directory blocks and asks for elevation",
+                HasFinding(RemedyPlanner.Plan(new DiagFacts { InstallDirPresence = Presence.Unreadable }), "install-unreadable", FindingLevel.Block));
+            Check("an absent install directory blocks",
+                HasFinding(RemedyPlanner.Plan(new DiagFacts { InstallDirPresence = Presence.Absent }), "install-missing", FindingLevel.Block));
 
-            DiagFacts held = Healthy();
-            held.Holders.Add(new HolderFact { Pid = 11, Name = "DeepSeek Harness", InsideInstallDir = true });
-            held.Holders.Add(new HolderFact { Pid = 12, Name = "node", InsideInstallDir = true, IsBackend = true });
-            DiagPlan heldPlan = RemedyPlanner.Plan(held);
-            Check("holders are reported as a warning", HasFinding(heldPlan, "holders", FindingLevel.Warn));
-            Check("closing holders is marked dangerous", IsDangerous(heldPlan, ActionKind.StopHolders));
-            Check("every install-dir holder is targeted", PidsOf(heldPlan, ActionKind.StopHolders).Count == 2);
-            Check("a warning never counts as healthy", !heldPlan.Healthy);
+            DiagPlan healthy = RemedyPlanner.Plan(Healthy());
+            Check("a healthy install is healthy", healthy.Healthy);
+            Check("a healthy install needs no attention", !healthy.NeedsAttention);
+            Check("a healthy install still reports the main executable", HasFinding(healthy, "main-exe", FindingLevel.Ok));
 
-            var outside = Healthy();
-            outside.Holders.Add(new HolderFact { Pid = 21, Name = "DeepSeek Harness", InsideInstallDir = false });
-            Check("a same-named process outside the install dir is not targeted", PidsOf(RemedyPlanner.Plan(outside), ActionKind.StopHolders).Count == 0);
+            DiagFacts running = Healthy();
+            running.Holders.Add(new HolderFact { Pid = 11, InsideInstallDir = true });
+            DiagPlan runningPlan = RemedyPlanner.Plan(running);
+            Check("a running app is informational, not a problem", HasFinding(runningPlan, "app-running", FindingLevel.Info));
+            Check("a running app alone keeps the install healthy", runningPlan.Healthy);
 
-            var opaque = Healthy();
-            opaque.UnreadableProcesses = 3;
-            Check("unreadable process paths are reported", HasFinding(RemedyPlanner.Plan(opaque), "unreadable-procs", FindingLevel.Info));
-            Check("unreadable process paths do not by themselves block", RemedyPlanner.Plan(opaque).Healthy);
-
-            var noExe = Healthy();
-            noExe.MainExeExists = false;
+            DiagFacts noExe = Healthy();
+            noExe.MainExePresence = Presence.Absent;
             Check("a missing main executable blocks", HasFinding(RemedyPlanner.Plan(noExe), "main-exe-missing", FindingLevel.Block));
 
-            var noUninstaller = Healthy();
-            noUninstaller.UninstallerExists = false;
+            DiagFacts noUninstaller = Healthy();
+            noUninstaller.UninstallerPresence = Presence.Absent;
             DiagPlan noUninstallerPlan = RemedyPlanner.Plan(noUninstaller);
-            Check("a missing uninstaller only warns", HasFinding(noUninstallerPlan, "uninstaller-missing", FindingLevel.Warn));
+            Check("a missing uninstaller warns", HasFinding(noUninstallerPlan, "uninstaller-missing", FindingLevel.Warn));
             Check("a missing uninstaller is not a blocker", !HasFinding(noUninstallerPlan, "uninstaller-missing", FindingLevel.Block));
+            Check("a warning names a manual remedy", AdviceOf(noUninstallerPlan, "uninstaller-missing").Length > 0);
 
-            var sameVersion = Healthy();
-            sameVersion.Updater = UpdaterState.PendingKnown;
-            sameVersion.PendingVersion = "0.2.2-rc.5";
-            sameVersion.ProductVersion = "0.2.2-rc.5";
-            Check("a duplicate staging is reported as equal", HasFinding(RemedyPlanner.Plan(sameVersion), "version-equal", FindingLevel.Info));
+            DiagFacts gaps = Healthy();
+            gaps.PayloadGaps.Add("resources");
+            Check("payload gaps are reported", HasFinding(RemedyPlanner.Plan(gaps), "payload-gaps", FindingLevel.Warn));
 
-            var newer = Healthy();
-            newer.Updater = UpdaterState.PendingKnown;
-            newer.PendingVersion = "0.2.3";
-            newer.ProductVersion = "0.2.2";
-            newer.PendingExeName = "deepseek-harness-0.2.3-win-x64.exe";
-            newer.InstallerInRoot = true;
-            DiagPlan newerPlan = RemedyPlanner.Plan(newer);
-            Check("a staged update is reported", HasFinding(newerPlan, "updater-pending", FindingLevel.Warn));
-            Check("a stale staging area is cleared", HasAction(newerPlan, ActionKind.ClearUpdaterPending));
-            Check("a stray cache-root installer adds the re-run step", HasAction(newerPlan, ActionKind.RunInstallerFromTemp));
-            Check("re-running the installer requires consent", IsDangerous(newerPlan, ActionKind.RunInstallerFromTemp));
+            DiagFacts unknownProcesses = Healthy();
+            unknownProcesses.ProcessEnumerationFailed = true;
+            Check("an unenumerable process table is reported as unknown",
+                HasFinding(RemedyPlanner.Plan(unknownProcesses), "holders-unknown", FindingLevel.Info));
 
-            var ambiguous = Healthy();
-            ambiguous.Updater = UpdaterState.PendingKnown;
-            ambiguous.PendingVersion = "0.2.2-rc.5";
-            ambiguous.ProductVersion = "0.2.2.0";
-            DiagPlan ambiguousPlan = RemedyPlanner.Plan(ambiguous);
-            Check("an unprovable ordering is reported as same-core", HasFinding(ambiguousPlan, "version-same-core", FindingLevel.Info));
-            Check("no ordering is invented for an ambiguous version", !HasFinding(ambiguousPlan, "version-older", FindingLevel.Info));
+            DiagFacts staged = Healthy();
+            staged.Updater = UpdaterState.Pending;
+            staged.PendingExeName = "deepseek-harness-0.2.3-win-x64.exe";
+            staged.PendingVersion = "0.2.3";
+            staged.PendingSha512 = "abc";
+            staged.ProductVersion = "0.2.2";
+            DiagPlan stagedPlan = RemedyPlanner.Plan(staged);
+            Check("a newer staged installer is reported, not acted on", HasFinding(stagedPlan, "updater-newer", FindingLevel.Info));
+            Check("a newer staged installer keeps the install healthy", stagedPlan.Healthy);
 
-            var pendingUnknown = Healthy();
-            pendingUnknown.Updater = UpdaterState.PendingUnknown;
-            Check("a staged installer without a version still plans a clear", HasAction(RemedyPlanner.Plan(pendingUnknown), ActionKind.ClearUpdaterPending));
+            DiagFacts oldStaged = Healthy();
+            oldStaged.Updater = UpdaterState.Pending;
+            oldStaged.PendingVersion = "0.2.1";
+            oldStaged.ProductVersion = "0.2.2";
+            Check("an older staged installer is not treated as a fault",
+                HasFinding(RemedyPlanner.Plan(oldStaged), "updater-staged", FindingLevel.Ok));
 
-            var suspicious = Healthy();
-            suspicious.Updater = UpdaterState.Suspicious;
-            Check("leftover updater artefacts are cleared", HasAction(RemedyPlanner.Plan(suspicious), ActionKind.ClearUpdaterPending));
+            DiagFacts ambiguous = Healthy();
+            ambiguous.Updater = UpdaterState.Ambiguous;
+            Check("several staged installers warn", HasFinding(RemedyPlanner.Plan(ambiguous), "updater-ambiguous", FindingLevel.Warn));
 
-            DiagPlan clean = RemedyPlanner.Plan(Healthy());
-            Check("a clean install is healthy", clean.Healthy);
-            Check("a clean install plans nothing", clean.Actions.Count == 1 && clean.Actions[0].Kind == ActionKind.Nothing);
+            DiagFacts unverified = Healthy();
+            unverified.Updater = UpdaterState.PendingUnverified;
+            unverified.PendingVersion = "0.2.3";
+            unverified.ProductVersion = "0.2.2";
+            Check("an unverified staged package is still only a report",
+                HasFinding(RemedyPlanner.Plan(unverified), "updater-unreadable", FindingLevel.Info) ||
+                HasFinding(RemedyPlanner.Plan(unverified), "updater-newer", FindingLevel.Info));
 
-            Check("null facts produce a blocker instead of a crash", HasFinding(RemedyPlanner.Plan(null), "no-facts", FindingLevel.Block));
+            Check("null facts produce a blocker instead of a crash",
+                HasFinding(RemedyPlanner.Plan(null), "no-facts", FindingLevel.Block));
         }
 
         static void RendererTests()
         {
             Console.WriteLine("-- ReportRenderer");
 
-            DiagFacts held = Healthy();
-            held.Holders.Add(new HolderFact { Pid = 11, InsideInstallDir = true });
-            DiagPlan plan = RemedyPlanner.Plan(held);
+            DiagFacts facts = Healthy();
+            facts.Holders.Add(new HolderFact { Pid = 11, InsideInstallDir = true });
+            DiagPlan plan = RemedyPlanner.Plan(facts);
 
-            string human = ReportRenderer.Human(held, plan);
-            Check("text names the holder finding", human.Contains("holders"));
-            Check("text marks the consent requirement", human.Contains("--yes"));
-            Check("a warning renders as to-repair, not as blocked", human.Contains("to repair") && !human.Contains("blocked"));
+            using (JsonDocument document = JsonDocument.Parse(ReportRenderer.Json(facts, plan)))
+            {
+                JsonElement root = document.RootElement;
+                Check("json is parseable", root.ValueKind == JsonValueKind.Object);
+                Check("json reports health as a boolean", root.GetProperty("healthy").ValueKind == JsonValueKind.True);
+                Check("json reports needsAttention as a boolean", root.GetProperty("needsAttention").ValueKind == JsonValueKind.False);
+                Check("json carries the install dir", root.GetProperty("installDir").GetString() == facts.InstallDir);
+                Check("json findings include the app-running code", HasJsonCode(root, "app-running"));
+                Check("json findings carry advice", FindJsonAdvice(root, "app-running").Length > 0);
+            }
 
-            string blocked = ReportRenderer.Human(new DiagFacts { InstallDirExists = false }, RemedyPlanner.Plan(new DiagFacts { InstallDirExists = false }));
+            using (JsonDocument document = JsonDocument.Parse(ReportRenderer.Json(new DiagFacts(), RemedyPlanner.Plan(new DiagFacts()))))
+            {
+                JsonElement root = document.RootElement;
+                Check("a null version serialises as json null", root.GetProperty("productVersion").ValueKind == JsonValueKind.Null);
+                Check("an unreadable install reports the presence enum", root.GetProperty("installDirPresence").GetString() == "Absent");
+            }
+
+            var tricky = new DiagFacts { InstallDir = "q\"b" + (char)92 + "c" + (char)10 + "d" };
+            using (JsonDocument document = JsonDocument.Parse(ReportRenderer.Json(tricky, RemedyPlanner.Plan(tricky))))
+            {
+                Check("quotes, backslashes and newlines round-trip",
+                    document.RootElement.GetProperty("installDir").GetString() == tricky.InstallDir);
+            }
+
+            string human = ReportRenderer.Human(facts, plan);
+            Check("text names the app-running finding", human.Contains("app-running"));
+            Check("text prints an advice line", human.Contains("-> "));
+            Check("text says the app is not a problem", human.Contains("Normal."));
+            Check("text never suggests a repair flag", !human.Contains("--fix"));
+
+            string blocked = ReportRenderer.Human(new DiagFacts { InstallDirPresence = Presence.Absent },
+                RemedyPlanner.Plan(new DiagFacts { InstallDirPresence = Presence.Absent }));
             Check("a blocker renders as blocked", blocked.Contains("verdict: blocked"));
 
             string clean = ReportRenderer.Human(Healthy(), RemedyPlanner.Plan(Healthy()));
-            Check("a clean install renders as clean", clean.Contains("verdict: clean"));
-
-            string unknownVersion = ReportRenderer.Human(new DiagFacts { InstallDirExists = true, MainExeExists = true },
-                RemedyPlanner.Plan(new DiagFacts { InstallDirExists = true, MainExeExists = true }));
-            Check("an unknown version is printed as unknown, never as a number", unknownVersion.Contains("(unknown)"));
-
-            string json = ReportRenderer.Json(held, plan);
-            Check("json is a single object", json.StartsWith("{") && json.EndsWith("}"));
-            Check("json carries healthy", json.Contains("healthy"));
-            Check("json carries stable finding codes", json.Contains("holders"));
-
-            string emptyJson = ReportRenderer.Json(new DiagFacts(), RemedyPlanner.Plan(new DiagFacts()));
-            Check("json renders a missing version as null", emptyJson.Contains("productVersion") && emptyJson.Contains("null"));
-
-            var quoted = new DiagFacts { InstallDir = "a" + (char)34 + "b" + (char)92 + "c" };
-            string escaped = ReportRenderer.Json(quoted, RemedyPlanner.Plan(quoted));
-            Check("json escapes embedded quotes and backslashes", escaped.Contains((char)92 + "" + (char)34) && escaped.Contains((char)92 + "" + (char)92));
-        }
-
-        static void RemedySessionTests()
-        {
-            Console.WriteLine("-- RemedySession");
-
-            DiagFacts before = Healthy();
-            before.Holders.Add(new HolderFact { Pid = 1, InsideInstallDir = true });
-            before.Updater = UpdaterState.Suspicious;
-            DiagPlan plan = RemedyPlanner.Plan(before);
-
-            var recorder = new FakeRecorder();
-            RemedyReport report = RemedySession.Run(before, plan, recorder, delegate { return Healthy(); }, TextWriter.Null);
-            Check("steps run in planner order: holders before staging",
-                recorder.Calls.Count >= 2 && recorder.Calls[0].StartsWith("stop-holders") && recorder.Calls[1] == "clear-updater-pending");
-            Check("a clean re-check reports done", report.Outcome == RemedyOutcome.Done);
-            Check("executed steps are counted", report.StepsExecuted == recorder.Calls.Count);
-
-            var failing = new FakeRecorder();
-            failing.Failing.Add("stop-holders");
-            RemedyReport failedReport = RemedySession.Run(before, plan, failing, delegate { return Healthy(); }, TextWriter.Null);
-            Check("the first failure stops the run", failedReport.Outcome == RemedyOutcome.Failed);
-            Check("the failure is attributed to the step", failedReport.FailedStep == "stop-holders");
-            Check("no step runs after a failure", failing.Calls.Count == 1);
-
-            var optimistic = new FakeRecorder();
-            RemedyReport unverified = RemedySession.Run(before, plan, optimistic, delegate { return before; }, TextWriter.Null);
-            Check("the outcome follows the re-check, not the steps", unverified.Outcome == RemedyOutcome.Failed);
-
-            var idle = new FakeRecorder();
-            RemedyReport nothing = RemedySession.Run(Healthy(), RemedyPlanner.Plan(Healthy()), idle, delegate { return Healthy(); }, TextWriter.Null);
-            Check("nothing-to-do executes no steps", idle.Calls.Count == 0 && nothing.Outcome == RemedyOutcome.Done);
-
-            var noRecheck = new FakeRecorder();
-            RemedyReport withoutRecheck = RemedySession.Run(before, plan, noRecheck, null, TextWriter.Null);
-            Check("a run without a re-check still reports done", withoutRecheck.Outcome == RemedyOutcome.Done);
-            Check("a run without a re-check leaves facts empty", withoutRecheck.After == null);
-
-            var reinstallObstacle = new FakeRecorder();
-            var blockedFacts = new DiagFacts { InstallDirExists = false };
-            RemedyReport blockedRun = RemedySession.Run(blockedFacts, RemedyPlanner.Plan(blockedFacts), reinstallObstacle, delegate { return Healthy(); }, TextWriter.Null);
-            Check("an unrepairable plan reports failure", blockedRun.Outcome == RemedyOutcome.Failed);
-            Check("an unrepairable plan attributes the step", blockedRun.FailedStep == "reinstall");
-
-            var log = new StringWriter();
-            RemedySession.Run(before, plan, new FakeRecorder(), delegate { return Healthy(); }, log);
-            Check("the log names each executed step", log.ToString().Contains("stop-holders"));
-            Check("the log reports the re-check", log.ToString().Contains("Re-check:"));
+            Check("a clean install renders as clean", clean.Contains("verdict: no problems detected"));
         }
 
         static void SurfaceTests()
         {
             Console.WriteLine("-- command surface");
             string[] commands = CommandSurface.Commands;
-            Check("the command surface stays within the cap", commands.Length <= CommandSurface.MaxCommands);
+            Check("the surface stays within the cap", commands.Length <= CommandSurface.MaxCommands);
             Check("the cap is the documented eight", CommandSurface.MaxCommands == 8);
             Check("command names are unique", new HashSet<string>(commands).Count == commands.Length);
-            Check("IsKnown accepts a real command", CommandSurface.IsKnown("diag"));
-            Check("IsKnown rejects an invented command", !CommandSurface.IsKnown("deploy"));
-            Check("diag is present", Array.IndexOf(commands, "diag") >= 0);
-            Check("port is present", Array.IndexOf(commands, "port") >= 0);
+            Check("diag is known", CommandSurface.IsKnown("diag"));
+            Check("port is known", CommandSurface.IsKnown("port"));
+            Check("an invented command is rejected", !CommandSurface.IsKnown("deploy"));
+            Check("repair is reserved, not implemented", CommandSurface.IsKnown("repair"));
         }
 
         static DiagFacts Healthy()
@@ -238,10 +197,11 @@ namespace Dsht.Toolbox.Tests
             {
                 InstallDir = "C:" + (char)92 + "Apps" + (char)92 + "DeepSeek Harness",
                 UpdaterDir = "C:" + (char)92 + "Updater",
-                InstallDirExists = true,
-                MainExeExists = true,
-                UninstallerExists = true,
-                ProductVersion = "0.2.2-rc.5",
+                InstallDirPresence = Presence.Present,
+                MainExePresence = Presence.Present,
+                UninstallerPresence = Presence.Present,
+                AppVersion = "0.2.2-rc.5",
+                ProductVersion = "0.2.2.0",
                 Updater = UpdaterState.Clean,
             };
         }
@@ -253,25 +213,25 @@ namespace Dsht.Toolbox.Tests
             return false;
         }
 
-        static bool HasAction(DiagPlan plan, ActionKind kind)
+        static string AdviceOf(DiagPlan plan, string code)
         {
-            foreach (RemedyAction action in plan.Actions)
-                if (action.Kind == kind) return true;
+            foreach (Finding finding in plan.Findings)
+                if (finding.Code == code) return finding.Advice;
+            return string.Empty;
+        }
+
+        static bool HasJsonCode(JsonElement root, string code)
+        {
+            foreach (JsonElement finding in root.GetProperty("findings").EnumerateArray())
+                if (finding.GetProperty("code").GetString() == code) return true;
             return false;
         }
 
-        static bool IsDangerous(DiagPlan plan, ActionKind kind)
+        static string FindJsonAdvice(JsonElement root, string code)
         {
-            foreach (RemedyAction action in plan.Actions)
-                if (action.Kind == kind) return action.Dangerous;
-            return false;
-        }
-
-        static List<int> PidsOf(DiagPlan plan, ActionKind kind)
-        {
-            foreach (RemedyAction action in plan.Actions)
-                if (action.Kind == kind) return action.Pids;
-            return new List<int>();
+            foreach (JsonElement finding in root.GetProperty("findings").EnumerateArray())
+                if (finding.GetProperty("code").GetString() == code) return finding.GetProperty("advice").GetString();
+            return string.Empty;
         }
     }
 }

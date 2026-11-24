@@ -4,14 +4,14 @@ using Dsht.Toolbox.Core;
 
 namespace Dsht.Toolbox
 {
-    /// <summary>Thin dispatcher. The command list itself is <see cref="CommandSurface"/> in Core.</summary>
+    /// <summary>Thin dispatcher; the command list itself lives in <see cref="CommandSurface"/>.</summary>
     internal static class Program
     {
+        internal const string Version = "0.1.0-dev";
 
         internal static int Main(string[] args)
         {
             if (args == null || args.Length == 0) return PrintUsage();
-
 
             string command = args[0].Trim().ToLowerInvariant();
             string[] rest = new string[args.Length - 1];
@@ -35,38 +35,32 @@ namespace Dsht.Toolbox
                 case "port":
                     return PortCommand.Run(rest);
 
-                case "hud":
-                case "scan":
-                case "repair":
-                case "backup":
-                case "profile":
-                case "log":
-                    Console.Error.WriteLine(command + ": not implemented yet (" + ExitCodes.Unsupported + ")");
-                    return ExitCodes.Unsupported;
-
                 default:
-                    Console.Error.WriteLine("unknown command: " + command);
-                    Console.Error.WriteLine();
-                    return PrintUsage();
+                    if (!CommandSurface.IsKnown(command))
+                    {
+                        Console.Error.WriteLine("unknown command: " + command);
+                        Console.Error.WriteLine();
+                        return PrintUsage();
+                    }
+
+                    Console.Error.WriteLine(command + ": reserved, not implemented (" + ExitCodes.Unsupported + ")");
+                    return ExitCodes.Unsupported;
             }
         }
 
-        internal const string Version = "0.1.0-dev";
-
         static int PrintUsage()
         {
-            Console.WriteLine("dsht " + Version + " - dsh toolbox + HUD");
+            Console.WriteLine("dsht " + Version + " - dsh toolbox (diagnosis only)");
             Console.WriteLine();
             Console.WriteLine("  dsht diag [--json] [--dir <path>] [--updater <path>]");
-            Console.WriteLine("            Diagnose a desktop install. Read-only.");
-            Console.WriteLine("  dsht diag --fix [--yes]");
-            Console.WriteLine("            Close holders, clear the updater staging area, re-run the staged installer.");
+            Console.WriteLine("            Read-only diagnosis of a DeepSeek Harness desktop install.");
             Console.WriteLine("  dsht port [--port <n>]");
-            Console.WriteLine("            Is the web port taken, and by which dsh processes.");
+            Console.WriteLine("            Is the web port listening, and which dsh processes are running.");
             Console.WriteLine();
-            Console.WriteLine("  dsht hud|scan|repair|backup|profile|log   (planned, exit " + ExitCodes.Unsupported + ")");
+            Console.WriteLine("  dsht hud|scan|repair|backup|profile|log   reserved (exit " + ExitCodes.Unsupported + ")");
             Console.WriteLine();
-            Console.WriteLine("Exit codes: 0 ok / 1 failed / 2 usage / 3 unsupported");
+            Console.WriteLine("Exit codes: 0 ok / 1 problems found / 2 usage / 3 unsupported");
+            Console.WriteLine("This build never modifies the machine. Repair is not implemented.");
             return ExitCodes.Usage;
         }
     }
