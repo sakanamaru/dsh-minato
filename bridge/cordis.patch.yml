@@ -1,5 +1,0 @@
-# Installs the read-only status bridge into the current profile.
-insert:
-  - id: minato-bridge
-    name: dsh-minato-bridge
-    inject: [sessions, sessionProjections]

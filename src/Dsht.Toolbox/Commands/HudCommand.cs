@@ -30,6 +30,19 @@ namespace Dsht.Toolbox.Commands
 
             string snapshotPath = options.SnapshotPath ?? HudSnapshotPath.Default();
 
+            if (options.Dump)
+            {
+                LiveSnapshot snapshot = HudSnapshotPath.ReadOrNull(snapshotPath);
+                HudContent content = HudContent.From(snapshot, DateTimeOffset.UtcNow);
+                Console.WriteLine("source : " + snapshotPath);
+                Console.WriteLine("stale  : " + (content.Stale ? "yes" : "no"));
+                Console.WriteLine("state  : " + content.State);
+                Console.WriteLine("  " + content.Headline);
+                foreach (HudRow row in content.Rows)
+                    Console.WriteLine("  " + row.Label.PadRight(8) + row.Value);
+                return ExitCodes.Ok;
+            }
+
             if (options.SelfTest)
             {
                 return HudSelfTest.Run(options.ScalePercent, options.OriginX, options.OriginY);
@@ -136,6 +149,10 @@ namespace Dsht.Toolbox.Commands
                         options.ProbeAreaPath = probePath;
                         break;
 
+                    case "--dump":
+                        options.Dump = true;
+                        break;
+
                     case "--selftest":
                         options.SelfTest = true;
                         break;
@@ -192,5 +209,6 @@ namespace Dsht.Toolbox.Commands
         public string ProbeArea;
         public string ProbeAreaPath;
         public bool SelfTest;
+        public bool Dump;
     }
 }

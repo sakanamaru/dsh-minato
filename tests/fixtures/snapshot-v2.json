@@ -1,28 +1,42 @@
 {
-  "v": 2,
-  "generatedAt": "2026-11-25T05:59:12Z",
-  "seq": 41,
+  "formatVersion": 2,
+  "generatedAt": "2026-11-25T11:25:44.964Z",
+  "intervalMs": 3000,
   "sessions": [
     {
-      "id": "a1b2c3d4",
-      "project": "dsh-minato",
-      "state": "active",
-      "ctxUsed": 0.38,
-      "ctxRemainTokens": 126900,
-      "tokensTotal": 41200,
-      "questions": 1,
-      "lastTool": "pwsh",
-      "updatedAt": "2026-11-25T05:59:10Z"
+      "id": "session-3ef4a66f-7bf8-4bb0-b365-64921db64ae7",
+      "live": true,
+      "active": false,
+      "seq": 2908,
+      "cwd": "D:\\\\example\\\\project",
+      "createdAt": "2026-11-20T03:50:06.012Z",
+      "lastPromptAt": "2026-11-20T09:22:39.594Z",
+      "turns": 7,
+      "steps": 263,
+      "uncachedInputTokens": 3123106,
+      "outputTokens": 372075,
+      "cacheReadTokens": 127916032,
+      "cacheWriteTokens": 0,
+      "contextWindow": 1048576,
+      "pressureTokens": 671471
     },
     {
-      "id": "e5f6a7b8",
-      "project": "dsh-aqua",
-      "state": "parked",
-      "ctxUsed": 0.12,
-      "tokensTotal": 8400,
-      "questions": 0,
-      "lastTool": "read",
-      "updatedAt": "2026-11-25T05:58:02Z"
+      "id": "session-b68c926f-6be9-401a-83d4-82859e8c3c13",
+      "live": true,
+      "active": false,
+      "seq": 4315,
+      "cwd": "D:\\\\example\\\\project",
+      "createdAt": "2026-11-11T21:29:41.577Z",
+      "lastPromptAt": "2026-11-17T21:44:18.565Z",
+      "turns": 13,
+      "steps": 530,
+      "uncachedInputTokens": 10053198,
+      "outputTokens": 739339,
+      "cacheReadTokens": 246751488,
+      "cacheWriteTokens": 0,
+      "contextWindow": 1048576,
+      "pressureTokens": 536233
     }
-  ]
+  ],
+  "lineage": {}
 }

@@ -27,7 +27,13 @@ dsht diag [--json] [--dir <path>] [--updater <path>]
 dsht port [--port <n>]
     Is the web port listening, and which dsh processes are running.
 
-dsht hud|scan|repair|backup|profile|log
+dsht hud [--position X,Y] [--scale 100-300]
+    Always-on-top status overlay: sessions, context pressure, tokens, project.
+dsht hud --preview out.png      render the same scene to an image
+dsht hud --dump                 print the four lines and the snapshot path
+dsht hud --selftest             verify the window contract
+
+dsht scan|repair|backup|profile|log
     Reserved. They exit with code 3 today.
 ```
 
@@ -74,7 +80,11 @@ against a fixture instead of a live install.
 
 ## Status
 
-Diagnosis only. `diag` and `port` work; the six other commands are reserved and exit 3.
+`diag`, `port` and `hud` work; the five other commands are reserved and exit 3.
+
+The overlay reads `%USERPROFILE%\.dsh\shio-bridge\sessions.json`, which the optional
+`dsh-minato-bridge` plugin already writes every three seconds - see [docs/SNAPSHOT.md](docs/SNAPSHOT.md).
+Without that plugin the overlay shows `unknown` rather than hiding the fact.
 
 The repair path was designed, implemented, reviewed, and **withdrawn**: four independent reviews
 found that it could delete its own installer, target a sibling installation, and report success

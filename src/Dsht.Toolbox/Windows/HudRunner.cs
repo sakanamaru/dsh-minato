@@ -24,6 +24,8 @@ namespace Dsht.Toolbox.Windows
         {
             HudLayout.Measure(scalePercent, out int width, out int height);
 
+            Console.WriteLine("reading " + snapshotPath);
+
             LiveSnapshot first = HudSnapshotPath.ReadOrNull(snapshotPath);
             HudContent content = HudContent.From(first, DateTimeOffset.UtcNow);
             Canvas frame = Paint(content, scalePercent, width, height);
@@ -67,14 +69,19 @@ namespace Dsht.Toolbox.Windows
                     return ExitCodes.Ok;
                 }
 
-                DateTime deadline = DateTime.MaxValue;
-                DateTime nextRefresh = DateTime.UtcNow + refresh;
-
-                while (true)
+                // Ctrl+C is the way out: an overlay has no close button and must not be a
+                // process the user has to hunt down in Task Manager.
+                bool stopRequested = false;
+                Console.CancelKeyPress += delegate(object sender, ConsoleCancelEventArgs eventArgs)
                 {
-                    bool quit = window.PumpUntil(DateTime.UtcNow + TimeSpan.FromMilliseconds(120));
-                    if (quit) break;
-                    if (deadline != DateTime.MaxValue && DateTime.UtcNow > deadline) break;
+                    eventArgs.Cancel = true;
+                    stopRequested = true;
+                };
+
+                DateTime nextRefresh = DateTime.UtcNow + refresh;
+                while (!stopRequested)
+                {
+                    if (window.PumpUntil(DateTime.UtcNow + TimeSpan.FromMilliseconds(120))) break;
 
                     if (DateTime.UtcNow >= nextRefresh)
                     {

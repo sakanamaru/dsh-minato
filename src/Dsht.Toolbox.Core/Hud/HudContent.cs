@@ -7,8 +7,7 @@ namespace Dsht.Toolbox.Core.Hud
 {
     public enum HudState { Unknown, Idle, Working, Waiting }
 
-    /// <summary>One label/value row. Split rather than pre-joined so the layout can align the
-    /// values in a column; concatenating them would leave the column ragged.</summary>
+    /// <summary>One label/value row. Split rather than pre-joined so the layout can align values.</summary>
     public sealed class HudRow
     {
         public string Label = string.Empty;
@@ -39,7 +38,7 @@ namespace Dsht.Toolbox.Core.Hud
                 content.Headline = "no snapshot";
                 content.Rows.Add(Row("context", "unknown"));
                 content.Rows.Add(Row("tokens", "unknown"));
-                content.Rows.Add(Row("waiting", "unknown"));
+                content.Rows.Add(Row("project", "unknown"));
                 content.Stale = true;
                 return content;
             }
@@ -48,27 +47,42 @@ namespace Dsht.Toolbox.Core.Hud
                             (now - snapshot.GeneratedAt.Value) > FreshWindow;
 
             content.State = ResolveState(snapshot);
-            string noun = snapshot.SessionCount == 1 ? " session" : " sessions";
-            content.Headline = snapshot.SessionCount == 0
-                ? "no sessions"
-                : snapshot.ActiveCount.HasValue
-                    ? snapshot.SessionCount + noun + " / " + snapshot.ActiveCount.Value + " active"
-                    : snapshot.SessionCount + noun;
+            content.Headline = ComposeHeadline(snapshot);
 
-            content.Rows.Add(Row("context", snapshot.PeakContextUsed.HasValue
-                ? Percent(snapshot.PeakContextUsed.Value)
+            // All three rows describe the focus session, so the numbers are comparable. Summing
+            // across sessions was the first version and produced a meaningless total: nine
+            // sessions, some days old, cache reads included.
+            LiveSession focus = snapshot.Focus;
+
+            content.Rows.Add(Row("context", focus != null && focus.ContextUsed.HasValue
+                ? Percent(focus.ContextUsed.Value)
                 : "unknown"));
 
-            content.Rows.Add(Row("tokens", snapshot.TokensTotal.HasValue
-                ? Tokens(snapshot.TokensTotal.Value)
+            content.Rows.Add(Row("tokens", focus != null && focus.TokensTotal.HasValue
+                ? Tokens(focus.TokensTotal.Value)
                 : "unknown"));
 
-            int questions = snapshot.QuestionCount;
-            content.Rows.Add(Row("waiting", questions == 0
-                ? "none"
-                : questions + (questions == 1 ? " question" : " questions")));
+            content.Rows.Add(Row("project", focus != null && !string.IsNullOrEmpty(focus.ProjectName)
+                ? focus.ProjectName
+                : "unknown"));
 
             return content;
+        }
+
+        static string ComposeHeadline(LiveSnapshot snapshot)
+        {
+            if (snapshot.SessionCount == 0) return "no sessions";
+
+            string noun = snapshot.SessionCount == 1 ? " session" : " sessions";
+            if (!snapshot.ActiveCount.HasValue) return snapshot.SessionCount + noun;
+
+            int active = snapshot.ActiveCount.Value;
+            if (active == 0)
+            {
+                // Saying "0 active" on an idle machine is noise; the dot already shows it is idle.
+                return snapshot.SessionCount + noun;
+            }
+            return snapshot.SessionCount + noun + " / " + active + " active";
         }
 
         static HudRow Row(string label, string value)
@@ -79,7 +93,6 @@ namespace Dsht.Toolbox.Core.Hud
         static HudState ResolveState(LiveSnapshot snapshot)
         {
             if (snapshot == null || snapshot.SessionCount == 0) return HudState.Idle;
-            if (snapshot.QuestionCount > 0) return HudState.Waiting;
             if (!snapshot.ActiveCount.HasValue) return HudState.Unknown;
             return snapshot.ActiveCount.Value > 0 ? HudState.Working : HudState.Idle;
         }
@@ -97,7 +110,8 @@ namespace Dsht.Toolbox.Core.Hud
             if (count < 0) count = 0;
             if (count < 1000) return count.ToString(CultureInfo.InvariantCulture);
             if (count < 1000000) return (count / 1000.0).ToString("0.#", CultureInfo.InvariantCulture) + "k";
-            return (count / 1000000.0).ToString("0.#", CultureInfo.InvariantCulture) + "M";
+            if (count < 1000000000L) return (count / 1000000.0).ToString("0.#", CultureInfo.InvariantCulture) + "M";
+            return (count / 1000000000.0).ToString("0.#", CultureInfo.InvariantCulture) + "G";
         }
     }
 }
